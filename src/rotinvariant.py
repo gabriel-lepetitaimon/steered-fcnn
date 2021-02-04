@@ -26,12 +26,23 @@ def clip_pad_center(tensor, shape, pad_mode='constant', pad_value=0):
 
 
 def clip_tensors(t1, t2):
-    s1 = t1.shape
-    s2 = t2.shape
-    if s1[-1] > s2[-1]:
-        t1 = clip_pad_center(t1, s2)
-    if s2[-1] > s1[-1]:
-        t2 = clip_pad_center(t2, s1)
+    if t1.shape[-2:] == t2.shape[-2:]:
+        return t1, t2
+    h1, w1 = t1.shape[-2:]
+    h2, w2 = t2.shape[-2:]
+    dh = h1-h2
+    dw = w1-w2
+    i1 = max(dh,0)
+    j1 = max(dw,0)
+    h = h1 - i1
+    w = w1 - j1
+    i1 = i1 // 2
+    j1 = j1 // 2
+    i2 = i1 - dh//2
+    j2 = j1 - dw//2
+    
+    t1 = t1[...,i1:i1+h, j1:j1+w]
+    t2 = t2[...,i2:i2+h, j2:j2+w]
     return t1, t2
 
 _gprof = torch.Tensor([1,2,1])
@@ -230,12 +241,15 @@ class RotConv2d(nn.Module):
         # Symmetric
         if self.sym_kernel == 'circ':
             symW  = RotConv2d.half2circ(self.sym_half_weight, self.sym_d_istart)
-            o = F.conv2d(x, symW, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
+            padding=self.padding
+            if padding=='auto':
+                padding = symW.shape[-2:]
+            o = F.conv2d(x, symW, stride=self.stride, padding=padding, dilation=self.dilation, groups=self.groups)
         else:
             symW  = RotConv2d.half2sym( self.sym_half_weight, self.profile)
             oy, ox = RotConv2d.ortho_conv2d(x, symW, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
             o = torch.stack([oy,ox], 0).norm(dim=0)
-        
+        o = clip_pad_center(o, u.shape)
         # Bias
         if self.u_bias is not None:
             u = u+self.u_bias[None, :, None, None]
@@ -313,21 +327,32 @@ class RotConv2d(nn.Module):
         w[f_out,f_in,u,v]
         project.shape = (b, 2, h, w)
         """
-        r_x = F.conv2d(x, w, stride=stride, padding=padding, dilation=dilation, groups=groups)
+        if padding=='auto':
+            hW, wW = w.shape[-2:]
+            padding_x = (hW, wW)
+            padding_y = (wW, hW)
+        else:
+            padding_x = padding
+            padding_y = padding
+        r_x = F.conv2d(x, w, stride=stride, padding=padding_x, dilation=dilation, groups=groups)
         w = w.rot90(1, (2,3))
-        r_y = F.conv2d(x, w, stride=stride, padding=padding, dilation=dilation, groups=groups)
+        r_y = F.conv2d(x, w, stride=stride, padding=padding_y, dilation=dilation, groups=groups)
         
         if project is not None:
             p_y, p_x = project
             if p_y.ndim==3:
                 p_y = p_y.unsqueeze(1)
                 p_x = p_x.unsqueeze(1)
-            s = r_x.shape
-            p_y = clip_pad_center(p_y, s)
-            p_x = clip_pad_center(p_x, s)
             
-            r_u =  p_y*r_y + p_x*r_x
-            r_v = -p_x*r_y + p_y*r_x
+            p_y, r_y = clip_tensors(p_y, r_y)
+            p_x, r_x = clip_tensors(p_x, r_x)
+            r_u =  sum(clip_tensors(p_y*r_y, p_x*r_x))
+            
+            p_y, r_x = clip_tensors(p_y, r_x)
+            p_x, r_y = clip_tensors(p_x, r_y)
+            r_v = sum(clip_tensors(-p_x*r_y, p_y*r_x))
+            
+            r_u, r_v = clip_tensors(r_u, r_v)
             return r_u, r_v
         else:
             return r_x, r_y

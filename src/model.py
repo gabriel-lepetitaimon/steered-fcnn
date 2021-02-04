@@ -101,7 +101,7 @@ class HemelingNet(nn.Module):
 
 class HemelingRotNet(nn.Module):
     def __init__(self, n_in, n_out=1, nfeatures_base=6, half_kernel_height=3,
-                 p_dropout=0, rotconv_squeeze=False,
+                 p_dropout=0, rotconv_squeeze=False, padding=0,
                  principal_direction='all', principal_direction_smooth=3, principal_direction_hessian_threshold=1):
         super(HemelingRotNet, self).__init__()
         self.n_in = n_in
@@ -121,41 +121,41 @@ class HemelingRotNet(nn.Module):
         o = 1 if rotconv_squeeze else 3
         
         # Down
-        self.conv1 = RotConvBN(half_kernel_height, n_in, n1, relu=True, bn=True, squeeze=rotconv_squeeze)
-        self.conv2 = RotConvBN(half_kernel_height, o*n1, n1, relu=True, bn=True, squeeze=rotconv_squeeze)
+        self.conv1 = RotConvBN(half_kernel_height, n_in, n1, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
+        self.conv2 = RotConvBN(half_kernel_height, o*n1, n1, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
         self.pool1 = nn.MaxPool2d(2)
 
-        self.conv3 = RotConvBN(half_kernel_height, o*n1, n2, relu=True, bn=True, squeeze=rotconv_squeeze)
-        self.conv4 = RotConvBN(half_kernel_height, o*n2, n2, relu=True, bn=True, squeeze=rotconv_squeeze)        
+        self.conv3 = RotConvBN(half_kernel_height, o*n1, n2, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
+        self.conv4 = RotConvBN(half_kernel_height, o*n2, n2, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)        
         self.pool2 = nn.MaxPool2d(2)
         
-        self.conv5 = RotConvBN(half_kernel_height, o*n2, n3, relu=True, bn=True, squeeze=rotconv_squeeze)
-        self.conv6 = RotConvBN(half_kernel_height, o*n3, n3, relu=True, bn=True, squeeze=rotconv_squeeze)
+        self.conv5 = RotConvBN(half_kernel_height, o*n2, n3, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
+        self.conv6 = RotConvBN(half_kernel_height, o*n3, n3, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
         self.pool3 = nn.MaxPool2d(2)
         
-        self.conv7 = RotConvBN(half_kernel_height, o*n3, n4, relu=True, bn=True, squeeze=rotconv_squeeze)
-        self.conv8 = RotConvBN(half_kernel_height, o*n4, n4, relu=True, bn=True, squeeze=rotconv_squeeze)
+        self.conv7 = RotConvBN(half_kernel_height, o*n3, n4, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
+        self.conv8 = RotConvBN(half_kernel_height, o*n4, n4, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
         self.pool4 = nn.MaxPool2d(2)
         
-        self.conv9 = RotConvBN(half_kernel_height, o*n4, n5, relu=True, bn=True, squeeze=rotconv_squeeze)
-        self.conv10 = RotConvBN(half_kernel_height,o*n5, n5, relu=True, bn=True, squeeze=rotconv_squeeze)
+        self.conv9 = RotConvBN(half_kernel_height, o*n4, n5, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
+        self.conv10 = RotConvBN(half_kernel_height,o*n5, n5, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
         
         # Up
         self.upsample1 = nn.ConvTranspose2d(o*n5,o*n4, kernel_size=2, stride=2)
-        self.conv11 = RotConvBN(half_kernel_height, 2*o*n4, n4, relu=True, bn=True, squeeze=rotconv_squeeze)
-        self.conv12 = RotConvBN(half_kernel_height,   o*n4, n4, relu=True, bn=True, squeeze=rotconv_squeeze)
+        self.conv11 = RotConvBN(half_kernel_height, 2*o*n4, n4, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
+        self.conv12 = RotConvBN(half_kernel_height,   o*n4, n4, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
         
         self.upsample2 = nn.ConvTranspose2d(o*n4,o*n3, kernel_size=2, stride=2)
-        self.conv13 = RotConvBN(half_kernel_height, 2*o*n3, n3, relu=True, bn=True, squeeze=rotconv_squeeze)
-        self.conv14 = RotConvBN(half_kernel_height,   o*n3, n3, relu=True, bn=True, squeeze=rotconv_squeeze)
+        self.conv13 = RotConvBN(half_kernel_height, 2*o*n3, n3, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
+        self.conv14 = RotConvBN(half_kernel_height,   o*n3, n3, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
         
         self.upsample3 = nn.ConvTranspose2d(o*n3,o*n2, kernel_size=2, stride=2)
-        self.conv15 = RotConvBN(half_kernel_height, 2*o*n2, n2, relu=True, bn=True, squeeze=rotconv_squeeze)
-        self.conv16 = RotConvBN(half_kernel_height,   o*n2, n2, relu=True, bn=True, squeeze=rotconv_squeeze)
+        self.conv15 = RotConvBN(half_kernel_height, 2*o*n2, n2, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
+        self.conv16 = RotConvBN(half_kernel_height,   o*n2, n2, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
         
         self.upsample4 = nn.ConvTranspose2d(o*n2,o*n1, kernel_size=2, stride=2)
-        self.conv17 = RotConvBN(half_kernel_height, 2*o*n1, n1, relu=True, bn=True, squeeze=rotconv_squeeze)
-        self.conv18 = RotConvBN(half_kernel_height,   o*n1, n1, relu=True, bn=True, squeeze=rotconv_squeeze)
+        self.conv17 = RotConvBN(half_kernel_height, 2*o*n1, n1, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
+        self.conv18 = RotConvBN(half_kernel_height,   o*n1, n1, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)
 
         # End
         self.final_conv = nn.Conv2d(o*n1, 1, kernel_size=1)

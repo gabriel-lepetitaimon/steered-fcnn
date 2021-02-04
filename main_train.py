@@ -25,12 +25,15 @@ def main():
     if model_cfg['rot-eq']:
         model = HemelingRotNet(6, principal_direction=1, nfeatures_base=model_cfg['nfeatures-base'],
                                half_kernel_height=model_cfg['half-kernel-height'],
+                               padding=model_cfg['padding'],
                                p_dropout=model_cfg['drop-out'],
                                rotconv_squeeze=model_cfg['rotconv-squeeze'],
                                principal_direction_smooth=model_cfg['principal-direction-smooth'],
                                principal_direction_hessian_threshold=model_cfg['principal-direction-hessian-threshold'])
     else:
-        model = HemelingNet(6, p_dropout=model_cfg['drop-out'], nfeatures_base=model_cfg['nfeatures-base'],
+        model = HemelingNet(6, p_dropout=model_cfg['drop-out'], 
+                               nfeatures_base=model_cfg['nfeatures-base'],
+                               padding=model_cfg['padding'],
                                half_kernel_height=model_cfg['half-kernel-height'])
     net = BinaryClassifierNet(model=model, loss=hp_cfg['loss'], optimizer=hp_cfg['optimizer'], lr=hp_cfg['lr'])
 

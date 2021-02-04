@@ -15,6 +15,7 @@ model:
     nfeatures-base: 16
     half-kernel-height: 3
     rot-eq: False
+    padding: 0
     #rotconv-squeeze: True
     #principal-direction-smooth: 3
 
