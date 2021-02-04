@@ -1,1 +1,1 @@
-# rot-equivariant-fcnn
+# FCNN Equivariant by Rotation
