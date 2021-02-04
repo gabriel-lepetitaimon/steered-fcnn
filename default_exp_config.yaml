@@ -1,0 +1,53 @@
+experiment:
+    name: 'RotEquivariance'
+    optimize: 'valid-acc'
+    max-epoch: 35
+    val-every-n-epoch: 1
+    half-precision: False
+    early-stopping:
+        monitor: 'auto'
+        min_delta: 0.005
+        patience: 5
+        mode: 'max'
+
+model: 
+    drop-out: 0
+    nfeatures-base: 16
+    half-kernel-height: 3
+    rot-eq: False
+    #rotconv-squeeze: True
+    #principal-direction-smooth: 3
+
+    
+hyper-parameters:
+    lr: 1.e-2
+    batch-size: 12
+    loss: 'dice'
+    
+    optimizer:
+        type: 'Adam' # also supported: AdamW and Adammax
+        weight_decay: 0
+        beta: 0.9       # coefficients used for computing running averages of gradient
+        beta_sqr: 0.999 # and its square
+        amsgrad: True
+
+    # optimizer:
+    #     type: 'ASGD' 
+    #     weight_decay: 0
+        alpha: 0.75
+        t0: 1000000.0
+    
+    # optimizer:
+    #     type: 'SGD' 
+    #     weight_decay: 0
+        momentum: 0, 
+        dampening: 0
+        nesterov: False
+
+
+data-augmentation:
+    crop-size: 758
+    elastic-transform:
+        alpha: 10
+        sigma: 20
+        alpha-affine: 50
