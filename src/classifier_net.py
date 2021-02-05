@@ -66,13 +66,12 @@ class BinaryClassifierNet(pl.LightningModule):
         self.log('valid-acc', self.accuracy(y_sig, y))
         self.log('valid-roc', auroc(y_sig, y))
         self.log('valid-iou', iou(y_sig>0.5, y))
-        self.log('valid-F1', f1(y_sig, y, 2))
         
         return y_pred
 
     def test_step(self, batch, batch_idx):
-        x = batch['data']
-        y = (batch['av']!=0).float()
+        x = batch['x']
+        y = (batch['y']!=0).float()
         y_hat = self.model(x, **{k: v for k,v in batch.items() if k not in ('x','y','mask')})
         y = clip_pad_center(y, y_hat.shape)
         y_hat = y_hat.squeeze(1)
@@ -93,7 +92,6 @@ class BinaryClassifierNet(pl.LightningModule):
         self.log('test-acc', self.accuracy(y_pred, y))
         self.log('test-roc', auroc(y_sig, y))
         self.log('test-iou', iou(y_sig>0.5, y))
-        self.log('test-F1', f1(y_sig, y, 2))
         
         return y_pred
 
@@ -131,7 +129,8 @@ class ExportValidation(Callback):
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         import cv2
         import mlflow
-        x, y = batch[:2]
+        x = batch['x']
+        y = (batch['y']!=0).float()
         y_pred = outputs.detach().cpu()
         y = clip_pad_center(y, y_pred.shape)
         

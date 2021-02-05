@@ -3,8 +3,8 @@ from torch import nn
 import torch.nn.functional as F
 import numpy as np
 
-from .rotinvariant import RotConvBN, principal_direction
-
+from .rotinvariant import RotConvBN
+from .rotinvariant import principal_direction as compute_pdir
 
 class HemelingNet(nn.Module):
     def __init__(self, n_in, n_out=1, p_dropout=0, nfeatures_base=16, half_kernel_height=3):
@@ -124,50 +124,59 @@ class HemelingRotNet(nn.Module):
         o = 1 if rotconv_squeeze else 3
         
         # Down
-        self.conv1 = [RotConvBN(half_kernel_height, n_in, n1, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
+        self.conv1 = nn.ModuleList(
+                     [RotConvBN(half_kernel_height, n_in, n1, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
                    + [RotConvBN(half_kernel_height, o*n1, n1, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding) 
-                      for i in range(depth-1)]
+                      for i in range(depth-1)])
         self.pool1 = nn.MaxPool2d(2)
 
-        self.conv2 = [RotConvBN(half_kernel_height, o*n1, n2, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
+        self.conv2 = nn.ModuleList(
+                     [RotConvBN(half_kernel_height, o*n1, n2, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
                    + [RotConvBN(half_kernel_height, o*n2, n2, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding) 
-                      for i in range(depth-1)]
+                      for i in range(depth-1)])
         self.pool2 = nn.MaxPool2d(2)
         
-        self.conv3 = [RotConvBN(half_kernel_height, o*n2, n3, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
+        self.conv3 = nn.ModuleList(
+                     [RotConvBN(half_kernel_height, o*n2, n3, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
                    + [RotConvBN(half_kernel_height, o*n3, n3, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding) 
-                      for i in range(depth-1)]
+                      for i in range(depth-1)])
         self.pool3 = nn.MaxPool2d(2)
         
-        self.conv4 = [RotConvBN(half_kernel_height, o*n3, n4, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
+        self.conv4 = nn.ModuleList(
+                     [RotConvBN(half_kernel_height, o*n3, n4, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
                    + [RotConvBN(half_kernel_height, o*n4, n4, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding) 
-                      for i in range(depth-1)]
+                      for i in range(depth-1)])
         self.pool4 = nn.MaxPool2d(2)
         
-        self.conv5 = [RotConvBN(half_kernel_height, o*n4, n5, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
+        self.conv5 = nn.ModuleList(
+                     [RotConvBN(half_kernel_height, o*n4, n5, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
                    + [RotConvBN(half_kernel_height, o*n5, n5, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding) 
-                      for i in range(depth-1)]
+                      for i in range(depth-1)])
         
         # Up
         self.upsample1 = nn.ConvTranspose2d(o*n5,o*n4, kernel_size=2, stride=2)
-        self.conv6 = [RotConvBN(half_kernel_height, 2*o*n4, n4, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
+        self.conv6 = nn.ModuleList(
+                     [RotConvBN(half_kernel_height, 2*o*n4, n4, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
                    + [RotConvBN(half_kernel_height,   o*n4, n4, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding) 
-                      for i in range(depth-1)]
+                      for i in range(depth-1)])
         
         self.upsample2 = nn.ConvTranspose2d(o*n4,o*n3, kernel_size=2, stride=2)
-        self.conv7 = [RotConvBN(half_kernel_height, 2*o*n3, n3, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
+        self.conv7 = nn.ModuleList(
+                     [RotConvBN(half_kernel_height, 2*o*n3, n3, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
                    + [RotConvBN(half_kernel_height,   o*n3, n3, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding) 
-                      for i in range(depth-1)]
+                      for i in range(depth-1)])
         
         self.upsample3 = nn.ConvTranspose2d(o*n3,o*n2, kernel_size=2, stride=2)
-        self.conv8 = [RotConvBN(half_kernel_height, 2*o*n2, n2, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
+        self.conv8 = nn.ModuleList(
+                     [RotConvBN(half_kernel_height, 2*o*n2, n2, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
                    + [RotConvBN(half_kernel_height,   o*n2, n2, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding) 
-                      for i in range(depth-1)]
+                      for i in range(depth-1)])
         
         self.upsample4 = nn.ConvTranspose2d(o*n2,o*n1, kernel_size=2, stride=2)
-        self.conv9 = [RotConvBN(half_kernel_height, 2*o*n1, n1, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
+        self.conv9 = nn.ModuleList(
+                     [RotConvBN(half_kernel_height, 2*o*n1, n1, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding)]\
                    + [RotConvBN(half_kernel_height,   o*n1, n1, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding) 
-                      for i in range(depth-1)]
+                      for i in range(depth-1)])
 
         # End
         self.final_conv = nn.Conv2d(o*n1, 1, kernel_size=1)
@@ -175,33 +184,34 @@ class HemelingRotNet(nn.Module):
         self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else lambda x: x
 
     def forward(self, x, principal_direction=None, **kwargs):
+        from functools import reduce
         if not self.static_principal_direction or principal_direction is None:
             if self.principal_direction=='all':
                 downSampledX = x.mean(axis=1)
             else:
                 downSampledX = x[:,self.principal_direction]
             device = self.final_conv.weight.device
-            pDir1 = principal_direction(downSampledX,device=device,
-                                        hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                        smooth_std=self.principal_direction_smooth)
+            pDir1 = compute_pdir(downSampledX,device=device,
+                                 hessian_value_threshold=self.principal_direction_hessian_threshold,
+                                 smooth_std=self.principal_direction_smooth)
             downSampledX = F.avg_pool2d(downSampledX, 2)
-            pDir2 = principal_direction(downSampledX,device=device,
-                                        hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                        smooth_std=self.principal_direction_smooth)
+            pDir2 = compute_pdir(downSampledX,device=device,
+                                 hessian_value_threshold=self.principal_direction_hessian_threshold,
+                                 smooth_std=self.principal_direction_smooth)
             downSampledX = F.avg_pool2d(downSampledX, 2)
-            pDir3 = principal_direction(downSampledX,device=device,
-                                        hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                        smooth_std=self.principal_direction_smooth)
+            pDir3 = compute_pdir(downSampledX,device=device,
+                                 hessian_value_threshold=self.principal_direction_hessian_threshold,
+                                 smooth_std=self.principal_direction_smooth)
             downSampledX = F.avg_pool2d(downSampledX, 2)
-            pDir4 = principal_direction(downSampledX,device=device,
-                                        hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                        smooth_std=self.principal_direction_smooth)
+            pDir4 = compute_pdir(downSampledX,device=device,
+                                 hessian_value_threshold=self.principal_direction_hessian_threshold,
+                                 smooth_std=self.principal_direction_smooth)
             downSampledX = F.avg_pool2d(downSampledX, 2)
-            pDir5 = principal_direction(downSampledX,device=device,
-                                        hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                        smooth_std=self.principal_direction_smooth)
+            pDir5 = compute_pdir(downSampledX,device=device,
+                                 hessian_value_threshold=self.principal_direction_hessian_threshold,
+                                 smooth_std=self.principal_direction_smooth)
         else:
-            pDir1 = principal_direction
+            pDir1 = principal_direction.transpose(1,0)
             pDir2 = F.avg_pool2d(pDir1, 2)
             pDir3 = F.avg_pool2d(pDir1, 2)
             pDir4 = F.avg_pool2d(pDir1, 2)
@@ -363,11 +373,25 @@ def clip_pad_center(tensor, shape, pad_mode='constant', pad_value=0):
     return tensor
 
 
-def clip_center(tensor, shape):
-    s = tensor.shape[-2:]
-    y0 = (s[0] - shape[-2]) // 2
-    x0 = (s[1] - shape[-1]) // 2
-    return tensor[..., y0:y0 + shape[-2], x0:x0 + shape[-1]]
+def clip_tensors(t1, t2):
+    if t1.shape[-2:] == t2.shape[-2:]:
+        return t1, t2
+    h1, w1 = t1.shape[-2:]
+    h2, w2 = t2.shape[-2:]
+    dh = h1-h2
+    dw = w1-w2
+    i1 = max(dh,0)
+    j1 = max(dw,0)
+    h = h1 - i1
+    w = w1 - j1
+    i1 = i1 // 2
+    j1 = j1 // 2
+    i2 = i1 - dh//2
+    j2 = j1 - dw//2
+    
+    t1 = t1[...,i1:i1+h, j1:j1+w]
+    t2 = t2[...,i2:i2+h, j2:j2+w]
+    return t1, t2
 
 
 def neg_pad(t, pad):
@@ -377,4 +401,4 @@ def neg_pad(t, pad):
 
 
 def cat_crop(x1, x2):
-    return torch.cat((clip_center(x1, x2.shape), x2), 1)
+    return torch.cat(clip_tensors(x1, x2), 1)

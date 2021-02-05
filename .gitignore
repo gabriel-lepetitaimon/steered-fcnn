@@ -3,3 +3,4 @@ lightning_logs/
 mlruns/
 __pycache__/
 */__pycache__/
+DATA/

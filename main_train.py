@@ -60,9 +60,9 @@ def main():
     trainer = pl.Trainer(gpus=args.gpu, callbacks=callbacks, 
                          max_epochs=int(np.ceil(max_epoch/val_n_epoch)*val_n_epoch),
                          check_val_every_n_epoch=val_n_epoch,
-                         #progress_bar_refresh_rate=0,
+                         progress_bar_refresh_rate=0,
                          **trainer_kwargs)
-    net.log('valid_acc', 0)
+    net.log('valid-acc', 0)
     trainer.fit(net, trainD, validD)
     
     best_score = float(bestCP_acc.best_model_score.cpu().numpy())
@@ -86,20 +86,20 @@ def load_dataset(args, exp_config):
         def __init__(self, factor=1, validate=False):
             super(TrainDataset, self).__init__()
             import h5py
-            DATA = h5py.File('DRIVE.h5', 'r')
+            DATA = h5py.File('DATA/DRIVE.h5', 'r')
 
             self.vadidate = validate
             if validate:
                 self.data = DATA.get('train/data')[:3]
                 self.av = DATA.get('train/av')[:3]
-                self.field = DATA.get('train/field')[:3]
+                self.field = DATA.get('train/radial-field')[:3]
                 self.mask = DATA.get('train/mask')[:3]
                 self.geo_aug = A.Compose([A.PadIfNeeded(1024, 1024, value=0, border_mode=cv2.BORDER_CONSTANT),
                                           ToTensorV2()])
             else:
                 self.data = DATA.get('train/data')[3:]
                 self.av = DATA.get('train/av')[3:]
-                self.field = DATA.get('train/field')[3:]
+                self.field = DATA.get('train/radial-field')[3:]
                 self.mask = DATA.get('train/mask')[3:]
 
                 self.geo_aug = A.Compose([
@@ -127,7 +127,7 @@ def load_dataset(args, exp_config):
                      self.field[i].transpose(1,2,0)],
                     axis=2)
             m = self.av[i]+self.mask[i]*16
-            d = self.geo_aug(image=img, mask=mask)
+            d = self.geo_aug(image=img, mask=m)
             r = {'x': d['image'][:6],
                  'principal_direction': d['image'][6:],
                  'y': d['mask']%16,
