@@ -18,6 +18,8 @@ model:
     padding: 0
     #rotconv-squeeze: True
     #principal-direction-smooth: 3
+    #depth: 2
+    #static-principal-direction: False
 
     
 hyper-parameters:

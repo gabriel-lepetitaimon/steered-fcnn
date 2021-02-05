@@ -29,12 +29,14 @@ class BinaryClassifierNet(pl.LightningModule):
         self.optimizer = optimizer
 
     def training_step(self, batch, batch_idx):
-        x, y = batch[:2]
-        y_hat = self.model(x).squeeze(1)
+        x = batch['x']
+        y = (batch['y']!=0).float()
+        y_hat = self.model(x, **{k: v for k,v in batch.items() if k not in ('x','y','mask')})
         y = clip_pad_center(y, y_hat.shape)
+        y_hat = y_hat.squeeze(1)
 
-        if len(batch) == 3:
-            mask = clip_pad_center(batch[2], y_hat.shape)
+        if 'mask' in batch:
+            mask = clip_pad_center(batch['mask'], y_hat.shape)
             y_hat = y_hat[mask != 0]
             y = y[mask != 0]
         loss = self.loss_f(y_hat, y)
@@ -42,15 +44,16 @@ class BinaryClassifierNet(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, y = batch[:2]
-        y_hat = self.model(x)
+        x = batch['x']
+        y = (batch['y']!=0).float()
+        y_hat = self.model(x, **{k: v for k,v in batch.items() if k not in ('x','y','mask')})
         y = clip_pad_center(y, y_hat.shape)
         y_hat = y_hat.squeeze(1)
         y_sig = torch.sigmoid(y_hat)
         y_pred = y_sig > .5
 
-        if len(batch) == 3:
-            mask = clip_pad_center(batch[2], y_hat.shape)
+        if 'mask' in batch:
+            mask = clip_pad_center(batch['mask'], y_hat.shape)
             y_hat = y_hat[mask != 0]
             y_sig = y_sig[mask != 0]
             y = y[mask != 0]
@@ -68,15 +71,16 @@ class BinaryClassifierNet(pl.LightningModule):
         return y_pred
 
     def test_step(self, batch, batch_idx):
-        x, y = batch[:2]
-        y_hat = self.model(x)
+        x = batch['data']
+        y = (batch['av']!=0).float()
+        y_hat = self.model(x, **{k: v for k,v in batch.items() if k not in ('x','y','mask')})
         y = clip_pad_center(y, y_hat.shape)
         y_hat = y_hat.squeeze(1)
         y_sig = torch.sigmoid(y_hat)
         y_pred = y_sig > .5
 
-        if len(batch) == 3:
-            mask = clip_pad_center(batch[2], y_hat.shape)
+        if 'mask' in batch:
+            mask = clip_pad_center(batch['mask'], y_hat.shape)
             y_hat = y_hat[mask != 0]
             y_sig = y_sig[mask != 0]
             y = y[mask != 0]

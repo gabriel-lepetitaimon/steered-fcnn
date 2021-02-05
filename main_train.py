@@ -26,8 +26,10 @@ def main():
         model = HemelingRotNet(6, principal_direction=1, nfeatures_base=model_cfg['nfeatures-base'],
                                half_kernel_height=model_cfg['half-kernel-height'],
                                padding=model_cfg['padding'],
+                               depth=model_cfg['depth'],
                                p_dropout=model_cfg['drop-out'],
                                rotconv_squeeze=model_cfg['rotconv-squeeze'],
+                               static_principal_direction=model_cfg['static-principal-direction'],
                                principal_direction_smooth=model_cfg['principal-direction-smooth'],
                                principal_direction_hessian_threshold=model_cfg['principal-direction-hessian-threshold'])
     else:
@@ -83,19 +85,22 @@ def load_dataset(args, exp_config):
     class TrainDataset(Dataset):
         def __init__(self, factor=1, validate=False):
             super(TrainDataset, self).__init__()
-            DATA = DRIVE(train=True)[:]
+            import h5py
+            DATA = h5py.File('DRIVE.h5', 'r')
 
             self.vadidate = validate
             if validate:
-                self.data_raw = DATA['raw'][:3]
-                self.data_pre = DATA['pre'][:3]
-                self.data_av = DATA['av'][:3]
+                self.data = DATA.get('train/data')[:3]
+                self.av = DATA.get('train/av')[:3]
+                self.field = DATA.get('train/field')[:3]
+                self.mask = DATA.get('train/mask')[:3]
                 self.geo_aug = A.Compose([A.PadIfNeeded(1024, 1024, value=0, border_mode=cv2.BORDER_CONSTANT),
                                           ToTensorV2()])
             else:
-                self.data_raw = DATA['raw'][3:]
-                self.data_pre = DATA['pre'][3:]
-                self.data_av = DATA['av'][3:]
+                self.data = DATA.get('train/data')[3:]
+                self.av = DATA.get('train/av')[3:]
+                self.field = DATA.get('train/field')[3:]
+                self.mask = DATA.get('train/mask')[3:]
 
                 self.geo_aug = A.Compose([
                     A.PadIfNeeded(1024, 1024, value=0, border_mode=cv2.BORDER_CONSTANT),
@@ -110,19 +115,24 @@ def load_dataset(args, exp_config):
                     ToTensorV2()
                 ])
             self.factor = factor
-            self._data_length = len(self.data_raw)
+            self._data_length = len(self.data)
 
         def __len__(self):
             return self._data_length * self.factor
 
         def __getitem__(self, i):
             i = i % self._data_length
-            raw = self.data_raw[i].transpose(1, 2, 0)
-            pre = self.data_pre[i].transpose(1, 2, 0)
-            img = np.concatenate([raw, pre], 2)
-            mask = self.data_av[i]
+            img = np.concatenate(
+                    [self.data[i].transpose(1,2,0),
+                     self.field[i].transpose(1,2,0)],
+                    axis=2)
+            m = self.av[i]+self.mask[i]*16
             d = self.geo_aug(image=img, mask=mask)
-            return d['image'], (d['mask'] != 0).float()
+            r = {'x': d['image'][:6],
+                 'principal_direction': d['image'][6:],
+                 'y': d['mask']%16,
+                 'mask': d['mask']//16}
+            return r
 
     trainD = DataLoader(TrainDataset(factor=8*3), num_workers=exp_config['hyper-parameters']['batch-size'], pin_memory=True, shuffle=True,
                          batch_size=exp_config['hyper-parameters']['batch-size'])

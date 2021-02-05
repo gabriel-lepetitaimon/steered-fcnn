@@ -33,14 +33,15 @@ def drive_train(reshape=True):
     kwargs = dict(reshape=584, keep_proportion='pad') if reshape else {}
     raw = D.images('/home/gaby/These/Data/Fundus/DRIVE/train/0-images/', 'raw', **kwargs)
     av = D.images('/home/gaby/These/Data/Fundus/DRIVE/train/2-label_AV/', 'av', **kwargs)
+    av = D.images('/home/gaby/These/Data/Fundus/DRIVE/train/2-label_AV/', 'av', **kwargs)
     return D.join(raw, av)
 
 def drive_test(reshape=True):
     kwargs = dict(reshape=584, keep_proportion='pad') if reshape else {}
-    raw = D.images('/home/gaby/These/Data/Fundus/DRIVE/test/original/0-images/', 'raw', **kwargs)
-    av = D.images('/home/gaby/These/Data/Fundus/DRIVE/test/original/2-label_AV/', 'av', **kwargs)
-    ct = D.images('/home/gaby/These/Data/Fundus/DRIVE/test/original/2-label_AV_CT/', 'ct', **kwargs)
-    ct2px = D.images('/home/gaby/These/Data/Fundus/DRIVE/test/original/2-label_AV_CT2px/', 'ct2px', **kwargs)
+    raw = D.images('/home/gaby/These/Data/Fundus/DRIVE/test/0-images/', 'raw', **kwargs)
+    av = D.images('/home/gaby/These/Data/Fundus/DRIVE/test/2-label_AV/', 'av', **kwargs)
+    ct = D.images('/home/gaby/These/Data/Fundus/DRIVE/test/2-label_AV_CT/', 'ct', **kwargs)
+    ct2px = D.images('/home/gaby/These/Data/Fundus/DRIVE/test/2-label_AV_CT2px/', 'ct2px', **kwargs)
     return D.join(raw, av, ct, ct2px)
         
 def hrf_train():
