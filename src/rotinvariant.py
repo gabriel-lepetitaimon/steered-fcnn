@@ -243,7 +243,7 @@ class RotConv2d(nn.Module):
             symW  = RotConv2d.half2circ(self.sym_half_weight, self.sym_d_istart)
             padding=self.padding
             if padding=='auto':
-                padding = symW.shape[-2:]
+                padding = tuple(_//2 for _ in symW.shape[-2:])
             o = F.conv2d(x, symW, stride=self.stride, padding=padding, dilation=self.dilation, groups=self.groups)
         else:
             symW  = RotConv2d.half2sym( self.sym_half_weight, self.profile)
@@ -329,8 +329,8 @@ class RotConv2d(nn.Module):
         """
         if padding=='auto':
             hW, wW = w.shape[-2:]
-            padding_x = (hW, wW)
-            padding_y = (wW, hW)
+            padding_x = (hW//2, wW//2)
+            padding_y = (wW//2, hW//2)
         else:
             padding_x = padding
             padding_y = padding
