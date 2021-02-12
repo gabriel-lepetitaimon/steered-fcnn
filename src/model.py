@@ -255,7 +255,7 @@ class HemelingRotNet(nn.Module):
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels=None, depth=2, kernel=3, dilation=1):
+    def __init__(self, in_channels, out_channels=None, depth=2, kernel=3, dilation=1, padding=0):
         super(ConvBlock, self).__init__()
         if out_channels is None:
             out_channels = in_channels
@@ -267,11 +267,11 @@ class ConvBlock(nn.Module):
         self.model = []
 
         if in_channels != out_channels:
-            conv = ConvBN(1, in_channels, out_channels)
+            conv = ConvBN(1, in_channels, out_channels, padding=padding)
             self.model += [conv]
 
         for i in range(depth):
-            conv = ConvBN(kernel, out_channels, out_channels, dilation=dilation)
+            conv = ConvBN(kernel, out_channels, out_channels, dilation=dilation, padding=padding)
             self.model += [conv]
         seq = []
         for m in self.model:
@@ -317,6 +317,9 @@ class ConvBN(nn.Module):
         self._bn = bn
         if n_out is None:
             n_out = n_in
+
+        if padding=='auto':
+            padding = tuple(_//2 for _ in kernel.shape[-2])
 
         model = [nn.Conv2d(n_in, n_out, kernel_size=kernel, stride=stride, padding=padding, bias=False,
                            dilation=dilation)]

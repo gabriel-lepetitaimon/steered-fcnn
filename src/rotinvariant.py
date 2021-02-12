@@ -62,7 +62,7 @@ def smooth(t, smooth_std, device=None):
             
     elif isinstance(smooth_std, torch.Tensor):
         smooth_kernel = smooth_std.device(device) if device is not None else smooth_std
-        smooth_smooth_kernel.unsqueeze(0).unsqueeze(0)
+        smooth_kernel.unsqueeze(0).unsqueeze(0)
         smooth_ksize = smooth_kernel.shape[-1]
     else:
         raise TypeError
@@ -222,10 +222,8 @@ class RotConv2d(nn.Module):
             profile = kernel_half_height
         if not profile:
             self.profile = None
-        elif isinstance(profile, int):
+        elif isinstance(profile,  (tuple,list,int)):
             self.profile = RotConv2d.get_profile(profile)
-        elif isinstance(profile, (tuple,list)):
-            self.profile = torch.tensor(profile, req)
         else:
             self.profile = profile
         if sym_kernel=='circ':
@@ -317,7 +315,10 @@ class RotConv2d(nn.Module):
     
     @staticmethod
     def get_profile(l,device=None):
-        p = torch.cumsum(torch.ones((l,),requires_grad=False,device=None),0)
+        if isinstance(l, int):
+            p = torch.cumsum(torch.ones((l,),requires_grad=False, device=device), 0)
+        else:
+            p = torch.tensor(l, device=device, requires_grad=False)
         return torch.cat((p,p.flip(0))) / (p.sum()*2)
     
     @staticmethod
@@ -344,13 +345,13 @@ class RotConv2d(nn.Module):
                 p_y = p_y.unsqueeze(1)
                 p_x = p_x.unsqueeze(1)
             
-            p_y, r_y = clip_tensors(p_y, r_y)
-            p_x, r_x = clip_tensors(p_x, r_x)
-            r_u =  sum(clip_tensors(p_y*r_y, p_x*r_x))
-            
-            p_y, r_x = clip_tensors(p_y, r_x)
-            p_x, r_y = clip_tensors(p_x, r_y)
-            r_v = sum(clip_tensors(-p_x*r_y, p_y*r_x))
+            py = clip_pad_center(p_y, r_y.shape)
+            px = clip_pad_center(p_x, r_x.shape)
+            r_u =  sum(clip_tensors(py*r_y, px*r_x))
+
+            py = clip_pad_center(p_y, r_x.shape)
+            px = clip_pad_center(p_x, r_y.shape)
+            r_v = sum(clip_tensors(-px*r_y, py*r_x))
             
             r_u, r_v = clip_tensors(r_u, r_v)
             return r_u, r_v

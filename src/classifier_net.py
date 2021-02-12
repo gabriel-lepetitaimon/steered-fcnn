@@ -2,8 +2,7 @@ import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import Callback
-from pytorch_lightning.metrics.functional.classification import auroc, iou
-from pytorch_lightning.metrics.functional import f1
+import pytorch_lightning.metrics.functional as metricsF
 import numpy as np
 from os.path import abspath
 
@@ -16,8 +15,9 @@ class BinaryClassifierNet(pl.LightningModule):
         super(BinaryClassifierNet, self).__init__()
         self.model = model
 
-        self.accuracy = pl.metrics.Accuracy()
+        self.val_accuracy = pl.metrics.Accuracy(compute_on_step=False)
         self.lr = lr
+        self.testset_names = None
         if loss == 'dice':
             from .losses import binary_dice_loss
             self.loss_f = lambda y_hat, y: binary_dice_loss(torch.sigmoid(y_hat), y)
@@ -28,72 +28,78 @@ class BinaryClassifierNet(pl.LightningModule):
             optimizer = {'type': 'Adam'}
         self.optimizer = optimizer
 
-    def training_step(self, batch, batch_idx):
+    def compute_y_yhat(self, batch, mask=False):
         x = batch['x']
         y = (batch['y']!=0).float()
-        y_hat = self.model(x, **{k: v for k,v in batch.items() if k not in ('x','y','mask')})
+        y_hat = self.model(x, **{k: v for k,v in batch.items() if k not in ('x','y','mask')}).squeeze(1)
         y = clip_pad_center(y, y_hat.shape)
-        y_hat = y_hat.squeeze(1)
 
-        if 'mask' in batch:
-            mask = clip_pad_center(batch['mask'], y_hat.shape)
-            y_hat = y_hat[mask != 0]
-            y = y[mask != 0]
-        loss = self.loss_f(y_hat, y)
+        if mask and 'mask' in batch:
+            mask = clip_pad_center(batch['mask'], y_hat.shape) != 0
+            y_hat = y_hat[mask]
+            y = y[mask]
+
+        return y.flatten(), y_hat.flatten()
+
+    def training_step(self, batch, batch_idx):
+        y, y_hat = self.compute_y_yhat(batch, mask=True)
+        loss = self.loss_f(y, y_hat)
         self.log('train-loss', loss)
         return loss
 
+    def _validate(self, batch):
+        y, y_hat = self.compute_y_yhat(batch, mask=False)
+        y_sig = torch.sigmoid(y_hat)
+        y_pred = y_sig > .5
+
+        if 'mask' in batch:
+            mask = clip_pad_center(batch['mask'], y_hat.shape)
+            y_hat = y_hat[mask != 0]
+            y_sig = y_sig[mask != 0]
+            y = y[mask != 0]
+
+        y = y.flatten()
+        y_hat = y_hat.flatten()
+        y_sig = y_sig.flatten()
+
+        return {
+            'loss': self.loss_f(y_hat, y),
+            'ypred': y_pred,
+            'y_hat': y_hat,
+            'y': y,
+            'y_sig': y_sig,
+            'metrics': self.metrics(y_sig, y)
+        }
+
+    def metrics(self, y_sig, y):
+        y_pred = y_sig > 0.5
+        return {
+            'acc': metricsF.accuracy(y_pred, y),
+            'roc': metricsF.auroc(y_sig, y),
+            'iou': metricsF.iou(y_pred, y),
+        }
+
+    def log_metrics(self, metrics, prefix=''):
+        if prefix and not prefix.endswith('-'):
+            prefix += '-'
+        for k, v in metrics.items():
+            self.log(prefix+k, v)
+
     def validation_step(self, batch, batch_idx):
-        x = batch['x']
-        y = (batch['y']!=0).float()
-        y_hat = self.model(x, **{k: v for k,v in batch.items() if k not in ('x','y','mask')})
-        y = clip_pad_center(y, y_hat.shape)
-        y_hat = y_hat.squeeze(1)
-        y_sig = torch.sigmoid(y_hat)
-        y_pred = y_sig > .5
+        result = self._validate(batch)
+        metrics = result['metrics']
+        metrics['acc'] = self.val_accuracy(result['y_sig'] > 0.5, result['y'])
+        self.log_metrics(metrics, 'val')
+        return result['y_pred']
 
-        if 'mask' in batch:
-            mask = clip_pad_center(batch['mask'], y_hat.shape)
-            y_hat = y_hat[mask != 0]
-            y_sig = y_sig[mask != 0]
-            y = y[mask != 0]
-        
-        y = y.flatten()
-        y_hat = y_hat.flatten()
-        y_sig = y_sig.flatten()
-
-        self.log('valid-loss', self.loss_f(y_hat, y))
-        self.log('valid-acc', self.accuracy(y_sig, y))
-        self.log('valid-roc', auroc(y_sig, y))
-        self.log('valid-iou', iou(y_sig>0.5, y))
-        
-        return y_pred
-
-    def test_step(self, batch, batch_idx):
-        x = batch['x']
-        y = (batch['y']!=0).float()
-        y_hat = self.model(x, **{k: v for k,v in batch.items() if k not in ('x','y','mask')})
-        y = clip_pad_center(y, y_hat.shape)
-        y_hat = y_hat.squeeze(1)
-        y_sig = torch.sigmoid(y_hat)
-        y_pred = y_sig > .5
-
-        if 'mask' in batch:
-            mask = clip_pad_center(batch['mask'], y_hat.shape)
-            y_hat = y_hat[mask != 0]
-            y_sig = y_sig[mask != 0]
-            y = y[mask != 0]
-            
-        y = y.flatten()
-        y_hat = y_hat.flatten()
-        y_sig = y_sig.flatten()
-
-        self.log('test-loss', self.loss_f(y_hat, y))
-        self.log('test-acc', self.accuracy(y_pred, y))
-        self.log('test-roc', auroc(y_sig, y))
-        self.log('test-iou', iou(y_sig>0.5, y))
-        
-        return y_pred
+    def test_step(self, batch, batch_idx, dataloader_idx):
+        result = self._validate(batch)
+        metrics = result['metrics']
+        prefix = 'test'
+        if self.testset_names:
+            prefix = self.testset_names[dataloader_idx]
+        self.log_metrics(metrics, prefix)
+        return result['y_pred']
 
     def configure_optimizers(self):
         opt = self.optimizer
@@ -113,8 +119,8 @@ class BinaryClassifierNet(pl.LightningModule):
             optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         return optimizer
 
-    def __call__(*args, **kwargs):
-        return self.model(*args, **kwargs)
+    def forward(self, *args, **kwargs):
+        return torch.sigmoid(self.model(*args, **kwargs))
 
 
 class ExportValidation(Callback):
@@ -124,7 +130,6 @@ class ExportValidation(Callback):
         self.path = path
         if self.path.endswith('/'):
             self.path += 'val%i.png'
-        
     
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         import cv2

@@ -8,7 +8,6 @@ from src.model import HemelingNet, HemelingRotNet
 from src.classifier_net import BinaryClassifierNet, ExportValidation
 
 def main():
-    
     # ---  INIT  ---
     args, exp_config = parse_arguments()
     hp_cfg = exp_config['hyper-parameters']
@@ -78,42 +77,32 @@ def load_dataset(args, exp_config):
     from albumentations.pytorch import ToTensorV2
     from torch.utils.data import Dataset, DataLoader
     import cv2
-    from src.fundus_data import DRIVE
 
     da_config = exp_config['data-augmentation']
 
     class TrainDataset(Dataset):
-        def __init__(self, factor=1, validate=False):
+        def __init__(self, dataset, file, factor=1):
             super(TrainDataset, self).__init__()
             import h5py
-            DATA = h5py.File('DATA/DRIVE.h5', 'r')
+            DATA = h5py.File(file, 'r')
 
-            self.vadidate = validate
-            if validate:
-                self.data = DATA.get('train/data')[:3]
-                self.av = DATA.get('train/av')[:3]
-                self.field = DATA.get('train/radial-field')[:3]
-                self.mask = DATA.get('train/mask')[:3]
-                self.geo_aug = A.Compose([A.PadIfNeeded(1024, 1024, value=0, border_mode=cv2.BORDER_CONSTANT),
-                                          ToTensorV2()])
-            else:
-                self.data = DATA.get('train/data')[3:]
-                self.av = DATA.get('train/av')[3:]
-                self.field = DATA.get('train/radial-field')[3:]
-                self.mask = DATA.get('train/mask')[3:]
+            self.data = DATA.get(f'{dataset}/data')
+            self.av = DATA.get(f'{dataset}/av')
+            self.field = DATA.get(f'{dataset}/radial-field')
+            self.mask = DATA.get(f'{dataset}/mask')
 
-                self.geo_aug = A.Compose([
-                    A.PadIfNeeded(1024, 1024, value=0, border_mode=cv2.BORDER_CONSTANT),
-                    A.RandomCrop(da_config['crop-size'], da_config['crop-size']),
-                    A.HorizontalFlip(p=0.5),
-                    A.Rotate(limit=(-180, 180)),
-                    A.ElasticTransform(alpha=da_config['elastic-transform']['alpha'],
-                                       sigma=da_config['elastic-transform']['sigma'],
-                                       alpha_affine=da_config['elastic-transform']['alpha-affine'],
-                                       border_mode=cv2.BORDER_CONSTANT, p=.9),
-                    A.VerticalFlip(p=0.5),
-                    ToTensorV2()
-                ])
+            self.geo_aug = A.Compose([
+                A.PadIfNeeded(1024, 1024, value=0, border_mode=cv2.BORDER_CONSTANT),
+                A.RandomCrop(da_config['crop-size'], da_config['crop-size']),
+                A.HorizontalFlip(p=0.5),
+                A.Rotate(limit=(-180, 180)),
+                A.ElasticTransform(alpha=da_config['elastic-transform']['alpha'],
+                                   sigma=da_config['elastic-transform']['sigma'],
+                                   alpha_affine=da_config['elastic-transform']['alpha-affine'],
+                                   border_mode=cv2.BORDER_CONSTANT, p=.9),
+                A.VerticalFlip(p=0.5),
+                ToTensorV2()
+            ])
             self.factor = factor
             self._data_length = len(self.data)
 
@@ -134,10 +123,48 @@ def load_dataset(args, exp_config):
                  'mask': d['mask']//16}
             return r
 
-    trainD = DataLoader(TrainDataset(factor=8*3), num_workers=exp_config['hyper-parameters']['batch-size'], pin_memory=True, shuffle=True,
-                         batch_size=exp_config['hyper-parameters']['batch-size'])
-    validD = DataLoader(TrainDataset(validate=True), pin_memory=True, num_workers=2, batch_size=2)
-    return trainD, validD
+    class TestDataset(Dataset):
+        def __init__(self, dataset, file='DATA/vessels.h5'):
+            super(TestDataset, self).__init__()
+            import h5py
+            DATA = h5py.File(file, 'r')
+
+            self.data = DATA.get(f'{dataset}/data')
+            self.av = DATA.get(f'{dataset}/av')
+            self.field = DATA.get(f'{dataset}/radial-field')
+            self.mask = DATA.get(f'{dataset}/mask')
+            self.geo_aug = A.Compose([A.PadIfNeeded(600, 600, value=0, border_mode=cv2.BORDER_CONSTANT),
+                                      ToTensorV2()])
+            self._data_length = len(self.data)
+
+        def __len__(self):
+            return self._data_length
+
+        def __getitem__(self, i):
+            img = np.concatenate(
+                [self.data[i].transpose(1,2,0),
+                 self.field[i].transpose(1,2,0)],
+                axis=2)
+            m = self.av[i]+self.mask[i]*16
+            d = self.geo_aug(image=img, mask=m)
+            r = {'x': d['image'][:6],
+                 'principal_direction': d['image'][6:],
+                 'y': d['mask']%16,
+                 'mask': d['mask']//16}
+            return r
+
+    batch_size=exp_config['hyper-parameters']['batch-size']
+    train_dataset = exp_config['experiment']['training-dataset']
+    dataset_file = exp_config['experiment']['dataset-file']
+    trainD = DataLoader(TrainDataset('train/'+train_dataset, file=dataset_file, factor=8*3),
+                        pin_memory=True, shuffle=True,
+                        batch_size=batch_size,
+                        num_workers=batch_size)
+    validD = DataLoader(TestDataset('validate/'+train_dataset, file=dataset_file), pin_memory=True, num_workers=2, batch_size=2)
+    testD = {_: DataLoader(TestDataset('test/'+_, file=dataset_file),
+                           pin_memory=True, num_workers=2, batch_size=2)
+             for _ in ('MESSIDOR', 'HRF', 'DRIVE')}
+    return trainD, validD, testD
 
 
 def setup_log(args, exp_config):
