@@ -9,12 +9,11 @@ from os.path import abspath
 from .utils import prepare_lut
 from .model import clip_pad_center
 
-
 class BinaryClassifierNet(pl.LightningModule):
     def __init__(self, model, loss='BCE', optimizer=None, lr=1e-3):
-        super(BinaryClassifierNet, self).__init__()
+        super().__init__()
         self.model = model
-
+        
         self.val_accuracy = pl.metrics.Accuracy(compute_on_step=False)
         self.lr = lr
         self.testset_names = None
@@ -34,15 +33,16 @@ class BinaryClassifierNet(pl.LightningModule):
         y_hat = self.model(x, **{k: v for k,v in batch.items() if k not in ('x','y','mask')}).squeeze(1)
         y = clip_pad_center(y, y_hat.shape)
 
-        if mask and 'mask' in batch:
-            mask = clip_pad_center(batch['mask'], y_hat.shape) != 0
-            y_hat = y_hat[mask]
-            y = y[mask]
-
-        return y.flatten(), y_hat.flatten()
+        return y, y_hat
 
     def training_step(self, batch, batch_idx):
         y, y_hat = self.compute_y_yhat(batch, mask=True)
+        
+        if mask and 'mask' in batch:
+            mask = clip_pad_center(batch['mask'], y_hat.shape) != 0
+            y_hat = y_hat[mask].flatten()
+            y = y[mask].flatten()
+        
         loss = self.loss_f(y, y_hat)
         self.log('train-loss', loss)
         return loss
@@ -90,16 +90,16 @@ class BinaryClassifierNet(pl.LightningModule):
         metrics = result['metrics']
         metrics['acc'] = self.val_accuracy(result['y_sig'] > 0.5, result['y'])
         self.log_metrics(metrics, 'val')
-        return result['y_pred']
+        return result
 
-    def test_step(self, batch, batch_idx, dataloader_idx):
+    def test_step(self, batch, batch_idx, dataloader_idx=0):
         result = self._validate(batch)
         metrics = result['metrics']
         prefix = 'test'
         if self.testset_names:
             prefix = self.testset_names[dataloader_idx]
         self.log_metrics(metrics, prefix)
-        return result['y_pred']
+        #return result
 
     def configure_optimizers(self):
         opt = self.optimizer
@@ -121,7 +121,15 @@ class BinaryClassifierNet(pl.LightningModule):
 
     def forward(self, *args, **kwargs):
         return torch.sigmoid(self.model(*args, **kwargs))
-
+    
+    def test(self, datasets):
+        if isinstance(datasets, dict):
+            self.testset_names, datasets = list(zip(*datasets.items()))
+        trainer = pl.Trainer(gpus=[0])
+        return trainer.test(self, test_dataloaders=datasets)
+        
+        
+        
 
 class ExportValidation(Callback):
     def __init__(self, color_map, path):
@@ -136,7 +144,7 @@ class ExportValidation(Callback):
         import mlflow
         x = batch['x']
         y = (batch['y']!=0).float()
-        y_pred = outputs.detach().cpu()
+        y_pred = outputs['ypred'].detach().cpu()
         y = clip_pad_center(y, y_pred.shape)
         
         diff = torch.stack((y, y_pred), dim=1)

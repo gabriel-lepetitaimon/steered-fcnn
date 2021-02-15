@@ -18,6 +18,17 @@ def recursive_dict_update(destination, origin, append=False):
         else:
             destination[n] = v
 
+def recursive_dict_map(dictionnary, function):
+    r = {}
+    for n, v in dictionnary.items():
+        if isinstance(v, dict):
+            v = recursive_dict_map(v, function=function)
+        else:
+            v = function(n, v)
+        if v is not None:
+            r[n] = v
+    return r
+
 
 # -----------------------------------------------------------
 # -                     LUT COLOR MAP                       =

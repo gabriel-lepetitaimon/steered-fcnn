@@ -1,7 +1,9 @@
 .idea/
+.ipynb_checkpoints/
 experiments/
 lightning_logs/
 mlruns/
 __pycache__/
 */__pycache__/
+*.h5
 DATA/

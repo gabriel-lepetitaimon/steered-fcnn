@@ -12,7 +12,7 @@ def main():
     args, exp_config = parse_arguments()
     hp_cfg = exp_config['hyper-parameters']
     cfg_experiment = exp_config['experiment']
-    trainD, validD = load_dataset(args, exp_config)
+    trainD, validD = load_dataset(exp_config)
     setup_log(args, exp_config)
     
     trial_path = cfg_experiment['trial-path']
@@ -20,23 +20,7 @@ def main():
     max_epoch = cfg_experiment['max-epoch']
 
     # ---  MODEL  ---
-    model_cfg = exp_config['model']
-    if model_cfg['rot-eq']:
-        model = HemelingRotNet(6, principal_direction=1, nfeatures_base=model_cfg['nfeatures-base'],
-                               half_kernel_height=model_cfg['half-kernel-height'],
-                               padding=model_cfg['padding'],
-                               depth=model_cfg['depth'],
-                               p_dropout=model_cfg['drop-out'],
-                               rotconv_squeeze=model_cfg['rotconv-squeeze'],
-                               static_principal_direction=model_cfg['static-principal-direction'],
-                               principal_direction_smooth=model_cfg['principal-direction-smooth'],
-                               principal_direction_hessian_threshold=model_cfg['principal-direction-hessian-threshold'])
-    else:
-        model = HemelingNet(6, p_dropout=model_cfg['drop-out'], 
-                               nfeatures_base=model_cfg['nfeatures-base'],
-                               padding=model_cfg['padding'],
-                               half_kernel_height=model_cfg['half-kernel-height'])
-    net = BinaryClassifierNet(model=model, loss=hp_cfg['loss'], optimizer=hp_cfg['optimizer'], lr=hp_cfg['lr'])
+    net = setup_model(cfg_experiment)
 
     # ---  TRAIN  ---
     trainer_kwargs = {}
@@ -72,7 +56,7 @@ def main():
     mlflow.end_run()
     
 
-def load_dataset(args, exp_config):
+def load_dataset(exp_config):
     import albumentations as A
     from albumentations.pytorch import ToTensorV2
     from torch.utils.data import Dataset, DataLoader
@@ -112,8 +96,8 @@ def load_dataset(args, exp_config):
         def __getitem__(self, i):
             i = i % self._data_length
             img = np.concatenate(
-                    [self.data[i].transpose(1,2,0),
-                     self.field[i].transpose(1,2,0)],
+                    [self.data[i].transpose(1, 2, 0),
+                     self.field[i].transpose(1, 2, 0)],
                     axis=2)
             m = self.av[i]+self.mask[i]*16
             d = self.geo_aug(image=img, mask=m)
@@ -128,12 +112,12 @@ def load_dataset(args, exp_config):
             super(TestDataset, self).__init__()
             import h5py
             DATA = h5py.File(file, 'r')
-
+            
             self.data = DATA.get(f'{dataset}/data')
             self.av = DATA.get(f'{dataset}/av')
             self.field = DATA.get(f'{dataset}/radial-field')
             self.mask = DATA.get(f'{dataset}/mask')
-            self.geo_aug = A.Compose([A.PadIfNeeded(600, 600, value=0, border_mode=cv2.BORDER_CONSTANT),
+            self.geo_aug = A.Compose([A.PadIfNeeded(1000, 1000, value=0, border_mode=cv2.BORDER_CONSTANT),
                                       ToTensorV2()])
             self._data_length = len(self.data)
 
@@ -160,12 +144,33 @@ def load_dataset(args, exp_config):
                         pin_memory=True, shuffle=True,
                         batch_size=batch_size,
                         num_workers=batch_size)
-    validD = DataLoader(TestDataset('validate/'+train_dataset, file=dataset_file), pin_memory=True, num_workers=2, batch_size=2)
+    validD = DataLoader(TestDataset('val/'+train_dataset, file=dataset_file),
+                        pin_memory=True, num_workers=6, batch_size=6)
     testD = {_: DataLoader(TestDataset('test/'+_, file=dataset_file),
-                           pin_memory=True, num_workers=2, batch_size=2)
+                           pin_memory=True, num_workers=6, batch_size=6)
              for _ in ('MESSIDOR', 'HRF', 'DRIVE')}
     return trainD, validD, testD
 
+
+def setup_model(cfg):
+    model_cfg = cfg['model']
+    if model_cfg['rot-eq']:
+        model = HemelingRotNet(6, principal_direction=1, nfeatures_base=model_cfg['nfeatures-base'],
+                               half_kernel_height=model_cfg['half-kernel-height'],
+                               padding=model_cfg['padding'],
+                               depth=model_cfg['depth'],
+                               p_dropout=model_cfg['drop-out'],
+                               rotconv_squeeze=model_cfg['rotconv-squeeze'],
+                               static_principal_direction=model_cfg['static-principal-direction'],
+                               principal_direction_smooth=model_cfg['principal-direction-smooth'],
+                               principal_direction_hessian_threshold=model_cfg['principal-direction-hessian-threshold'])
+    else:
+        model = HemelingNet(6, p_dropout=model_cfg['drop-out'], 
+                               nfeatures_base=model_cfg['nfeatures-base'],
+                               padding=model_cfg['padding'],
+                               half_kernel_height=model_cfg['half-kernel-height'])
+    net = BinaryClassifierNet(model=model, loss=cfg['hyper-parameters']['loss'], optimizer=cfg['hyper-parameters']['optimizer'], lr=cfg['hyper-parameters']['lr'])
+    return net
 
 def setup_log(args, exp_config):
     mlflow.set_tracking_uri("http://localhost:5000")
@@ -186,9 +191,7 @@ def setup_log(args, exp_config):
 
 def parse_arguments():
     import argparse
-    import yaml
     import os
-    from src.utils import recursive_dict_update
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--gpu', help='specify which gpu should be used', default=1)
@@ -196,11 +199,7 @@ def parse_arguments():
                         help='config file with hyper parameters - in yaml format')
     args = parser.parse_args()
 
-    with open('default_exp_config.yaml', 'r') as f:
-        default_exp_config = yaml.load(f, Loader=yaml.FullLoader)
-    with open(args.config, 'r') as f:
-        exp_config = yaml.load(f, Loader=yaml.FullLoader)
-    recursive_dict_update(default_exp_config, exp_config)
+    exp_config = parse_config(args.config)
     
     exp_name = os.getenv('ORION_EXPERIMENT_NAME', 'test')
     subexp_name = exp_config['experiment']['name']
@@ -213,15 +212,28 @@ def parse_arguments():
     trialName = subexp_name+'-%03d'%trialID
     trialPath = 'experiments/'+exp_name+'/'+trialName+'/'
     os.mkdir(trialPath)
+
+    exp_config['experiment']['trial-id'] = trialID
+    exp_config['experiment']['trial-name'] = trialName
+    exp_config['experiment']['trial-path'] = trialPath
+    exp_config['experiment']['name'] = exp_name
+    exp_config['experiment']['version'] = os.getenv('ORION_EXPERIMENT_VERSION', 0)
     
-    default_exp_config['experiment']['trial-id'] = trialID
-    default_exp_config['experiment']['trial-name'] = trialName
-    default_exp_config['experiment']['trial-path'] = trialPath
-    default_exp_config['experiment']['name'] = exp_name
-    default_exp_config['experiment']['version'] = os.getenv('ORION_EXPERIMENT_VERSION', 0)
+    return args, exp_config
+
+
+def parse_config(cfg_file):
+    import yaml
+    from src.utils import recursive_dict_update, recursive_dict_map
+        
+    with open('default_exp_config.yaml', 'r') as f:
+        default_exp_config = yaml.load(f, Loader=yaml.FullLoader)
+    with open(cfg_file, 'r') as f:
+        exp_config = yaml.load(f, Loader=yaml.FullLoader)
+    exp_config = recursive_dict_map(exp_config, lambda k,v: v if not isinstance(v, str) or not v.startswith('orion~') else None)
+    recursive_dict_update(default_exp_config, exp_config)
     
-    return args, default_exp_config
+    return default_exp_config
 
 if __name__ == '__main__':
     main()
-    
