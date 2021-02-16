@@ -6,27 +6,32 @@ from orion.client import report_objective
 
 from src.model import HemelingNet, HemelingRotNet
 from src.classifier_net import BinaryClassifierNet, ExportValidation
+from src.utils import AttributeDict
 
 
 def run_train():
-    args, exp_config = parse_arguments()
-    hp_cfg = exp_config['hyper-parameters']
-    cfg_experiment = exp_config['experiment']
-    setup_log(exp_config)
-    trainD, validD, testD = load_dataset(exp_config)
+    cfg = parse_arguments()
+    cfg_experiment = cfg['experiment']
+    tmp_path = setup_log(cfg)
+    trainD, validD, testD = load_dataset(cfg)
 
     trial_path = cfg_experiment['trial-path']
     val_n_epoch = cfg_experiment['val-every-n-epoch']
     max_epoch = cfg_experiment['max-epoch']
 
     # ---  MODEL  ---
-    net = setup_model(cfg_experiment)
+    model = setup_model(cfg['model'])
 
     # ---  TRAIN  ---
     trainer_kwargs = {}
+    hyper_params = cfg['hyper-parameters']
+    net = BinaryClassifierNet(model=model, loss=hyper_params['loss'],
+                              optimizer=hyper_params['optimizer'],
+                              lr=hyper_params['lr'],
+                              p_dropout=hyper_params['dropout'])
     if cfg_experiment['half-precision']:
-        trainer_kwargs['amp_level']='O2'
-        trainer_kwargs['precision']=16
+        trainer_kwargs['amp_level'] = 'O2'
+        trainer_kwargs['precision'] = 16
 
     callbacks = []
     if cfg_experiment['early-stopping']['monitor'].lower() != 'none':
@@ -59,74 +64,76 @@ def run_train():
 def parse_arguments():
     import argparse
     import os
+    import tempfile
 
+    # --- PARSE ARGS & ENVIRONNEMENTS VARIABLES ---
     parser = argparse.ArgumentParser()
-    #parser.add_argument('--gpu', help='specify which gpu should be used', default=1)
     parser.add_argument('--config', required=True,
                         help='config file with hyper parameters - in yaml format')
+    parser.add_argument('--debug', help='Debug trial (not logged into orion)',
+                        default=os.getenv('TRIAL_DEBUG', False))
+    parser.add_argument('--gpus', help='list of gpus to use for this trial',
+                        default=os.getenv('TRIAL_GPUS'))
     args = parser.parse_args()
 
-    exp_config = parse_config(args.config)
+    # --- PARSE CONFIG ---
+    cfg = parse_config(args.config)
 
-    exp_name = os.getenv('ORION_EXPERIMENT_NAME', 'test')
-    subexp_name = exp_config['experiment']['name']
+    # Save scripts arguments
+    script_args = cfg['script-arguments']
+    script_args['gpus'] = args.gpus
+    script_args['debug'] = args.debug
 
-    trials = sorted(_ for _ in os.listdir('experiments/' + exp_name + '/') if _.startswith(subexp_name))
-    if len(trials):
-        trialID = int(trials[-1][len(subexp_name) + 1:]) + 1
-    else:
-        trialID = 1
-    trialName = subexp_name + '-%03d' % trialID
-    trialPath = 'experiments/' + exp_name + '/' + trialName + '/'
-    os.mkdir(trialPath)
-
-    exp_config['experiment']['trial-id'] = trialID
-    exp_config['experiment']['trial-name'] = trialName
-    exp_config['experiment']['trial-path'] = trialPath
-    exp_config['experiment']['name'] = exp_name
-    exp_config['experiment']['version'] = os.getenv('ORION_EXPERIMENT_VERSION', 0)
-
-    return args, exp_config
+    # Save trial info
+    cfg['trial'] = AttributeDict(id=os.getenv('TRIAL_ID', 0),
+                                 name=os.getenv('ORION_EXPERIMENT_NAME', 'trial-name'),
+                                 version=os.getenv('ORION_EXPERIMENT_VERSION', 0))
+    return cfg
 
 
 def parse_config(cfg_file):
-    import yaml
-    from src.utils import recursive_dict_update, recursive_dict_map
-
+    with open('global_config.yaml', 'r') as f:
+        default_exp_config = AttributeDict.from_yaml(f)
     with open('default_exp_config.yaml', 'r') as f:
-        default_exp_config = yaml.load(f, Loader=yaml.FullLoader)
+        default_exp_config.recursive_update(AttributeDict.from_yaml(f))
     with open(cfg_file, 'r') as f:
-        exp_config = yaml.load(f, Loader=yaml.FullLoader)
-    exp_config = recursive_dict_map(exp_config,
-                                    lambda k, v: v if not isinstance(v, str) or not v.startswith('orion~') else None)
-    recursive_dict_update(default_exp_config, exp_config)
-
-    return default_exp_config
+        exp_config = AttributeDict.from_yaml(f)
+    exp_config = exp_config.filter(lambda k, v: not (isinstance(v, str) and v.startswith('orion~')))
+    return default_exp_config.recursive_update(exp_config)
 
 
-def setup_log(exp_config):
-    mlflow.set_tracking_uri("http://localhost:5000")
-    mlflow.set_experiment(exp_config['experiment']['name'])
+def setup_log(cfg):
+    import tempfile
+
+    mlflow.set_tracking_uri(cfg['mlflow']['uri'])
+    mlflow.set_experiment(cfg['experiment']['name'])
     mlflow.pytorch.autolog(log_models=False)
 
-    mlflow.start_run(run_name=exp_config['experiment']['trial-name'])
-    mlflow.log_param('sub-experiment', exp_config['experiment']['name'])
-    for k, v in exp_config['model'].items():
-        mlflow.log_param(f'Model.{k}', v)
-    for k, v in exp_config['data-augmentation'].items():
+    tempfile.TemporaryDirectory()
+
+    mlflow.start_run(run_name=cfg.trial.name)
+    mlflow.log_param('sub-experiment', cfg.experiment['sub-experiment'])
+    if cfg.experiment['sub-experiment-id']:
+        mlflow.log_param('sub-experiment-id', cfg.experiment['sub-experiment-id'])
+    for k, v in cfg.trial:
+        mlflow.log_param('trial.'+k, v)
+
+    for k, v in cfg['model'].items():
+        mlflow.log_param(f'model.{k}', v)
+    for k, v in cfg['data-augmentation'].items():
         if isinstance(v, dict):
             for k1, v1 in v.items():
                 mlflow.log_param(f'DA.{k} {k1}', v1)
         else:
             mlflow.log_param(f'DA.{k}', v)
 
-def load_dataset(exp_config):
+def load_dataset(cfg):
     import albumentations as A
     from albumentations.pytorch import ToTensorV2
     from torch.utils.data import Dataset, DataLoader
     import cv2
 
-    da_config = exp_config['data-augmentation']
+    da_config = cfg['data-augmentation']
 
     class TrainDataset(Dataset):
         def __init__(self, dataset, file, factor=1):
@@ -201,9 +208,9 @@ def load_dataset(exp_config):
                  'mask': d['mask']//16}
             return r
 
-    batch_size=exp_config['hyper-parameters']['batch-size']
-    train_dataset = exp_config['experiment']['training-dataset']
-    dataset_file = exp_config['experiment']['dataset-file']
+    batch_size=cfg['hyper-parameters']['batch-size']
+    train_dataset = cfg['experiment']['training-dataset']
+    dataset_file = cfg['experiment']['dataset-file']
     trainD = DataLoader(TrainDataset('train/'+train_dataset, file=dataset_file, factor=8*3),
                         pin_memory=True, shuffle=True,
                         batch_size=batch_size,
@@ -216,8 +223,7 @@ def load_dataset(exp_config):
     return trainD, validD, testD
 
 
-def setup_model(cfg):
-    model_cfg = cfg['model']
+def setup_model(model_cfg):
     if model_cfg['rot-eq']:
         model = HemelingRotNet(6, principal_direction=1, nfeatures_base=model_cfg['nfeatures-base'],
                                half_kernel_height=model_cfg['half-kernel-height'],
@@ -233,8 +239,7 @@ def setup_model(cfg):
                                nfeatures_base=model_cfg['nfeatures-base'],
                                padding=model_cfg['padding'],
                                half_kernel_height=model_cfg['half-kernel-height'])
-    net = BinaryClassifierNet(model=model, loss=cfg['hyper-parameters']['loss'], optimizer=cfg['hyper-parameters']['optimizer'], lr=cfg['hyper-parameters']['lr'])
-    return net
+    return model
 
 
 if __name__ == '__main__':

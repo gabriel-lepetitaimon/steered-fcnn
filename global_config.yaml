@@ -1,0 +1,24 @@
+orion:
+    experiment:
+        algorithms:
+            tpe:
+                seed: null
+                n_initial_points: 15
+                n_ei_candidates: 15
+                gamma: 0.25
+                equal_weight: False
+                prior_weight: 1.0
+                full_weight_num: 25
+    storage:
+        database:
+            type: 'mongodb'
+            name: 'orion_fundus'
+            host: 'mongodb://localhost'
+            port: 27017
+
+mlflow:
+    uri: 'http://localhost:8000'
+
+script-arguments:
+    gpus: 1
+    debug: False

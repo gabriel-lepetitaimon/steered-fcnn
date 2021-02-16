@@ -12,7 +12,6 @@ class HemelingNet(nn.Module):
         super().__init__()
         self.n_in = n_in
         self.n_out = n_out
-        self.p_dropout = p_dropout
         
         # --- MODEL ---
         n1 = nfeatures_base
@@ -99,6 +98,14 @@ class HemelingNet(nn.Module):
         # End
         return self.final_conv(x1)
 
+    @property
+    def p_dropout(self):
+        return self.dropout.p
+
+    @p_dropout.setter
+    def p_dropout(self, p):
+        self.dropout.p = p
+
 
 class HemelingRotNet(nn.Module):
 
@@ -109,7 +116,6 @@ class HemelingRotNet(nn.Module):
         super(HemelingRotNet, self).__init__()
         self.n_in = n_in
         self.n_out = n_out
-        self.p_dropout = p_dropout
         self.static_principal_direction = static_principal_direction
         self.principal_direction = principal_direction
         self.principal_direction_smooth = principal_direction_smooth
@@ -253,6 +259,14 @@ class HemelingRotNet(nn.Module):
         
         # End
         return self.final_conv(x1)
+
+    @property
+    def p_dropout(self):
+        return self.dropout.p
+
+    @p_dropout.setter
+    def p_dropout(self, p):
+        self.dropout.p = p
 
 
 class ConvBlock(nn.Module):

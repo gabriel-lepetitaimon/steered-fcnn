@@ -9,23 +9,25 @@ from os.path import abspath
 from .utils import prepare_lut
 from .model import clip_pad_center
 
+
 class BinaryClassifierNet(pl.LightningModule):
-    def __init__(self, model, loss='BCE', optimizer=None, lr=1e-3):
+    def __init__(self, model, loss='BCE', optimizer=None, lr=1e-3, p_dropout=0):
         super().__init__()
         self.model = model
         
         self.val_accuracy = pl.metrics.Accuracy(compute_on_step=False)
         self.lr = lr
-        self.testset_names = None
+        self.p_dropout = p_dropout
         if loss == 'dice':
             from .losses import binary_dice_loss
             self.loss_f = lambda y_hat, y: binary_dice_loss(torch.sigmoid(y_hat), y)
         else:
             self.loss_f = lambda y_hat, y: F.binary_cross_entropy_with_logits(y_hat, y)
-        
         if optimizer is None:
             optimizer = {'type': 'Adam'}
         self.optimizer = optimizer
+
+        self.testset_names = None
 
     def compute_y_yhat(self, batch, mask=False):
         x = batch['x']
@@ -127,7 +129,15 @@ class BinaryClassifierNet(pl.LightningModule):
             self.testset_names, datasets = list(zip(*datasets.items()))
         trainer = pl.Trainer(gpus=[0])
         return trainer.test(self, test_dataloaders=datasets)
-        
+
+    @property
+    def p_dropout(self):
+        return self.model.p_dropout
+
+    @p_dropout.setter
+    def p_dropout(self, p):
+        self.model.p_dropout = p
+
         
         
 
