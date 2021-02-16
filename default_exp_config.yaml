@@ -1,12 +1,17 @@
 experiment:
     name: 'RotEquivariance'
-    optimize: 'valid-acc'
-    training-dataset: 'DRIVE'
+    sub-experiment: 'default'
+    sub-experiment-ID: 0
+    tags: {}
+
+training:
+    dataset-name: 'DRIVE'
     dataset-file: 'vessels.h5'
-    
     max-epoch: 30
     val-every-n-epoch: 1
     half-precision: False
+    optimize: 'valid-acc'
+    loss: 'dice'
     early-stopping:
         monitor: 'auto'
         min_delta: 0.005
@@ -29,7 +34,6 @@ model:
 hyper-parameters:
     lr: 1.e-2
     batch-size: 8
-    loss: 'dice'
     
     optimizer:
         type: 'Adam' # also supported: AdamW and Adammax

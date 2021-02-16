@@ -7,14 +7,14 @@ from orion.client import report_objective
 from src.model import HemelingNet, HemelingRotNet
 from src.classifier_net import BinaryClassifierNet, ExportValidation
 
-def main():
-    # ---  INIT  ---
+
+def run_train():
     args, exp_config = parse_arguments()
     hp_cfg = exp_config['hyper-parameters']
     cfg_experiment = exp_config['experiment']
-    trainD, validD = load_dataset(exp_config)
-    setup_log(args, exp_config)
-    
+    setup_log(exp_config)
+    trainD, validD, testD = load_dataset(exp_config)
+
     trial_path = cfg_experiment['trial-path']
     val_n_epoch = cfg_experiment['val-every-n-epoch']
     max_epoch = cfg_experiment['max-epoch']
@@ -54,7 +54,71 @@ def main():
     mlflow.log_metric('best-iou', float(bestCP_iou.best_model_score.cpu().numpy()))
     report_objective(-best_score)
     mlflow.end_run()
-    
+
+
+def parse_arguments():
+    import argparse
+    import os
+
+    parser = argparse.ArgumentParser()
+    #parser.add_argument('--gpu', help='specify which gpu should be used', default=1)
+    parser.add_argument('--config', required=True,
+                        help='config file with hyper parameters - in yaml format')
+    args = parser.parse_args()
+
+    exp_config = parse_config(args.config)
+
+    exp_name = os.getenv('ORION_EXPERIMENT_NAME', 'test')
+    subexp_name = exp_config['experiment']['name']
+
+    trials = sorted(_ for _ in os.listdir('experiments/' + exp_name + '/') if _.startswith(subexp_name))
+    if len(trials):
+        trialID = int(trials[-1][len(subexp_name) + 1:]) + 1
+    else:
+        trialID = 1
+    trialName = subexp_name + '-%03d' % trialID
+    trialPath = 'experiments/' + exp_name + '/' + trialName + '/'
+    os.mkdir(trialPath)
+
+    exp_config['experiment']['trial-id'] = trialID
+    exp_config['experiment']['trial-name'] = trialName
+    exp_config['experiment']['trial-path'] = trialPath
+    exp_config['experiment']['name'] = exp_name
+    exp_config['experiment']['version'] = os.getenv('ORION_EXPERIMENT_VERSION', 0)
+
+    return args, exp_config
+
+
+def parse_config(cfg_file):
+    import yaml
+    from src.utils import recursive_dict_update, recursive_dict_map
+
+    with open('default_exp_config.yaml', 'r') as f:
+        default_exp_config = yaml.load(f, Loader=yaml.FullLoader)
+    with open(cfg_file, 'r') as f:
+        exp_config = yaml.load(f, Loader=yaml.FullLoader)
+    exp_config = recursive_dict_map(exp_config,
+                                    lambda k, v: v if not isinstance(v, str) or not v.startswith('orion~') else None)
+    recursive_dict_update(default_exp_config, exp_config)
+
+    return default_exp_config
+
+
+def setup_log(exp_config):
+    mlflow.set_tracking_uri("http://localhost:5000")
+    mlflow.set_experiment(exp_config['experiment']['name'])
+    mlflow.pytorch.autolog(log_models=False)
+
+    mlflow.start_run(run_name=exp_config['experiment']['trial-name'])
+    mlflow.log_param('sub-experiment', exp_config['experiment']['name'])
+    for k, v in exp_config['model'].items():
+        mlflow.log_param(f'Model.{k}', v)
+    for k, v in exp_config['data-augmentation'].items():
+        if isinstance(v, dict):
+            for k1, v1 in v.items():
+                mlflow.log_param(f'DA.{k} {k1}', v1)
+        else:
+            mlflow.log_param(f'DA.{k}', v)
 
 def load_dataset(exp_config):
     import albumentations as A
@@ -172,68 +236,6 @@ def setup_model(cfg):
     net = BinaryClassifierNet(model=model, loss=cfg['hyper-parameters']['loss'], optimizer=cfg['hyper-parameters']['optimizer'], lr=cfg['hyper-parameters']['lr'])
     return net
 
-def setup_log(args, exp_config):
-    mlflow.set_tracking_uri("http://localhost:5000")
-    mlflow.set_experiment(exp_config['experiment']['name'])
-    mlflow.pytorch.autolog(log_models=False)
-    
-    mlflow.start_run(run_name=exp_config['experiment']['trial-name'])
-    mlflow.log_param('sub-experiment', exp_config['experiment']['name'])
-    for k, v in exp_config['model'].items():
-        mlflow.log_param(f'Model.{k}', v)
-    for k, v in exp_config['data-augmentation'].items():
-        if isinstance(v, dict):
-            for k1, v1 in v.items():
-                mlflow.log_param(f'DA.{k} {k1}', v1)
-        else:
-            mlflow.log_param(f'DA.{k}', v)
-
-
-def parse_arguments():
-    import argparse
-    import os
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--gpu', help='specify which gpu should be used', default=1)
-    parser.add_argument('--config', required=True,
-                        help='config file with hyper parameters - in yaml format')
-    args = parser.parse_args()
-
-    exp_config = parse_config(args.config)
-    
-    exp_name = os.getenv('ORION_EXPERIMENT_NAME', 'test')
-    subexp_name = exp_config['experiment']['name']
-    
-    trials = sorted(_ for _ in os.listdir('experiments/'+exp_name+'/') if _.startswith(subexp_name))
-    if len(trials):
-        trialID = int(trials[-1][len(subexp_name)+1:])+1
-    else:
-        trialID = 1
-    trialName = subexp_name+'-%03d'%trialID
-    trialPath = 'experiments/'+exp_name+'/'+trialName+'/'
-    os.mkdir(trialPath)
-
-    exp_config['experiment']['trial-id'] = trialID
-    exp_config['experiment']['trial-name'] = trialName
-    exp_config['experiment']['trial-path'] = trialPath
-    exp_config['experiment']['name'] = exp_name
-    exp_config['experiment']['version'] = os.getenv('ORION_EXPERIMENT_VERSION', 0)
-    
-    return args, exp_config
-
-
-def parse_config(cfg_file):
-    import yaml
-    from src.utils import recursive_dict_update, recursive_dict_map
-        
-    with open('default_exp_config.yaml', 'r') as f:
-        default_exp_config = yaml.load(f, Loader=yaml.FullLoader)
-    with open(cfg_file, 'r') as f:
-        exp_config = yaml.load(f, Loader=yaml.FullLoader)
-    exp_config = recursive_dict_map(exp_config, lambda k,v: v if not isinstance(v, str) or not v.startswith('orion~') else None)
-    recursive_dict_update(default_exp_config, exp_config)
-    
-    return default_exp_config
 
 if __name__ == '__main__':
-    main()
+    run_train()
