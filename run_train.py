@@ -12,7 +12,11 @@ from src.utils import AttributeDict
 def run_train():
     cfg = parse_arguments()
     cfg_experiment = cfg['experiment']
-    tmp_path = setup_log(cfg)
+    args = cfg['script-arguments']
+    tmp = setup_log(cfg)
+    tmp_path = tmp.name
+
+
     trainD, validD, testD = load_dataset(cfg)
 
     trial_path = cfg_experiment['trial-path']
@@ -39,13 +43,13 @@ def run_train():
             cfg_experiment['early-stopping']['monitor'] = cfg_experiment['optimize']
         callbacks += [EarlyStopping(verbose=False, strict=False, **cfg_experiment['early-stopping'])]
         
-    bestCP_acc = ModelCheckpoint(trial_path+'/best-acc', monitor='valid-acc', mode='max')
-    bestCP_roc = ModelCheckpoint(trial_path+'/best-roc', monitor='valid-roc', mode='max')
-    bestCP_iou = ModelCheckpoint(trial_path+'/best-iou', monitor='valid-iou', mode='max')
-    
+    bestCP_acc = ModelCheckpoint(tmp_path+'/best-acc', monitor='valid-acc', mode='max')
+    bestCP_roc = ModelCheckpoint(tmp_path+'/best-roc', monitor='valid-roc', mode='max')
+    bestCP_iou = ModelCheckpoint(tmp_path+'/best-iou', monitor='valid-iou', mode='max')
+
     callbacks += [bestCP_acc, bestCP_roc, bestCP_iou]
-    callbacks += [ExportValidation({(0,0): 'black', (1,1): 'white', (1,0): 'orange', (0,1): 'apple_green'}, path=f'{trial_path}/')]
-    trainer = pl.Trainer(gpus=args.gpu, callbacks=callbacks, 
+    callbacks += [ExportValidation({(0,0): 'black', (1,1): 'white', (1,0): 'orange', (0,1): 'apple_green'}, path=f'{tmp_path}/')]
+    trainer = pl.Trainer(gpus=args.gpu, callbacks=callbacks,
                          max_epochs=int(np.ceil(max_epoch/val_n_epoch)*val_n_epoch),
                          check_val_every_n_epoch=val_n_epoch,
                          progress_bar_refresh_rate=0,
@@ -59,6 +63,7 @@ def run_train():
     mlflow.log_metric('best-iou', float(bestCP_iou.best_model_score.cpu().numpy()))
     report_objective(-best_score)
     mlflow.end_run()
+    tmp.cleanup()
 
 
 def parse_arguments():
@@ -74,6 +79,8 @@ def parse_arguments():
                         default=os.getenv('TRIAL_DEBUG', False))
     parser.add_argument('--gpus', help='list of gpus to use for this trial',
                         default=os.getenv('TRIAL_GPUS'))
+    parser.add_argument('--tmp-dir', help='Directory where the trial temporary folders will be stored.',
+                        default=os.getenv('TRIAL_TMP_DIR'))
     args = parser.parse_args()
 
     # --- PARSE CONFIG ---
@@ -81,9 +88,8 @@ def parse_arguments():
 
     # Save scripts arguments
     script_args = cfg['script-arguments']
-    script_args['gpus'] = args.gpus
-    script_args['debug'] = args.debug
-
+    for k, v in vars(args).items():
+        script_args[k] = v
     # Save trial info
     cfg['trial'] = AttributeDict(id=os.getenv('TRIAL_ID', 0),
                                  name=os.getenv('ORION_EXPERIMENT_NAME', 'trial-name'),
@@ -104,14 +110,31 @@ def parse_config(cfg_file):
 
 def setup_log(cfg):
     import tempfile
+    import shutil
+    from mlflow.tracking import MlflowClient
 
+    # --- SETUP MLFOW ---
     mlflow.set_tracking_uri(cfg['mlflow']['uri'])
     mlflow.set_experiment(cfg['experiment']['name'])
     mlflow.pytorch.autolog(log_models=False)
+    mlflow.start_run(run_name=cfg.trial.name, run_id=cfg.trial.name)
 
-    tempfile.TemporaryDirectory()
+    # --- CREATE TMP ---
+    tmp = tempfile.TemporaryDirectory()
 
-    mlflow.start_run(run_name=cfg.trial.name)
+    # --- SAVE CFG ---
+    mlflow.log_artifact(cfg['script-arguments'].config, 'cfg.yaml')
+    # Sanity check of artifact saving
+    client = MlflowClient()
+    artifacts = client.list_artifacts(mlflow.active_run().info.run_id)
+    if len(artifacts) != 1 or artifacts[0].path != 'cfg.yaml':
+        raise RuntimeError('The sanity check for storing artifacts failed.'
+                           'Interrupting the script before the training starts.')
+
+    with open(tmp.name+'/cfg_extended.yaml') as f:
+        cfg.to_yaml(f)
+    mlflow.log_artifact(tmp.name+'/cfg_extended.yaml', 'cfg_extended.yaml')
+
     mlflow.log_param('sub-experiment', cfg.experiment['sub-experiment'])
     if cfg.experiment['sub-experiment-id']:
         mlflow.log_param('sub-experiment-id', cfg.experiment['sub-experiment-id'])
@@ -126,6 +149,9 @@ def setup_log(cfg):
                 mlflow.log_param(f'DA.{k} {k1}', v1)
         else:
             mlflow.log_param(f'DA.{k}', v)
+
+    return tmp
+
 
 def load_dataset(cfg):
     import albumentations as A
