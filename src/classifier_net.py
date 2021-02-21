@@ -138,8 +138,6 @@ class BinaryClassifierNet(pl.LightningModule):
     def p_dropout(self, p):
         self.model.p_dropout = p
 
-        
-        
 
 class ExportValidation(Callback):
     def __init__(self, color_map, path):

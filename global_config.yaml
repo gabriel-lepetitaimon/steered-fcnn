@@ -1,5 +1,6 @@
 orion:
     experiment:
+        max_trials: 30
         algorithms:
             tpe:
                 seed: null

@@ -13,17 +13,16 @@ model:
     rotconv-squeeze: True
     principal-direction-smooth: 3
     principal-direction-hessian-threshold: 1
-    static-principal-direction: False
+    static-principal-direction: False   # True / False / 'normalized'
 
 
 training:
-    dataset-name: 'DRIVE'
     dataset-file: 'vessels.h5'
+    training-dataset: 'DRIVE'
     max-epoch: 30
     val-every-n-epoch: 1
     half-precision: False
     optimize: 'valid-acc'
-    loss: 'dice'
     early-stopping:
         monitor: 'auto'
         min_delta: 0.005
@@ -35,6 +34,7 @@ hyper-parameters:
     lr: 1.e-2
     batch-size: 8
     drop-out: 0
+    loss: 'dice'
     optimizer:
         type: 'Adam' # also supported: AdamW and Adammax
         weight_decay: 0

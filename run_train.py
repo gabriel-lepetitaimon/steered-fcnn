@@ -11,17 +11,14 @@ from src.utils import AttributeDict
 
 def run_train():
     cfg = parse_arguments()
-    cfg_experiment = cfg['experiment']
     args = cfg['script-arguments']
     tmp = setup_log(cfg)
     tmp_path = tmp.name
 
-
     trainD, validD, testD = load_dataset(cfg)
 
-    trial_path = cfg_experiment['trial-path']
-    val_n_epoch = cfg_experiment['val-every-n-epoch']
-    max_epoch = cfg_experiment['max-epoch']
+    val_n_epoch = cfg.training['val-every-n-epoch']
+    max_epoch = cfg.training['max-epoch']
 
     # ---  MODEL  ---
     model = setup_model(cfg['model'])
@@ -33,22 +30,22 @@ def run_train():
                               optimizer=hyper_params['optimizer'],
                               lr=hyper_params['lr'],
                               p_dropout=hyper_params['dropout'])
-    if cfg_experiment['half-precision']:
+    if cfg.training['half-precision']:
         trainer_kwargs['amp_level'] = 'O2'
         trainer_kwargs['precision'] = 16
 
     callbacks = []
-    if cfg_experiment['early-stopping']['monitor'].lower() != 'none':
-        if cfg_experiment['early-stopping']['monitor'].lower() == 'auto':
-            cfg_experiment['early-stopping']['monitor'] = cfg_experiment['optimize']
-        callbacks += [EarlyStopping(verbose=False, strict=False, **cfg_experiment['early-stopping'])]
-        
-    bestCP_acc = ModelCheckpoint(tmp_path+'/best-acc', monitor='valid-acc', mode='max')
-    bestCP_roc = ModelCheckpoint(tmp_path+'/best-roc', monitor='valid-roc', mode='max')
-    bestCP_iou = ModelCheckpoint(tmp_path+'/best-iou', monitor='valid-iou', mode='max')
+    if cfg.training['early-stopping']['monitor'].lower() != 'none':
+        if cfg.training['early-stopping']['monitor'].lower() == 'auto':
+            cfg.training['early-stopping']['monitor'] = cfg.training['optimize']
+        callbacks += [EarlyStopping(verbose=False, strict=False, **cfg.training['early-stopping'])]
 
-    callbacks += [bestCP_acc, bestCP_roc, bestCP_iou]
-    callbacks += [ExportValidation({(0,0): 'black', (1,1): 'white', (1,0): 'orange', (0,1): 'apple_green'}, path=f'{tmp_path}/')]
+    modelCheckpoints = {}
+    for metric in ('best-acc', 'best-roc', 'best-iou'):
+        checkpoint = ModelCheckpoint(tmp_path+'/'+metric, monitor=metric, mode='max')
+        modelCheckpoints[metric] = checkpoint
+        callbacks.append(checkpoint)
+
     trainer = pl.Trainer(gpus=args.gpu, callbacks=callbacks,
                          max_epochs=int(np.ceil(max_epoch/val_n_epoch)*val_n_epoch),
                          check_val_every_n_epoch=val_n_epoch,
@@ -56,12 +53,22 @@ def run_train():
                          **trainer_kwargs)
     net.log('valid-acc', 0)
     trainer.fit(net, trainD, validD)
-    
-    best_score = float(bestCP_acc.best_model_score.cpu().numpy())
-    mlflow.log_metric('best_score', best_score)
-    mlflow.log_metric('best-roc', float(bestCP_roc.best_model_score.cpu().numpy()))
-    mlflow.log_metric('best-iou', float(bestCP_iou.best_model_score.cpu().numpy()))
-    report_objective(-best_score)
+
+    for metric_name, checkpoint in modelCheckpoints.items():
+        metric_value = float(checkpoint.best_model_score.cpu().numpy())
+        mlflow.log_metric('best-'+metric_name, metric_value)
+        if metric_name == cfg.training['optimize']:
+            report_objective(-metric_value)
+            net.load_from_checkpoint(checkpoint_path=checkpoint.best_model_path)
+
+    net.eval()
+    tester = pl.Trainer(gpus=args.gpu,
+                        callbacks=[ExportValidation({(0,0): 'black', (1,1): 'white', (1,0): 'orange', (0,1): 'apple_green'}, path=f'{tmp_path}/')],
+                        **trainer_kwargs)
+    net.testset_names, testD = list(zip(*testD.items()))
+
+    tester.test(testD)
+    mlflow.log_artifacts(tmp.name)
     mlflow.end_run()
     tmp.cleanup()
 
@@ -69,7 +76,6 @@ def run_train():
 def parse_arguments():
     import argparse
     import os
-    import tempfile
 
     # --- PARSE ARGS & ENVIRONNEMENTS VARIABLES ---
     parser = argparse.ArgumentParser()
@@ -91,7 +97,7 @@ def parse_arguments():
     for k, v in vars(args).items():
         script_args[k] = v
     # Save trial info
-    cfg['trial'] = AttributeDict(id=os.getenv('TRIAL_ID', 0),
+    cfg['trial'] = AttributeDict(id=int(os.getenv('TRIAL_ID'), 0),
                                  name=os.getenv('ORION_EXPERIMENT_NAME', 'trial-name'),
                                  version=os.getenv('ORION_EXPERIMENT_VERSION', 0))
     return cfg
@@ -110,12 +116,11 @@ def parse_config(cfg_file):
 
 def setup_log(cfg):
     import tempfile
-    import shutil
     from mlflow.tracking import MlflowClient
 
     # --- SETUP MLFOW ---
     mlflow.set_tracking_uri(cfg['mlflow']['uri'])
-    mlflow.set_experiment(cfg['experiment']['name'])
+    mlflow.set_experiment(cfg['experiment']['name'] if not cfg['script-arguments'].debug else 'DEBUG_RUNS')
     mlflow.pytorch.autolog(log_models=False)
     mlflow.start_run(run_name=cfg.trial.name, run_id=cfg.trial.name)
 
@@ -133,7 +138,6 @@ def setup_log(cfg):
 
     with open(tmp.name+'/cfg_extended.yaml') as f:
         cfg.to_yaml(f)
-    mlflow.log_artifact(tmp.name+'/cfg_extended.yaml', 'cfg_extended.yaml')
 
     mlflow.log_param('sub-experiment', cfg.experiment['sub-experiment'])
     if cfg.experiment['sub-experiment-id']:
@@ -192,9 +196,12 @@ def load_dataset(cfg):
 
         def __getitem__(self, i):
             i = i % self._data_length
+            princ_dir = self.field[i]
+            if cfg['model']['static-principal-direction'] == 'normalized':
+                princ_dir /= np.sqrt(princ_dir[0]**2+princ_dir[1]**2) + 1e-5
             img = np.concatenate(
                     [self.data[i].transpose(1, 2, 0),
-                     self.field[i].transpose(1, 2, 0)],
+                     princ_dir.transpose(1, 2, 0)],
                     axis=2)
             m = self.av[i]+self.mask[i]*16
             d = self.geo_aug(image=img, mask=m)
@@ -230,13 +237,13 @@ def load_dataset(cfg):
             d = self.geo_aug(image=img, mask=m)
             r = {'x': d['image'][:6],
                  'principal_direction': d['image'][6:],
-                 'y': d['mask']%16,
+                 'y': d['mask'] % 16,
                  'mask': d['mask']//16}
             return r
 
     batch_size=cfg['hyper-parameters']['batch-size']
-    train_dataset = cfg['experiment']['training-dataset']
-    dataset_file = cfg['experiment']['dataset-file']
+    train_dataset = cfg.training['training-dataset']
+    dataset_file = cfg.training['dataset-file']
     trainD = DataLoader(TrainDataset('train/'+train_dataset, file=dataset_file, factor=8*3),
                         pin_memory=True, shuffle=True,
                         batch_size=batch_size,
