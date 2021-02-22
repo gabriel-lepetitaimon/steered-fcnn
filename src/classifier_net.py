@@ -90,7 +90,7 @@ class BinaryClassifierNet(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         result = self._validate(batch)
         metrics = result['metrics']
-        metrics['acc'] = self.val_accuracy(result['y_sig'] > 0.5, result['y'])
+        #metrics['acc'] = self.val_accuracy(result['y_sig'] > 0.5, result['y'])
         self.log_metrics(metrics, 'val')
         return result
 
@@ -148,12 +148,17 @@ class ExportValidation(Callback):
             self.path += 'val%i.png'
     
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        import os
         import cv2
         import mlflow
         x = batch['x']
         y = (batch['y']!=0).float()
         y_pred = outputs['ypred'].detach().cpu()
         y = clip_pad_center(y, y_pred.shape)
+        
+        dirname = os.path.dirname(self.path)
+        if not os.path.exists(dirname):
+            os.makedirs(dirname)
         
         diff = torch.stack((y, y_pred), dim=1)
         diff = diff.numpy()

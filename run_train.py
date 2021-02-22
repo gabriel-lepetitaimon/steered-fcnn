@@ -41,8 +41,8 @@ def run_train():
         callbacks += [EarlyStopping(verbose=False, strict=False, **cfg.training['early-stopping'])]
 
     modelCheckpoints = {}
-    for metric in ('best-acc', 'best-roc', 'best-iou'):
-        checkpoint = ModelCheckpoint(tmp_path+'/'+metric, monitor=metric, mode='max')
+    for metric in ('val-acc', 'val-roc', 'val-iou'):
+        checkpoint = ModelCheckpoint(tmp_path+'/best-'+metric, monitor=metric, mode='max')
         modelCheckpoints[metric] = checkpoint
         callbacks.append(checkpoint)
 
@@ -62,7 +62,7 @@ def run_train():
             net.load_from_checkpoint(checkpoint_path=checkpoint.best_model_path)
 
     net.eval()
-    tester = pl.Trainer(gpus=args.gpu,
+    tester = pl.Trainer(gpus=args.gpus,
                         #callbacks=[ExportValidation({(0,0): 'black', (1,1): 'white', (1,0): 'orange', (0,1): 'apple_green'}, path=f'{tmp_path}/')],
                         )
     net.testset_names, testD = list(zip(*testD.items()))
