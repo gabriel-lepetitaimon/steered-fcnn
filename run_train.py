@@ -3,6 +3,7 @@ import mlflow
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from orion.client import report_objective
+from pytorch_lightning.utilities.cloud_io import load as pl_load
 
 from src.model import HemelingNet, HemelingRotNet
 from src.classifier_net import BinaryClassifierNet, ExportValidation
@@ -51,7 +52,7 @@ def run_train():
                          check_val_every_n_epoch=val_n_epoch,
                          progress_bar_refresh_rate=1 if args.debug else 0,
                          **trainer_kwargs)
-    net.log('valid-acc', 0)
+    net.log(cfg.training['optimize'], 0)
     trainer.fit(net, trainD, validD)
 
     for metric_name, checkpoint in modelCheckpoints.items():
@@ -59,7 +60,8 @@ def run_train():
         mlflow.log_metric('best-'+metric_name, metric_value)
         if metric_name == cfg.training['optimize']:
             report_objective(-metric_value)
-            net.load_from_checkpoint(checkpoint_path=checkpoint.best_model_path)
+            state_dict = pl_load(checkpoint.best_model_path)['state_dict']
+            net.load_state_dict(state_dict)
 
     net.eval()
     tester = pl.Trainer(gpus=args.gpus,
@@ -67,7 +69,7 @@ def run_train():
                         )
     net.testset_names, testD = list(zip(*testD.items()))
 
-    tester.test(testD)
+    tester.test(net, testD)
     mlflow.log_artifacts(tmp.name)
     mlflow.end_run()
     tmp.cleanup()
@@ -128,7 +130,10 @@ def setup_log(cfg):
     mlflow.set_tracking_uri(cfg['mlflow']['uri'])
     mlflow.set_experiment(cfg['experiment']['name'] if not cfg['script-arguments'].debug else 'DEBUG_RUNS')
     mlflow.pytorch.autolog(log_models=False)
-    mlflow.start_run(run_name=cfg.trial.name)
+    tags = cfg.experiment.tags.to_dict()
+    tags['sub-experiment'] = cfg.experiment['sub-experiment']
+    tags['sub-experiment-id'] = str(cfg.experiment['sub-experiment-id'])
+    mlflow.start_run(run_name=cfg.trial.name, tags=tags)
 
     # --- CREATE TMP ---
     tmp = tempfile.TemporaryDirectory(dir=cfg['script-arguments']['tmp-dir'])
@@ -210,7 +215,7 @@ def load_dataset(cfg):
                     [self.data[i].transpose(1, 2, 0),
                      princ_dir.transpose(1, 2, 0)],
                     axis=2)
-            m = self.av[i]+self.mask[i]*16
+            m = 1*(self.av[i]!=0)+self.mask[i]*16
             d = self.geo_aug(image=img, mask=m)
             r = {'x': d['image'][:6],
                  'principal_direction': d['image'][6:],
@@ -240,7 +245,7 @@ def load_dataset(cfg):
                 [self.data[i].transpose(1,2,0),
                  self.field[i].transpose(1,2,0)],
                 axis=2)
-            m = self.av[i]+self.mask[i]*16
+            m = 1*(self.av[i]!=0)+self.mask[i]*16
             d = self.geo_aug(image=img, mask=m)
             r = {'x': d['image'][:6],
                  'principal_direction': d['image'][6:],
@@ -274,8 +279,7 @@ def setup_model(model_cfg):
                                principal_direction_smooth=model_cfg['principal-direction-smooth'],
                                principal_direction_hessian_threshold=model_cfg['principal-direction-hessian-threshold'])
     else:
-        model = HemelingNet(6, p_dropout=model_cfg['drop-out'], 
-                               nfeatures_base=model_cfg['nfeatures-base'],
+        model = HemelingNet(6, nfeatures_base=model_cfg['nfeatures-base'],
                                padding=model_cfg['padding'],
                                half_kernel_height=model_cfg['half-kernel-height'])
     return model

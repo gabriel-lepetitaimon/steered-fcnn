@@ -22,7 +22,7 @@ training:
     max-epoch: 30
     val-every-n-epoch: 1
     half-precision: False
-    optimize: 'valid-acc'
+    optimize: 'val-acc'
     early-stopping:
         monitor: 'auto'
         min_delta: 0.005
