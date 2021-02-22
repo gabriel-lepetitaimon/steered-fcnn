@@ -29,7 +29,7 @@ class BinaryClassifierNet(pl.LightningModule):
 
         self.testset_names = None
 
-    def compute_y_yhat(self, batch, mask=False):
+    def compute_y_yhat(self, batch):
         x = batch['x']
         y = (batch['y']!=0).float()
         y_hat = self.model(x, **{k: v for k,v in batch.items() if k not in ('x','y','mask')}).squeeze(1)
@@ -38,9 +38,9 @@ class BinaryClassifierNet(pl.LightningModule):
         return y, y_hat
 
     def training_step(self, batch, batch_idx):
-        y, y_hat = self.compute_y_yhat(batch, mask=True)
+        y, y_hat = self.compute_y_yhat(batch)
         
-        if mask and 'mask' in batch:
+        if 'mask' in batch:
             mask = clip_pad_center(batch['mask'], y_hat.shape) != 0
             y_hat = y_hat[mask].flatten()
             y = y[mask].flatten()
@@ -50,7 +50,7 @@ class BinaryClassifierNet(pl.LightningModule):
         return loss
 
     def _validate(self, batch):
-        y, y_hat = self.compute_y_yhat(batch, mask=False)
+        y, y_hat = self.compute_y_yhat(batch)
         y_sig = torch.sigmoid(y_hat)
         y_pred = y_sig > .5
 

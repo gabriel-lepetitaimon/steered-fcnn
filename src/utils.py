@@ -54,10 +54,13 @@ class AttributeDict(OrderedDict):
         return AttributeDict.from_dict(d, recursive=True)
 
     @staticmethod
-    def from_yaml(yaml):
+    def from_yaml(yaml_doc):
         import yaml
-        d = yaml.load(yaml, Loader=yaml.FullLoader)
+        d = yaml.load(yaml_doc, Loader=yaml.FullLoader)
         return AttributeDict.from_dict(d, recursive=True)
+
+    def to_dict(self):
+        return recursive_dict_map(self, lambda k, v: v)
 
     def to_json(self):
         from json import dumps
@@ -65,7 +68,7 @@ class AttributeDict(OrderedDict):
 
     def to_yaml(self, file=None):
         import yaml
-        return yaml.dump(self, stream=file, default_flow_style=False)
+        return yaml.dump(self.to_dict(), stream=file, default_flow_style=False)
 
     def __setitem__(self, key, value):
         if not isinstance(key, str) or '.' in key:

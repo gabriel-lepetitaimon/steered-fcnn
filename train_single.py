@@ -4,7 +4,7 @@ import argparse
 from orion.storage.base import setup_storage
 from orion.client import get_experiment, create_experiment
 from orion.core.utils.exceptions import NoConfigurationError
-from tempfile import TemporaryFile
+from tempfile import NamedTemporaryFile
 
 
 def main():
@@ -33,28 +33,39 @@ def run_experiment(cfg_path, env=None):
     orion_exp_name = f"{exp_cfg.name}-{exp_cfg['sub-experiment']}-{exp_cfg['sub-experiment-id']:03}"
 
     # --- Fetch Orion Infos ---
-    setup_storage(**cfg['orion']['storage'])
-    try:
-        orion_exp = get_experiment(orion_exp_name)
-    except NoConfigurationError:
-        orion_exp = create_experiment(orion_exp_name, **cfg.orion.experiment)
-    n_trial = len(orion_exp.fetch_trials())
-    if n_trial == cfg.orion.experiment.max_trials:
-        return False
+    if(not bool(env.get('TRIAL_DEBUG', False))):
+        setup_storage(cfg.orion.storage.to_dict())
+        try:
+            orion_exp = get_experiment(orion_exp_name)
+        except NoConfigurationError:
+            n_trial = 0
+        else:
+            n_trial = len(orion_exp.fetch_trials())
+            if n_trial == cfg.orion.experiment.max_trials:
+                return False
+    else:
+        n_trial = 0
 
     # --- Set Env Variable ---
     os.environ['TRIAL_ID'] = str(n_trial)
     for k, v in env.items():
-        os.environ[k] = v
+        os.environ[k] = str(v)
 
     # --- Launch Orion ---
-    with TemporaryFile() as orion_cfg:
+    print(f'Running {orion_exp_name} ({cfg_path}): trial {n_trial}')
+    tmp_path = cfg['script-arguments']['tmp-dir']
+    if not os.path.exists(tmp_path):
+        os.makedirs(tmp_path)
+    with NamedTemporaryFile('w+', dir=tmp_path, suffix='.yaml') as orion_cfg:
         cfg.orion.to_yaml(orion_cfg)
+        orion_cfg_filepath = os.path.join(tmp_path, orion_cfg.name)
 
         orion_opt = " "
-        if env.get('TRIAL_DEBUG', False):
+        if bool(env.get('TRIAL_DEBUG', False)):
             orion_opt += "--debug "
-        os.system(f'orion{orion_opt}hunt -c "{orion_cfg.name}" -n "{orion_exp_name}" '
+        print(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}" '
+                  f'python3 run_train.py --config "{cfg_path}"')
+        os.system(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}" '
                   f'python3 run_train.py --config "{cfg_path}"')
 
     return True

@@ -29,7 +29,7 @@ def run_train():
     net = BinaryClassifierNet(model=model, loss=hyper_params['loss'],
                               optimizer=hyper_params['optimizer'],
                               lr=hyper_params['lr'],
-                              p_dropout=hyper_params['dropout'])
+                              p_dropout=hyper_params['drop-out'])
     if cfg.training['half-precision']:
         trainer_kwargs['amp_level'] = 'O2'
         trainer_kwargs['precision'] = 16
@@ -46,10 +46,10 @@ def run_train():
         modelCheckpoints[metric] = checkpoint
         callbacks.append(checkpoint)
 
-    trainer = pl.Trainer(gpus=args.gpu, callbacks=callbacks,
+    trainer = pl.Trainer(gpus=args.gpus, callbacks=callbacks,
                          max_epochs=int(np.ceil(max_epoch/val_n_epoch)*val_n_epoch),
                          check_val_every_n_epoch=val_n_epoch,
-                         progress_bar_refresh_rate=0,
+                         progress_bar_refresh_rate=1 if args.debug else 0,
                          **trainer_kwargs)
     net.log('valid-acc', 0)
     trainer.fit(net, trainD, validD)
@@ -63,8 +63,8 @@ def run_train():
 
     net.eval()
     tester = pl.Trainer(gpus=args.gpu,
-                        callbacks=[ExportValidation({(0,0): 'black', (1,1): 'white', (1,0): 'orange', (0,1): 'apple_green'}, path=f'{tmp_path}/')],
-                        **trainer_kwargs)
+                        #callbacks=[ExportValidation({(0,0): 'black', (1,1): 'white', (1,0): 'orange', (0,1): 'apple_green'}, path=f'{tmp_path}/')],
+                        )
     net.testset_names, testD = list(zip(*testD.items()))
 
     tester.test(testD)
@@ -82,11 +82,11 @@ def parse_arguments():
     parser.add_argument('--config', required=True,
                         help='config file with hyper parameters - in yaml format')
     parser.add_argument('--debug', help='Debug trial (not logged into orion)',
-                        default=os.getenv('TRIAL_DEBUG', False))
+                        default=bool(os.getenv('TRIAL_DEBUG', False)))
     parser.add_argument('--gpus', help='list of gpus to use for this trial',
-                        default=os.getenv('TRIAL_GPUS'))
+                        default=os.getenv('TRIAL_GPUS',None))
     parser.add_argument('--tmp-dir', help='Directory where the trial temporary folders will be stored.',
-                        default=os.getenv('TRIAL_TMP_DIR'))
+                        default=os.getenv('TRIAL_TMP_DIR',None))
     args = parser.parse_args()
 
     # --- PARSE CONFIG ---
@@ -95,7 +95,8 @@ def parse_arguments():
     # Save scripts arguments
     script_args = cfg['script-arguments']
     for k, v in vars(args).items():
-        script_args[k] = v
+        if v is not None:
+            script_args[k] = v
     # Save trial info
     cfg['trial'] = AttributeDict(id=int(os.getenv('TRIAL_ID'), 0),
                                  name=os.getenv('ORION_EXPERIMENT_NAME', 'trial-name'),
@@ -104,31 +105,37 @@ def parse_arguments():
 
 
 def parse_config(cfg_file):
+    with open('orion_config.yaml', 'r') as f:
+        orion_config = AttributeDict.from_yaml(f)
     with open('global_config.yaml', 'r') as f:
-        default_exp_config = AttributeDict.from_yaml(f)
+        global_config = AttributeDict.from_yaml(f)
+        global_config['orion'] = orion_config
     with open('default_exp_config.yaml', 'r') as f:
-        default_exp_config.recursive_update(AttributeDict.from_yaml(f))
+        global_config.recursive_update(AttributeDict.from_yaml(f))
     with open(cfg_file, 'r') as f:
         exp_config = AttributeDict.from_yaml(f)
     exp_config = exp_config.filter(lambda k, v: not (isinstance(v, str) and v.startswith('orion~')))
-    return default_exp_config.recursive_update(exp_config)
+    return global_config.recursive_update(exp_config)
 
 
 def setup_log(cfg):
     import tempfile
+    import shutil
+    from os.path import join
     from mlflow.tracking import MlflowClient
 
     # --- SETUP MLFOW ---
     mlflow.set_tracking_uri(cfg['mlflow']['uri'])
     mlflow.set_experiment(cfg['experiment']['name'] if not cfg['script-arguments'].debug else 'DEBUG_RUNS')
     mlflow.pytorch.autolog(log_models=False)
-    mlflow.start_run(run_name=cfg.trial.name, run_id=cfg.trial.name)
+    mlflow.start_run(run_name=cfg.trial.name)
 
     # --- CREATE TMP ---
-    tmp = tempfile.TemporaryDirectory()
+    tmp = tempfile.TemporaryDirectory(dir=cfg['script-arguments']['tmp-dir'])
 
     # --- SAVE CFG ---
-    mlflow.log_artifact(cfg['script-arguments'].config, 'cfg.yaml')
+    shutil.copy(cfg['script-arguments'].config, join(tmp.name, 'cfg.yaml'))
+    mlflow.log_artifact(join(tmp.name, 'cfg.yaml'))
     # Sanity check of artifact saving
     client = MlflowClient()
     artifacts = client.list_artifacts(mlflow.active_run().info.run_id)
@@ -136,13 +143,13 @@ def setup_log(cfg):
         raise RuntimeError('The sanity check for storing artifacts failed.'
                            'Interrupting the script before the training starts.')
 
-    with open(tmp.name+'/cfg_extended.yaml') as f:
+    with open(join(tmp.name, 'cfg_extended.yaml'), 'w') as f:
         cfg.to_yaml(f)
 
     mlflow.log_param('sub-experiment', cfg.experiment['sub-experiment'])
     if cfg.experiment['sub-experiment-id']:
         mlflow.log_param('sub-experiment-id', cfg.experiment['sub-experiment-id'])
-    for k, v in cfg.trial:
+    for k, v in cfg.trial.items():
         mlflow.log_param('trial.'+k, v)
 
     for k, v in cfg['model'].items():
@@ -262,7 +269,6 @@ def setup_model(model_cfg):
                                half_kernel_height=model_cfg['half-kernel-height'],
                                padding=model_cfg['padding'],
                                depth=model_cfg['depth'],
-                               p_dropout=model_cfg['drop-out'],
                                rotconv_squeeze=model_cfg['rotconv-squeeze'],
                                static_principal_direction=model_cfg['static-principal-direction'],
                                principal_direction_smooth=model_cfg['principal-direction-smooth'],

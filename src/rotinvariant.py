@@ -6,22 +6,24 @@ import torchgeometry.image as TGI
 
 
 def clip_pad_center(tensor, shape, pad_mode='constant', pad_value=0):
-    s = tensor.shape[-2:] 
+    s = tensor.shape
     
-    y0 = (s[0]-shape[-2])//2
+    y0 = (s[-2]-shape[-2])//2
     y1 = 0
+    yodd = (shape[-2]-s[-2]) % 2
     if y0 < 0:
         y1 = -y0
         y0 = 0
         
-    x0 = (s[1]-shape[-1])//2
+    x0 = (s[-1]-shape[-1])//2
     x1 = 0
+    xodd = (shape[-1]-s[-1]) % 2
     if x0 < 0:
         x1 = -x0
         x0 = 0
     tensor = tensor[..., y0:y0+shape[-2], x0:x0+shape[-1]]
     if x1 or y1:
-        tensor = F.pad(tensor, (y1,y1,x1,x1), mode=pad_mode, value=pad_value)
+        tensor = F.pad(tensor, (y1-yodd,y1,x1-xodd,x1), mode=pad_mode, value=pad_value)
     return tensor
 
 
@@ -347,7 +349,7 @@ class RotConv2d(nn.Module):
             
             py = clip_pad_center(p_y, r_y.shape)
             px = clip_pad_center(p_x, r_x.shape)
-            r_u =  sum(clip_tensors(py*r_y, px*r_x))
+            r_u = sum(clip_tensors(py*r_y, px*r_x))
 
             py = clip_pad_center(p_y, r_x.shape)
             px = clip_pad_center(p_x, r_y.shape)
