@@ -2,7 +2,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import numpy as np
-import torchgeometry.image as TGI
 
 
 def clip_pad_center(tensor, shape, pad_mode='constant', pad_value=0):
@@ -55,9 +54,10 @@ _gkernel = _gkernel.unsqueeze(0).unsqueeze(0)
 
 def smooth(t, smooth_std, device=None):
     if isinstance(smooth_std, (int,float)):
+        from .gaussian import get_gaussian_kernel2d
         smooth_ksize = int(np.ceil(3*smooth_std))
         smooth_ksize += 1-(smooth_ksize%2)
-        smooth_kernel = TGI.get_gaussian_kernel2d((smooth_ksize,smooth_ksize),(smooth_std,smooth_std))\
+        smooth_kernel = get_gaussian_kernel2d((smooth_ksize,smooth_ksize),(smooth_std,smooth_std))\
                            .unsqueeze(0).unsqueeze(0)
         if device is not None:
             smooth_kernel = smooth_kernel.to(device)
