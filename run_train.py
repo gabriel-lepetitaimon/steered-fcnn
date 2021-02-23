@@ -219,7 +219,7 @@ def load_dataset(cfg):
             d = self.geo_aug(image=img, mask=m)
             r = {'x': d['image'][:6],
                  'principal_direction': d['image'][6:],
-                 'y': d['mask']%16,
+                 'y': (d['mask']%16).int(),
                  'mask': d['mask']//16}
             return r
 
@@ -249,7 +249,7 @@ def load_dataset(cfg):
             d = self.geo_aug(image=img, mask=m)
             r = {'x': d['image'][:6],
                  'principal_direction': d['image'][6:],
-                 'y': d['mask'] % 16,
+                 'y': (d['mask'] % 16).int(),
                  'mask': d['mask']//16}
             return r
 
