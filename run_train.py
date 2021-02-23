@@ -131,8 +131,8 @@ def setup_log(cfg):
     mlflow.set_experiment(cfg['experiment']['name'] if not cfg['script-arguments'].debug else 'DEBUG_RUNS')
     mlflow.pytorch.autolog(log_models=False)
     tags = cfg.experiment.tags.to_dict()
-    tags['sub-experiment'] = cfg.experiment['sub-experiment']
-    tags['sub-experiment-id'] = str(cfg.experiment['sub-experiment-id'])
+    tags['subexp'] = cfg.experiment['sub-experiment']
+    tags['subexpID'] = str(cfg.experiment['sub-experiment-id'])
     mlflow.start_run(run_name=cfg.trial.name, tags=tags)
 
     # --- CREATE TMP ---
@@ -165,6 +165,9 @@ def setup_log(cfg):
                 mlflow.log_param(f'DA.{k} {k1}', v1)
         else:
             mlflow.log_param(f'DA.{k}', v)
+
+    mlflow.log_param('training.file', cfg.training['dataset-file'])
+    mlflow.log_param('training.dataset', cfg.training['training-dataset'])
 
     return tmp
 
