@@ -369,16 +369,16 @@ class RotConv2d(nn.Module):
 
 
 class RotConvBN(nn.Module):
-    def __init__(self, kernel_half_height, n_in, n_out=None,stride=1, padding=0, dilation=1, groups=1, 
-                 bn=False, relu=True, squeeze=False, profile='default'):
+    def __init__(self, kernel_half_height, n_in, n_out=None,stride=1, padding=0, dilation=1, groups=1,
+                 bn=False, relu=True, squeeze=False, profile='default', sym_kernel='circ'):
         super(RotConvBN, self).__init__()
         
         self._bn = bn
         if n_out is None:
             n_out = n_in
         
-        self.conv = RotConv2d(kernel_half_height, n_in, n_out, stride=stride, 
-                              padding=padding, bias=(not bn and not squeeze), dilation=dilation)
+        self.conv = RotConv2d(kernel_half_height, n_in, n_out, stride=stride, profile=profile, groups=groups,
+                              padding=padding, bias=(not bn and not squeeze), dilation=dilation, sym_kernel=sym_kernel)
         bn_relu = []
         if squeeze:
             bn_relu += [nn.Conv2d(3*n_out,n_out,kernel_size=1, bias=not bn)]

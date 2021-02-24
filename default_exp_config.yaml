@@ -10,6 +10,7 @@ model:
     depth: 2
     rot-eq: False
     padding: 0
+    sym-kernel: 'circ'   # 'circ' / 'ortho'
     rotconv-squeeze: True
     principal-direction-smooth: 3
     principal-direction-hessian-threshold: 1
@@ -19,6 +20,7 @@ model:
 training:
     dataset-file: 'vessels.h5'
     training-dataset: 'DRIVE'
+    training-dataset-factor: 8
     max-epoch: 30
     val-every-n-epoch: 1
     half-precision: False

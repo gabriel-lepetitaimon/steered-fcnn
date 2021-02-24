@@ -259,7 +259,7 @@ def load_dataset(cfg):
     batch_size=cfg['hyper-parameters']['batch-size']
     train_dataset = cfg.training['training-dataset']
     dataset_file = cfg.training['dataset-file']
-    trainD = DataLoader(TrainDataset('train/'+train_dataset, file=dataset_file, factor=8*3),
+    trainD = DataLoader(TrainDataset('train/'+train_dataset, file=dataset_file, factor=cfg.training['training-dataset-factor']),
                         pin_memory=True, shuffle=True,
                         batch_size=batch_size,
                         num_workers=batch_size)
@@ -280,7 +280,8 @@ def setup_model(model_cfg):
                                rotconv_squeeze=model_cfg['rotconv-squeeze'],
                                static_principal_direction=model_cfg['static-principal-direction'],
                                principal_direction_smooth=model_cfg['principal-direction-smooth'],
-                               principal_direction_hessian_threshold=model_cfg['principal-direction-hessian-threshold'])
+                               principal_direction_hessian_threshold=model_cfg['principal-direction-hessian-threshold'],
+                               sym_kernel=model_cfg['sym-kernel'])
     else:
         model = HemelingNet(6, nfeatures_base=model_cfg['nfeatures-base'],
                                padding=model_cfg['padding'],
