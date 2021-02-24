@@ -194,7 +194,7 @@ def load_dataset(cfg):
 
             self.geo_aug = A.Compose([
                 #A.PadIfNeeded(800, 800, value=0, border_mode=cv2.BORDER_CONSTANT),
-                A.RandomCrop(da_config['crop-size'], da_config['crop-size']),
+                #A.RandomCrop(da_config['crop-size'], da_config['crop-size']),
                 A.HorizontalFlip(p=0.5),
                 A.Rotate(limit=(-180, 180)),
                 A.ElasticTransform(alpha=da_config['elastic-transform']['alpha'],
