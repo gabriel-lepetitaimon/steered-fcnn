@@ -43,7 +43,7 @@ def run_train():
 
     modelCheckpoints = {}
     for metric in ('val-acc', 'val-roc', 'val-iou'):
-        checkpoint = ModelCheckpoint(tmp_path+'/best-'+metric, monitor=metric, mode='max')
+        checkpoint = ModelCheckpoint(tmp_path+f'/best-{metric}.ckpt', monitor=metric, mode='max')
         modelCheckpoints[metric] = checkpoint
         callbacks.append(checkpoint)
 

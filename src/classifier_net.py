@@ -154,10 +154,9 @@ class ExportValidation(Callback):
         y = (batch['y']!=0).float()
         y_pred = outputs.detach().cpu()>.5
         y = clip_pad_center(y, y_pred.shape)
-        
-        dirname = os.path.dirname(self.path)
-        if not os.path.exists(dirname):
-            os.makedirs(dirname)
+
+        if not os.path.exists(self.path):
+            os.makedirs(self.path)
         
         diff = torch.stack((y, y_pred), dim=1)
         diff = diff.numpy()
@@ -178,9 +177,8 @@ class ExportValidation(Callback):
         y_pred = outputs.detach().cpu()>.5
         y = clip_pad_center(y, y_pred.shape)
 
-        dirname = os.path.dirname(self.path)
-        if not os.path.exists(dirname):
-            os.makedirs(dirname)
+        if not os.path.exists(self.path):
+            os.makedirs(self.path)
 
         diff = torch.stack((y, y_pred), dim=1)
         diff = diff.numpy()
