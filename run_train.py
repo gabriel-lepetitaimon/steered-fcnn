@@ -264,7 +264,7 @@ def load_dataset(cfg):
     trainD = DataLoader(TrainDataset('train/'+train_dataset, file=dataset_file, factor=cfg.training['training-dataset-factor']),
                         pin_memory=True, shuffle=True,
                         batch_size=batch_size,
-                        num_workers=batch_size)
+                        num_workers=cfg.training['num-worker'])
     validD = DataLoader(TestDataset('val/'+train_dataset, file=dataset_file),
                         pin_memory=True, num_workers=6, batch_size=6)
     testD = {_: DataLoader(TestDataset('test/'+_, file=dataset_file),

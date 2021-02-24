@@ -184,5 +184,5 @@ class ExportValidation(Callback):
         diff = diff.numpy()
         for i, diff_img in enumerate(diff):
             diff_img = (self.color_lut(diff_img).transpose(1, 2, 0) * 255).astype(np.uint8)
-            path = abspath(os.path.join(self.path, f'test{batch_idx}-{i}.png'))
+            path = abspath(os.path.join(self.path, f'test{dataloader_idx}-{i}.png'))
             cv2.imwrite(path, diff_img)
