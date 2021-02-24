@@ -192,7 +192,7 @@ def load_dataset(cfg):
             self.mask = DATA.get(f'{dataset}/mask')
 
             self.geo_aug = A.Compose([
-                A.PadIfNeeded(700, 700, value=0, border_mode=cv2.BORDER_CONSTANT),
+                A.PadIfNeeded(800, 800, value=0, border_mode=cv2.BORDER_CONSTANT),
                 A.RandomCrop(da_config['crop-size'], da_config['crop-size']),
                 A.HorizontalFlip(p=0.5),
                 A.Rotate(limit=(-180, 180)),
@@ -238,7 +238,7 @@ def load_dataset(cfg):
             self.av = DATA.get(f'{dataset}/av')
             self.field = DATA.get(f'{dataset}/radial-field')
             self.mask = DATA.get(f'{dataset}/mask')
-            self.geo_aug = A.Compose([A.PadIfNeeded(700, 700, value=0, border_mode=cv2.BORDER_CONSTANT),
+            self.geo_aug = A.Compose([A.PadIfNeeded(800, 800, value=0, border_mode=cv2.BORDER_CONSTANT),
                                       ToTensorV2()])
             self._data_length = len(self.data)
 
