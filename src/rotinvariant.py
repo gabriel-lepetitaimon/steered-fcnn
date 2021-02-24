@@ -383,9 +383,9 @@ class RotConvBN(nn.Module):
         f_out = 3 if sym_kernel=='circ' else 4
         if squeeze:
             bn_relu += [nn.Conv2d(f_out*n_out, n_out, kernel_size=1, bias=not bn)]
-            self.n_out = f_out*n_out
-        else:
             self.n_out = n_out
+        else:
+            self.n_out = f_out*n_out
         if bn:
             bn_relu += [nn.BatchNorm2d(self.n_out)]
             if relu:
