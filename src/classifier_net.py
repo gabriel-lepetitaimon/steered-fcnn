@@ -66,7 +66,7 @@ class BinaryClassifierNet(pl.LightningModule):
 
         return {
             'loss': self.loss_f(y_hat, y),
-            'ypred': y_pred,
+            'y_pred': y_pred,
             'y_hat': y_hat,
             'y': y,
             'y_sig': y_sig,
