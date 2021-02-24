@@ -93,7 +93,7 @@ class BinaryClassifierNet(pl.LightningModule):
         metrics = result['metrics']
         #metrics['acc'] = self.val_accuracy(result['y_sig'] > 0.5, result['y'])
         self.log_metrics(metrics, 'val')
-        return result['y_hat']
+        return result['y_pred']
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
         result = self._validate(batch)
@@ -102,7 +102,7 @@ class BinaryClassifierNet(pl.LightningModule):
         if self.testset_names:
             prefix = self.testset_names[dataloader_idx]
         self.log_metrics(metrics, prefix)
-        return result['y_hat']
+        return result['y_pred']
 
     def configure_optimizers(self):
         opt = self.optimizer
