@@ -211,19 +211,21 @@ def load_dataset(cfg):
 
         def __getitem__(self, i):
             i = i % self._data_length
-            princ_dir = self.field[i]
-            if cfg['model']['static-principal-direction'] == 'normalized':
-                princ_dir /= np.sqrt(princ_dir[0]**2+princ_dir[1]**2) + 1e-5
-            img = np.concatenate(
-                    [self.data[i].transpose(1, 2, 0),
-                     princ_dir.transpose(1, 2, 0)],
-                    axis=2)
+            img = [self.data[i].transpose(1, 2, 0)]
+            princ_dir_mode = cfg['model']['static-principal-direction']
+            if princ_dir_mode:
+                princ_dir = self.field[i]
+                if princ_dir_mode == 'normalized':
+                    princ_dir /= np.sqrt(princ_dir[0]**2+princ_dir[1]**2) + 1e-5
+                img += [princ_dir.transpose(1, 2, 0)]
+            img = np.concatenate(img, axis=2)
             m = 1*(self.av[i]!=0)+self.mask[i]*16
             d = self.geo_aug(image=img, mask=m)
             r = {'x': d['image'][:6],
-                 'principal_direction': d['image'][6:],
                  'y': (d['mask']%16).int(),
                  'mask': d['mask']//16}
+            if princ_dir_mode:
+                r['principal_direction'] = d['image'][6:]
             return r
 
     class TestDataset(Dataset):
