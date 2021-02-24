@@ -75,6 +75,7 @@ class BinaryClassifierNet(pl.LightningModule):
 
     def metrics(self, y_sig, y):
         y_pred = y_sig > 0.5
+        y = y.int()
         return {
             'acc': metricsF.accuracy(y_pred, y),
             'roc': metricsF.auroc(y_sig, y),
