@@ -333,8 +333,8 @@ class ConvBN(nn.Module):
         if n_out is None:
             n_out = n_in
 
-        if padding=='auto':
-            padding = tuple(_//2 for _ in kernel.shape[-2])
+        if padding == 'auto':
+            padding = kernel//2, kernel//2
 
         model = [nn.Conv2d(n_in, n_out, kernel_size=kernel, stride=stride, padding=padding, bias=False,
                            dilation=dilation)]
