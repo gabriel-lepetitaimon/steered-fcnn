@@ -133,7 +133,8 @@ def setup_log(cfg):
     tags = cfg.experiment.tags.to_dict()
     tags['subexp'] = cfg.experiment['sub-experiment']
     tags['subexpID'] = str(cfg.experiment['sub-experiment-id'])
-    mlflow.start_run(run_name=cfg.trial.name, tags=tags)
+    run_name = f"{cfg.experiment['sub-experiment']}{cfg.experiment['sub-experiment-id']}-{cfg.trial.id:02}"
+    mlflow.start_run(run_name=run_name, tags=tags)
 
     # --- CREATE TMP ---
     tmp = tempfile.TemporaryDirectory(dir=cfg['script-arguments']['tmp-dir'])
