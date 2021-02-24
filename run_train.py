@@ -165,7 +165,7 @@ def setup_log(cfg):
                 mlflow.log_param(f'DA.{k} {k1}', v1)
         else:
             mlflow.log_param(f'DA.{k}', v)
-
+    mlflow.log_param('dropout', cfg['hyper-parameters']['drop-out'])
     mlflow.log_param('training.file', cfg.training['dataset-file'])
     mlflow.log_param('training.dataset', cfg.training['training-dataset'])
 
