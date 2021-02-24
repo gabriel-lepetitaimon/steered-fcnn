@@ -31,7 +31,7 @@ class BinaryClassifierNet(pl.LightningModule):
 
     def compute_y_yhat(self, batch):
         x = batch['x']
-        y = (batch['y']!=0).float()
+        y = (batch['y']!=0).int()
         y_hat = self.model(x, **{k: v for k,v in batch.items() if k not in ('x','y','mask')}).squeeze(1)
         y = clip_pad_center(y, y_hat.shape)
 
@@ -45,8 +45,8 @@ class BinaryClassifierNet(pl.LightningModule):
             y_hat = y_hat[mask].flatten()
             y = y[mask].flatten()
         
-        loss = self.loss_f(y, y_hat)
-        self.log('train-loss', loss)
+        loss = self.loss_f(y_hat, y)
+        self.log('train-loss', loss.detach().cpu().item())
         return loss
 
     def _validate(self, batch):
@@ -75,7 +75,6 @@ class BinaryClassifierNet(pl.LightningModule):
 
     def metrics(self, y_sig, y):
         y_pred = y_sig > 0.5
-        y = y.int()
         return {
             'acc': metricsF.accuracy(y_pred, y),
             'roc': metricsF.auroc(y_sig, y),
@@ -86,14 +85,15 @@ class BinaryClassifierNet(pl.LightningModule):
         if prefix and not prefix.endswith('-'):
             prefix += '-'
         for k, v in metrics.items():
-            self.log(prefix+k, v)
+            #print(prefix+k, v.cpu().item())
+            self.log(prefix+k, v.cpu().item())
 
     def validation_step(self, batch, batch_idx):
         result = self._validate(batch)
         metrics = result['metrics']
         #metrics['acc'] = self.val_accuracy(result['y_sig'] > 0.5, result['y'])
         self.log_metrics(metrics, 'val')
-        return result
+        return result['y_hat']
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
         result = self._validate(batch)
@@ -102,7 +102,7 @@ class BinaryClassifierNet(pl.LightningModule):
         if self.testset_names:
             prefix = self.testset_names[dataloader_idx]
         self.log_metrics(metrics, prefix)
-        #return result
+        return result['y_hat']
 
     def configure_optimizers(self):
         opt = self.optimizer
@@ -145,16 +145,14 @@ class ExportValidation(Callback):
         super(ExportValidation, self).__init__()
         self.color_lut = prepare_lut(color_map, source_dtype=np.int)
         self.path = path
-        if self.path.endswith('/'):
-            self.path += 'val%i.png'
     
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         import os
         import cv2
-        import mlflow
+
         x = batch['x']
         y = (batch['y']!=0).float()
-        y_pred = outputs['ypred'].detach().cpu()
+        y_pred = outputs.detach().cpu()>.5
         y = clip_pad_center(y, y_pred.shape)
         
         dirname = os.path.dirname(self.path)
@@ -165,6 +163,28 @@ class ExportValidation(Callback):
         diff = diff.numpy()
         for i, diff_img in enumerate(diff):
             diff_img = (self.color_lut(diff_img).transpose(1, 2, 0) * 255).astype(np.uint8)
-            path = abspath(self.path % i)
+            path = abspath(os.path.join(self.path, f'/val{i}.png'))
             cv2.imwrite(path, diff_img)
-            mlflow.log_artifact(path)
+
+    def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        import os
+        import cv2
+
+        if batch_idx:
+            return
+
+        x = batch['x']
+        y = (batch['y']!=0).float()
+        y_pred = outputs.detach().cpu()>.5
+        y = clip_pad_center(y, y_pred.shape)
+
+        dirname = os.path.dirname(self.path)
+        if not os.path.exists(dirname):
+            os.makedirs(dirname)
+
+        diff = torch.stack((y, y_pred), dim=1)
+        diff = diff.numpy()
+        for i, diff_img in enumerate(diff):
+            diff_img = (self.color_lut(diff_img).transpose(1, 2, 0) * 255).astype(np.uint8)
+            path = abspath(os.path.join(self.path, f'test{batch_idx}-{i}.png'))
+            cv2.imwrite(path, diff_img)

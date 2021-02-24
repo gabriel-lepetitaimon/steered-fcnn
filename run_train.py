@@ -65,7 +65,7 @@ def run_train():
 
     net.eval()
     tester = pl.Trainer(gpus=args.gpus,
-                        #callbacks=[ExportValidation({(0,0): 'black', (1,1): 'white', (1,0): 'orange', (0,1): 'apple_green'}, path=f'{tmp_path}/')],
+                        callbacks=[ExportValidation({(0,0): 'black', (1,1): 'white', (1,0): 'orange', (0,1): 'apple_green'}, path=tmp_path)],
                         )
     net.testset_names, testD = list(zip(*testD.items()))
 
