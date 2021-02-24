@@ -217,7 +217,7 @@ class RotConv2d(nn.Module):
         #Bias
         self.u_bias = nn.Parameter(torch.zeros(n_out)) if bias else None
         self.v_bias = nn.Parameter(torch.zeros(n_out)) if bias else None
-        self.o_bias = nn.Parameter(torch.zeros(n_out)) if bias else None
+        self.o_bias = nn.Parameter(torch.zeros(n_out * (2 if sym_kernel != 'circ' else 1))) if bias else None
         
         # Profile
         if profile == 'default':
@@ -248,7 +248,7 @@ class RotConv2d(nn.Module):
         else:
             symW  = RotConv2d.half2sym( self.sym_half_weight, self.profile)
             oy, ox = RotConv2d.ortho_conv2d(x, symW, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
-            o = torch.stack([oy,ox], 0).norm(dim=0)
+            o = torch.cat([oy,ox], 1)
         o = clip_pad_center(o, u.shape)
         # Bias
         if self.u_bias is not None:
@@ -380,10 +380,14 @@ class RotConvBN(nn.Module):
         self.conv = RotConv2d(kernel_half_height, n_in, n_out, stride=stride, profile=profile, groups=groups,
                               padding=padding, bias=(not bn and not squeeze), dilation=dilation, sym_kernel=sym_kernel)
         bn_relu = []
+        f_out = 3 if sym_kernel=='circ' else 4
         if squeeze:
-            bn_relu += [nn.Conv2d(3*n_out,n_out,kernel_size=1, bias=not bn)]
+            bn_relu += [nn.Conv2d(f_out*n_out, n_out, kernel_size=1, bias=not bn)]
+            self.n_out = f_out*n_out
+        else:
+            self.n_out = n_out
         if bn:
-            bn_relu += [nn.BatchNorm2d(n_out*(1 if squeeze else 3))]
+            bn_relu += [nn.BatchNorm2d(self.n_out)]
             if relu:
                 bn_relu += [nn.ReLU()]
         elif relu:

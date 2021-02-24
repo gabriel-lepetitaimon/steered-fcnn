@@ -128,8 +128,8 @@ class HemelingRotNet(nn.Module):
         n3 = nfeatures_base * 4
         n4 = nfeatures_base * 8
         n5 = nfeatures_base * 16
-        
-        o = 1 if rotconv_squeeze else 3
+
+        o = 1 if rotconv_squeeze else (3 if sym_kernel == 'circ' else 4)
         
         # Down
         self.conv1 = nn.ModuleList(

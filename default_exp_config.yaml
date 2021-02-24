@@ -8,8 +8,8 @@ model:
     nfeatures-base: 16
     half-kernel-height: 3
     depth: 2
-    rot-eq: False
     padding: 0
+    rot-eq: False
     sym-kernel: 'circ'   # 'circ' / 'ortho'
     rotconv-squeeze: True
     principal-direction-smooth: 3
