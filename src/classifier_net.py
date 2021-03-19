@@ -22,7 +22,7 @@ class BinaryClassifierNet(pl.LightningModule):
             from .losses import binary_dice_loss
             self.loss_f = lambda y_hat, y: binary_dice_loss(torch.sigmoid(y_hat), y)
         else:
-            self.loss_f = lambda y_hat, y: F.binary_cross_entropy_with_logits(y_hat, y)
+            self.loss_f = lambda y_hat, y: F.binary_cross_entropy_with_logits(y_hat, y.float())
         if optimizer is None:
             optimizer = {'type': 'Adam'}
         self.optimizer = optimizer

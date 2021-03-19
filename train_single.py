@@ -62,13 +62,13 @@ def run_experiment(cfg_path, env=None):
 
         orion_opt = " "
         if bool(env.get('TRIAL_DEBUG', False)):
-            orion_opt += "--debug "
+            orion_opt += "--debug --exp-max-trials 1"
         print(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}" '
                   f'python3 run_train.py --config "{cfg_path}"')
         os.system(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}" '
                   f'python3 run_train.py --config "{cfg_path}"')
 
-    return True
+    return not bool(env.get('TRIAL_DEBUG', False))
 
 
 if __name__ == '__main__':

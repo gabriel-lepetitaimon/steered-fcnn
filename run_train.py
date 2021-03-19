@@ -43,7 +43,7 @@ def run_train():
 
     modelCheckpoints = {}
     for metric in ('val-acc', 'val-roc', 'val-iou'):
-        checkpoint = ModelCheckpoint(tmp_path, filename='best-'+metric, monitor=metric, mode='max')
+        checkpoint = ModelCheckpoint(dirpath=tmp_path+'/', filename='best-'+metric, monitor=metric, mode='max')
         modelCheckpoints[metric] = checkpoint
         callbacks.append(checkpoint)
 
@@ -103,6 +103,8 @@ def parse_arguments():
     cfg['trial'] = AttributeDict(id=int(os.getenv('TRIAL_ID'), 0),
                                  name=os.getenv('ORION_EXPERIMENT_NAME', 'trial-name'),
                                  version=os.getenv('ORION_EXPERIMENT_VERSION', 0))
+    if script_args.debug:
+        cfg.training['max-epoch'] = 1
     return cfg
 
 
