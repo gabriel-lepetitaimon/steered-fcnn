@@ -3,8 +3,8 @@ from torch import nn
 import torch.nn.functional as F
 import numpy as np
 
-from .rotinvariant import RotConvBN
-from .rotinvariant import principal_direction as compute_pdir
+from .steered_cnn import RotConvBN
+from .steered_cnn import principal_direction as compute_pdir
 
 
 class HemelingNet(nn.Module):

@@ -1,5 +1,4 @@
 import numpy as np
-import torch
 import math
 import matplotlib.pyplot as plt
 import matplotlib.scale as mscale
@@ -7,8 +6,7 @@ import matplotlib.transforms as mtransforms
 import matplotlib.ticker as ticker
 plt.rcParams["figure.figsize"] = (18, 5)
 from skimage.transform import rotate as imrotate
-from scipy.ndimage import gaussian_filter, convolve1d, convolve
-import cv2
+
 
 def polar_space(size, center=None):
     if isinstance(size, int):
@@ -18,27 +16,35 @@ def polar_space(size, center=None):
         
     y = np.linspace(-center[0], size[0]-center[0], size[0])
     x = np.linspace(-center[1], size[1]-center[1], size[1])
-    y,x = np.meshgrid(y,x)
+    y, x = np.meshgrid(y, x)
     rho = np.sqrt(x**2 + y**2)
     phi = np.arctan2(y, x)
     return rho, phi
 
-def radial_steerable_filter(size, k, r, std=.5):
+
+def radial_steerable_filter(size, k, r, std=.5, sum=0):
     rho, phi = polar_space(size)
     G = np.exp(-(rho-r)**2/(2 * std**2))
+    if k != 0:
+        G[rho==0] *= 0
     PHI = np.exp(1j*k*phi)
-    return G*PHI
+
+    f = G*PHI
+    if sum:
+        f = f/f.sum()*sum
+    return f
+
 
 def plot_field(vy, vx, vr=None, mask=None, clip_norm=1, background=None):
     if vr is None:
         vr = np.sqrt(np.square(vx)+np.square(vy))
-        vr = np.clip(vr/vr.max(),0.0000001,clip_norm)
+        vr = np.clip(vr/vr.max(), 0.0000001, clip_norm)
         vy = vy/vr
         vx = vx/vr
     else:
-        vr = np.clip(vr/vr.max(),0.0000001,clip_norm)
-    vy = vy * np.log(1+np.abs(vr))**.5 *2
-    vx = vx * np.log(1+np.abs(vr))**.5 *2
+        vr = np.clip(vr/vr.max(), 0.0000001, clip_norm)
+    vy = vy * np.log(1+np.abs(vr))**.5 * 2
+    vx = vx * np.log(1+np.abs(vr))**.5 * 2
     
     fig, ax = plt.subplots()
     if background is not None:
@@ -52,13 +58,14 @@ def plot_field(vy, vx, vr=None, mask=None, clip_norm=1, background=None):
         r = vr[mask!=0]
         v = vy[mask!=0]
         u = vx[mask!=0]
-        y,x = mask.nonzero()
-        ax.quiver( x, y, u, -v, r, cmap='copper')
+        y, x = mask.nonzero()
+        ax.quiver(x, y, u, -v, r, cmap='copper')
     else:
-        ax.quiver( vx, -vy, vr, cmap='copper')
-    fig.set_size_inches(18,18)
+        ax.quiver(vx, -vy, vr, cmap='copper')
+    fig.set_size_inches(18, 18)
     fig.show()
-    
+
+
 def plot_filter(F, axis=True, spd=False):
     h, w = F.shape
     v = max(F.max(), -F.min())
@@ -67,14 +74,14 @@ def plot_filter(F, axis=True, spd=False):
         spd = 16
     
     if spd:
-        fig, (ax_filt, ax_spd) = plt.subplots(1,2);
+        fig, (ax_filt, ax_spd) = plt.subplots(1, 2)
     else:
-        fig, ax_filt = plt.subplots();
+        fig, ax_filt = plt.subplots()
 
     # --- PLOT FILTER ---
     im = ax_filt.imshow(F, interpolation='none', vmin=-v, vmax=v, aspect='equal', cmap='RdGy')
     if axis:
-            # Major ticks
+        # Major ticks
         ax_filt.set_xticks(np.arange(0, w, 1))
         ax_filt.set_yticks(np.arange(0, h, 1))
 
@@ -99,7 +106,8 @@ def plot_filter(F, axis=True, spd=False):
         polar_spectral_power(F, plot=ax_spd, theta=spd)
     fig.tight_layout(w_pad=-3)
     fig.show()
-    
+
+
 DEFAULT_ANGLE = np.arange(10,360,10)
 def rotate(arr, angles=None):
     shape = arr.shape
@@ -107,21 +115,21 @@ def rotate(arr, angles=None):
         angles = DEFAULT_ANGLE
     if isinstance(angles, int):
         angles = np.linspace(0, 360, angles, endpoint=False)[1:]
-    arr = arr.reshape((-1,)+arr.shape[-2:]).transpose((1,2,0))
+    arr = arr.reshape((-1,)+arr.shape[-2:]).transpose((1, 2, 0))
     arr = np.stack([arr]+[imrotate(arr, -a) for a in angles])
-    return arr.transpose((0,3,1,2)).reshape((len(angles)+1,)+shape)
+    return arr.transpose((0, 3, 1, 2)).reshape((len(angles)+1,)+shape)
 
 
-def unrotate(arr:'θ.hw', angles=None)->'θ.hw':
+def unrotate(arr: 'θ.hw', angles=None) -> 'θ.hw':
     shape = arr.shape
     if angles is None:
         angles = DEFAULT_ANGLE
     if isinstance(angles, int):
-        angles = np.linspace(0,360, angles)[1:]
-    arr = arr.reshape((arr.shape[0],-1)+arr.shape[-2:]).transpose((0,2,3,1))
-    arr = np.stack([arr[0]]+
-                    [imrotate(ar, ang) for ar, ang in zip(arr[1:],angles)])
-    return arr.transpose((0,3,1,2)).reshape(shape)
+        angles = np.linspace(0, 360, angles)[1:]
+    arr = arr.reshape((arr.shape[0], -1)+arr.shape[-2:]).transpose((0, 2, 3, 1))
+    arr = np.stack([arr[0]] +
+                   [imrotate(ar, ang) for ar, ang in zip(arr[1:], angles)])
+    return arr.transpose((0, 3, 1, 2)).reshape(shape)
 
 
 def polar_spectral_power(arr: '.hw', theta=8, plot=False, split=False):
@@ -168,7 +176,6 @@ def spectral_power(arr: 'θ.hw', plot=False, split=False):
         plot.spines['right'].set_visible(False)
         plot.spines['left'].set_visible(False)
 
-        #plot.set_xlabel('Polar harmonic')
         plot.set_xticks(np.arange(0, N, 1))
         xlabels = ['Equivariant','$2\pi$', '$\pi$'][:min(3,N)]
         xlabels += ['$\dfrac{2\pi}{%i}$'%_ if _%2 else '$\dfrac{\pi}{%i}$'%(_//2)
@@ -183,11 +190,11 @@ def spectral_power(arr: 'θ.hw', plot=False, split=False):
         if scale:
             plot.set_yscale(scale)
         plot.grid(which='minor', color='#bbbbbb', linestyle='-', linewidth=1, zorder=1)
-        
-            
+
         if fig is not None:
             fig.show()
     return spe
+
 
 def field_unrotate(arrs, angles=None, reproject=True):
     if angles is None:
@@ -210,6 +217,7 @@ def field_unrotate(arrs, angles=None, reproject=True):
     else:
         return theta, r
 
+
 def simplify_angle(angles, mod=1, deg=True):
     mod = (360 if deg else 2*np.pi)/mod
     angles = np.mod(angles, mod)
@@ -217,6 +225,7 @@ def simplify_angle(angles, mod=1, deg=True):
     a_idx = np.argmin(np.abs(angles), axis=0)
     angles = np.take_along_axis(angles, np.expand_dims(a_idx, axis=0), axis=0).squeeze(0)
     return angles
+
 
 def weighted_avg_and_std(values, weights):
     """
@@ -227,6 +236,7 @@ def weighted_avg_and_std(values, weights):
     average = np.average(values, weights=weights)
     variance = np.average((values-average)**2, weights=weights)
     return (average, math.sqrt(variance))
+
 
 def field_reconstruction_error(arrs, angles=None, plot=True, imshow=False, mask=None, reproject=False, angle_mod=1, norm_threshold=0):
     if angles is None:
@@ -368,7 +378,8 @@ class SquareRootScale(mscale.ScaleBase):
  
     def get_transform(self):
         return self.SquareRootTransform()
-    
+
+
 class SquareScale(mscale.ScaleBase):
     """
     ScaleBase class for generating square root scale.
