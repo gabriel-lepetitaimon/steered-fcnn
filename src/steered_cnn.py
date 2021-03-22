@@ -2,26 +2,215 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import numpy as np
-from torch_utils import *
+from .torch_utils import *
 from .rot_utils import radial_steerable_filter
+from .reparametrized_cnn import KernelBase
 
 
-_STEERABLE_FILTERS = tuple(
-                        torch.from_numpy([radial_steerable_filter(2*r+1, k, r, .5, sum=1)
-                            for k in range(1, (2, 4)[r])])
-                        for r in (1, 2))
-_RADIAL_FILTERS = tuple(
-                    torch.from_numpy([radial_steerable_filter(2*r+1, 0, r, .5, sum=1)])
-                    for r in (0, 1, 2))
+# _STEERABLE_FILTERS = tuple(
+#                         torch.from_numpy([radial_steerable_filter(2*r+1, k, r, .5, sum=1)
+#                             for k in range(1, (2, 4)[r])])
+#                         for r in (1, 2))
+# _RADIAL_FILTERS = tuple(
+#                     torch.from_numpy([radial_steerable_filter(2*r+1, 0, r, .5, sum=1)])
+#                     for r in (0, 1, 2))
 
 
-BaseFilter
+class SteerableOrthoKernelBase(KernelBase):
+    def __init__(self, base: 'list(np.array) [n][f,h,w]',
+                 base_x: 'list(np.array) [n][2*f,h,w]', base_y: 'list(np.array) [n][2*f,h,w]'):
+        super(SteerableOrthoKernelBase, self).__init__(base+base_x+base_y)
+        self.R_equi = len(base)
+        self.R_ortho = len(base_x)
+        assert len(base_x) == len(base_y) and all(bx.shape==by.shape for bx,by in zip(base_x, base_y)), \
+            'base_x and base_y should have the same length and shape.'
+        self.k_equi = sum(b.shape[0] for b in base)
+        self.k_ortho = sum(b.shape[0] for b in base_y)
+
+    def equi_slice(self):
+        return slice(None, self.R_equi)
+
+    def x_slice(self):
+        return slice(self.R_equi, self.R_equi+self.R_ortho)
+
+    def y_slice(self):
+        return slice(self.R_equi+self.R_ortho, None)
+
+    @property
+    def base_equi(self):
+        return self.base[self.equi_slice()]
+
+    @property
+    def base_x(self):
+        return self.base[self.x_slice()]
+
+    @property
+    def base_y(self):
+        return self.base[self.y_slice()]
+
+    def create_params(self, n_in, n_out):
+        w = nn.Parameter(torch.empty((n_out, n_in, self.k_equi)), requires_grad=True)
+        b = np.sqrt(3/(n_in*self.k_ortho))
+        nn.init.uniform_(w, -b, b)
+
+        w_x = nn.Parameter(torch.empty((n_out, n_in, self.k_ortho)), requires_grad=True)
+        b = np.sqrt(3/(n_in*self.k_ortho*2))
+        nn.init.uniform_(w_x, -b, b)
+
+        w_y = nn.Parameter(torch.empty((n_out, n_in, self.k_ortho)), requires_grad=True)
+        b = np.sqrt(3/(n_in*self.k_ortho*2))
+        nn.init.uniform_(w_y, -b, b)
+        return torch.cat((w, w_x, w_y), dim=2)
+
+    @staticmethod
+    def create_from_complex(ortho_base: 'list(np.ndarray) [n][f, h, w]', base: 'list(np.ndarray) [n][f, h, w]'=()):
+        base_x = []
+        base_y = []
+        for b in ortho_base:
+            base_x.append(b.real)
+            base_y.append(b.imag)
+        return SteerableOrthoKernelBase(base, base_x, base_y)
+
+    @staticmethod
+    def create_radial_steerable(rk, std=.5, sum=1):
+        """
+        rk: dictionnary mapping radius to a list of harmonics count:
+            r -> [k0, k1, ...]
+        return: A list of steerable filters with shape [r][k,h,w].
+        """
+        from .rot_utils import polar_space
+        K_ortho = []
+        K_equi = []
+        for r, Ks in rk.items():
+            if r == 0:
+                K_equi.append(np.ones((1, 1, 1)))
+            else:
+                size = r*2+1
+                rho, phi = polar_space(size)
+                G = np.exp(-(rho-r)**2/(2 * std**2))
+
+                kernels = []
+                for k in Ks:
+                    g = G[:]
+                    if k == 0:
+                        kernel = g
+                        if sum:
+                            kernel = kernel/kernel.sum()*sum
+                        K_equi.append(kernel[None, :, :])
+                    else:
+                        if k == 0:
+                            g[rho == 0] *= 0
+                        PHI = np.exp(1j*k*phi)
+                        kernel = g*PHI
+                        if sum:
+                            kernel = kernel/kernel.sum()*sum
+                        kernels.append(kernel)
+                if kernels:
+                    K_ortho.append(np.stack(kernels))
+        return SteerableOrthoKernelBase.create_from_complex(K_ortho, K_equi)
+
+    # --- Composite Kernels ---
+    def composite_ortho_kernels(self, weight: 'np.array [n_out, n_in, K+Kx+Ky]'):
+        K_x = None
+        K_y = None
+
+        k0 = 0
+        W = weight[..., self.equi_slice()]
+        Wx, Wy = weight[..., self.x_slice()], weight[..., self.y_slice()]
+        n_out, n_in, n_k = Wx.shape
+        for base_x, base_y in zip(self.base_x, self.base_y):
+            k, h_k, w_k = base_x.shape
+            bx = base_x.reshape(k, h_k*w_k)
+            by = base_y.reshape(k, h_k*w_k)
+            k1 = k0 + k
+            # W: [n_out,n_in,k0:k0+k] x K: [k,h,w] -> [n_out, n_in, h, w]
+
+            # F_x = sum (Wx * Kx - Wy - Ky)
+            kernel =  torch.matmul(Wx[:, :, k0:k1], bx).reshape(n_out, n_in, h_k, w_k)
+            kernel -= torch.matmul(Wy[:, :, k0:k1], by).reshape(n_out, n_in, h_k, w_k)
+            if K_x is None:
+                K_x = kernel
+            else:
+                K_x = sum(pad_tensors(K_x, kernel))
+
+            # F_y = -sum (W_y * f_x + W_x - f_y)
+            kernel = -torch.matmul(Wy[:,:,k0:k1], bx).reshape(n_out, n_in, h_k, w_k)
+            kernel -= torch.matmul(Wx[:,:,k0:k1], by).reshape(n_out, n_in, h_k, w_k)
+            if K_y is None:
+                K_y = kernel
+            else:
+                K_y = sum(pad_tensors(K_y, kernel))
+            k0 = k1
+        return KernelBase.composite_kernels(self.base_equi, W), K_x, K_y
+
+    def composite_kernels_conv2d(self, input: 'torch.Tensor [b,i,w,h]', weight: 'np.array [2, n_out, n_in, h, w]',
+                                 project: 'torch.Tensor [UV,b,j,h,w]' =None,
+                                 stride=1, padding='auto', dilation=1, groups=1):
+        W, Wx, Wy = self.composite_ortho_kernels(weight)
+
+        paddingX = get_padding(padding, W.shape)
+        R = F.conv2d(input, W, stride=stride, padding=paddingX, dilation=dilation, groups=groups)
+
+        paddingX = get_padding(padding, Wx.shape)
+        Rx = F.conv2d(input, Wx, stride=stride, padding=paddingX, dilation=dilation, groups=groups)
+
+        paddingY = get_padding(padding, Wy.shape)
+        Ry = F.conv2d(input, Wy, stride=stride, padding=paddingY, dilation=dilation, groups=groups)
+
+        if project is None:
+            return R, Rx, Ry
+        else:
+            px = project[0]
+            py = project[1]
+            return R+Rx*px+Ry*py
+
+    # --- Preconvolve Bases ---
+    def preconvolve_ortho_bases(self, input: 'torch.Tensor [b,i,w,h]', stride=1, padding='auto', dilation=1):
+        base  = KernelBase.preconvolve_base(input, self.base_equi, stride=stride, padding=padding, dilation=dilation)
+        baseX = KernelBase.preconvolve_base(input, self.base_x, stride=stride, padding=padding, dilation=dilation)
+        baseY = KernelBase.preconvolve_base(input, self.base_y, stride=stride, padding=padding, dilation=dilation)
+        return base, baseX, baseY
+
+    def preconvolved_base_conv2d(self, input: 'torch.Tensor [b,i,w,h]', weight: 'np.array [2, n_out, n_in, k]',
+                                 project: 'torch.Tensor [UV,b,j,h,w]'= None,
+                                 stride=1, padding='auto', dilation=1):
+        base, baseX, baseY = self.preconvolve_ortho_bases(input,
+                                                          stride=stride, padding=padding, dilation=dilation)
+        b, n_in, k, h, w = base.shape
+        n_out, n_in_w, k_w = weight.shape
+
+        assert n_in == n_in_w, f"The provided inputs and weights have different number of input neuron:\n " + \
+                               f"x.shape[1]=={n_in}, weigth.shape[1]=={n_in_w}."
+        assert 2*self.k_ortho+self.k_equi == k_w, f"The provided weights have an incorrect number of kernels:\n " + \
+                                                  f"weight.shape[2]=={k_w}, but should be {2*self.k_ortho+self.k_equi}."
+
+        K = base.permute(0, 3, 4, 1, 2).reshape(b, h, w, n_in*self.k_equi)
+        W = weight[..., self.equi_slice()].reshape(n_out, n_in*self.k_equi).transpose(0, 1)
+        f = torch.matmul(K, W).permute(0, 3, 1, 2)
+        K, W = None, None
+
+        Kx = baseX.permute(0, 3, 4, 1, 2).reshape(b, h, w, n_in*self.k_ortho)
+        Ky = baseY.permute(0, 3, 4, 1, 2).reshape(b, h, w, n_in*self.k_ortho)
+        Wx = weight[..., self.x_slice()].reshape(n_out, n_in*self.k_ortho).transpose(0, 1)
+        Wy = weight[..., self.y_slice()].reshape(n_out, n_in**self.k_ortho).transpose(0, 1)
+
+        # K:[b,h,w,n_in*k] x W:[n_in*k, n_out] -> [b,h,w,n_out]
+        fx = (torch.matmul(Kx, Wx) - torch.matmul(Ky, Wy)).permute(0, 3, 1, 2)  # [b,n_out,h,w]
+        fy = -(torch.matmul(Kx, Wy) + torch.matmul(Ky, Wx)).permute(0, 3, 1, 2)
+
+        if project is None:
+            return f, fx, fy
+        else:
+            u, v = project
+            f += clip_pad_center(u, fx.shape) * fx
+            f += clip_pad_center(v, fy.shape) * fy
+            return f
 
 
 class SteeredConv2d(nn.Module):
     def __init__(self, kernel_half_height, n_in, n_out=None,
                  stride=1, padding=0, dilation=1, groups=1, bias=True,
-                 ortho_filters=_STEERABLE_FILTERS, radial_filters=_RADIAL_FILTERS):
+                 ortho_filters=None, radial_filters=None):
         """
 
         :param kernel_half_height:
@@ -105,7 +294,7 @@ class SteeredConv2d(nn.Module):
                 raise ValueError('The provided steerable kernels list is empty.')
             phi_x, phi_y = SteeredConv2d.ortho_bases(x, w[0],
                                                      stride=stride, padding=padding, dilation=dilation, groups=groups)
-            phi
+
             for W in w[1:]:
                 Phi_x, Phi_y = SteeredConv2d.ortho_bases(x, W,
                                                          stride=stride, padding=padding, dilation=dilation, groups=groups)

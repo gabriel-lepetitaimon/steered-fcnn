@@ -49,19 +49,19 @@ def pad_tensors(t1, t2, pad_mode='constant', pad_value=0):
         return t1, t2
 
     def half_odd(v):
-        return v%2, v//2
+        return v//2, v % 2
 
     h1, w1 = t1.shape[-2:]
     h2, w2 = t2.shape[-2:]
 
     dh = h1-h2
     dh2 = max(dh, 0)
-    dh1, dh1_odd = half_odd(dh-dh2)
+    dh1, dh1_odd = half_odd(dh2-dh)
     dh2, dh2_odd = half_odd(dh2)
 
     dw = w1-w2
     dw2 = max(dw, 0)
-    dw1, dw1_odd = half_odd(dw-dw2)
+    dw1, dw1_odd = half_odd(dw2-dw)
     dw2, dw2_odd = half_odd(dw2)
 
     if dw1+dw1_odd or dh1+dh1_odd:
@@ -69,3 +69,12 @@ def pad_tensors(t1, t2, pad_mode='constant', pad_value=0):
     if dw2+dw2_odd or dh2+dh2_odd:
         t2 = F.pad(t2, (dh2, dh2+dh2_odd, dw2, dw2+dw2_odd), mode=pad_mode, value=pad_value)
     return t1, t2
+
+
+def get_padding(padding, shape):
+    if padding == 'auto':
+        hW, wW = shape[-2:]
+        padding = (hW//2, wW//2)
+    elif isinstance(padding, int):
+        padding = (padding, padding)
+    return padding
