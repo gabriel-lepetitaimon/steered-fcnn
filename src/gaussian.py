@@ -39,8 +39,8 @@ def get_gaussian_kernel(ksize: int, sigma: float) -> torch.Tensor:
     return window_1d
 
 
-def get_gaussian_kernel2d(ksize: Tuple[int, int],
-                          sigma: Tuple[float, float]) -> torch.Tensor:
+def get_gaussian_kernel2d(ksize: 'Tuple[int, int]',
+                          sigma: 'Tuple[float, float]') -> torch.Tensor:
     r"""Function that returns Gaussian filter matrix coefficients.
 
     Args:

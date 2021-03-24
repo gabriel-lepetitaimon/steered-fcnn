@@ -110,9 +110,8 @@ class HemelingNet(nn.Module):
 class HemelingRotNet(nn.Module):
 
     def __init__(self, n_in, n_out=1, nfeatures_base=6, half_kernel_height=3, depth=2,
-                 p_dropout=0, rotconv_squeeze=False, padding=0,
+                 p_dropout=0, padding=0,
                  static_principal_direction=False,
-                 sym_kernel='circ',
                  principal_direction='all', principal_direction_smooth=3, principal_direction_hessian_threshold=1):
         super(HemelingRotNet, self).__init__()
         self.n_in = n_in
@@ -128,109 +127,113 @@ class HemelingRotNet(nn.Module):
         n3 = nfeatures_base * 4
         n4 = nfeatures_base * 8
         n5 = nfeatures_base * 16
-
-        o = 1 if rotconv_squeeze else (3 if sym_kernel == 'circ' else 4)
         
         # Down
         self.conv1 = nn.ModuleList(
-                     [SteeredConvBN(half_kernel_height, n_in, n1, relu=True, bn=True, padding=padding)]
-                   + [SteeredConvBN(half_kernel_height, o * n1, n1, relu=True, bn=True, padding=padding)
+                     [SteeredConvBN(n_in, n1, relu=True, bn=True, padding=padding)]
+                   + [SteeredConvBN(n1, n1, relu=True, bn=True, padding=padding)
                       for i in range(depth-1)])
         self.pool1 = nn.MaxPool2d(2)
 
         self.conv2 = nn.ModuleList(
-                     [SteeredConvBN(half_kernel_height, o * n1, n2, relu=True, bn=True, padding=padding)]
-                   + [SteeredConvBN(half_kernel_height, o * n2, n2, relu=True, bn=True, padding=padding)
+                     [SteeredConvBN(n1, n2, relu=True, bn=True, padding=padding)]
+                   + [SteeredConvBN(n2, n2, relu=True, bn=True, padding=padding)
                       for i in range(depth-1)])
         self.pool2 = nn.MaxPool2d(2)
         
         self.conv3 = nn.ModuleList(
-                     [SteeredConvBN(half_kernel_height, o * n2, n3, relu=True, bn=True,   padding=padding)]
-                   + [SteeredConvBN(half_kernel_height, o * n3, n3, relu=True, bn=True,   padding=padding)
+                     [SteeredConvBN(n2, n3, relu=True, bn=True,   padding=padding)]
+                   + [SteeredConvBN(n3, n3, relu=True, bn=True,   padding=padding)
                       for i in range(depth-1)])
         self.pool3 = nn.MaxPool2d(2)
         
         self.conv4 = nn.ModuleList(
-                     [SteeredConvBN(half_kernel_height, o * n3, n4, relu=True, bn=True,   padding=padding)]
-                   + [SteeredConvBN(half_kernel_height, o * n4, n4, relu=True, bn=True,   padding=padding)
+                     [SteeredConvBN(n3, n4, relu=True, bn=True,   padding=padding)]
+                   + [SteeredConvBN(n4, n4, relu=True, bn=True,   padding=padding)
                       for i in range(depth-1)])
         self.pool4 = nn.MaxPool2d(2)
         
         self.conv5 = nn.ModuleList(
-                     [SteeredConvBN(half_kernel_height, o * n4, n5, relu=True, bn=True, padding=padding)]
-                   + [SteeredConvBN(half_kernel_height, o * n5, n5, relu=True, bn=True, padding=padding)
+                     [SteeredConvBN(n4, n5, relu=True, bn=True, padding=padding)]
+                   + [SteeredConvBN(n5, n5, relu=True, bn=True, padding=padding)
                       for i in range(depth-1)])
         
         # Up
-        self.upsample1 = nn.ConvTranspose2d(o*n5,o*n4, kernel_size=2, stride=2)
+        self.upsample1 = nn.ConvTranspose2d(n5, n4, kernel_size=2, stride=2)
         self.conv6 = nn.ModuleList(
-                     [SteeredConvBN(half_kernel_height, 2 * o * n4, n4, relu=True, bn=True, padding=padding)]
-                   + [SteeredConvBN(half_kernel_height, o * n4, n4, relu=True, bn=True, padding=padding)
+                     [SteeredConvBN(2*n4, n4, relu=True, bn=True, padding=padding)]
+                   + [SteeredConvBN(  n4, n4, relu=True, bn=True, padding=padding)
                       for i in range(depth-1)])
         
-        self.upsample2 = nn.ConvTranspose2d(o*n4,o*n3, kernel_size=2, stride=2)
+        self.upsample2 = nn.ConvTranspose2d(n4, n3, kernel_size=2, stride=2)
         self.conv7 = nn.ModuleList(
-                     [SteeredConvBN(half_kernel_height, 2 * o * n3, n3, relu=True, bn=True, padding=padding)]
-                   + [SteeredConvBN(half_kernel_height, o * n3, n3, relu=True, bn=True, padding=padding)
+                     [SteeredConvBN(2*n3, n3, relu=True, bn=True, padding=padding)]
+                   + [SteeredConvBN(  n3, n3, relu=True, bn=True, padding=padding)
                       for i in range(depth-1)])
         
-        self.upsample3 = nn.ConvTranspose2d(o*n3,o*n2, kernel_size=2, stride=2)
+        self.upsample3 = nn.ConvTranspose2d(n3, n2, kernel_size=2, stride=2)
         self.conv8 = nn.ModuleList(
-                     [SteeredConvBN(half_kernel_height, 2 * o * n2, n2, relu=True, bn=True, padding=padding)]
-                   + [SteeredConvBN(half_kernel_height, o * n2, n2, relu=True, bn=True, padding=padding )
+                     [SteeredConvBN(2*n2, n2, relu=True, bn=True, padding=padding)]
+                   + [SteeredConvBN(  n2, n2, relu=True, bn=True, padding=padding)
                       for i in range(depth-1)])
 
-        self.upsample4 = nn.ConvTranspose2d(o*n2,o*n1, kernel_size=2, stride=2)
+        self.upsample4 = nn.ConvTranspose2d(n2, n1, kernel_size=2, stride=2)
         self.conv9 = nn.ModuleList(
-                     [SteeredConvBN(half_kernel_height, 2 * o * n1, n1, relu=True, bn=True, padding=padding )]\
-                   + [SteeredConvBN(half_kernel_height, o * n1, n1, relu=True, bn=True, padding=padding )
+                     [SteeredConvBN(2*n1, n1, relu=True, bn=True, padding=padding)]
+                   + [SteeredConvBN(  n1, n1, relu=True, bn=True, padding=padding)
                       for i in range(depth-1)])
 
         # End
-        self.final_conv = nn.Conv2d(o*n1, 1, kernel_size=1)
+        self.final_conv = nn.Conv2d(n1, 1, kernel_size=1)
         
         self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else lambda x: x
 
     def forward(self, x, principal_direction=None, **kwargs):
         from functools import reduce
         if not self.static_principal_direction or principal_direction is None:
-            if self.principal_direction=='all':
+            if self.principal_direction == 'all':
                 downSampledX = x.mean(axis=1)
             else:
-                downSampledX = x[:,self.principal_direction]
+                downSampledX = x[:, self.principal_direction]
             device = self.final_conv.weight.device
-            pDir1 = compute_pdir(downSampledX,device=device,
+            pDir1 = compute_pdir(downSampledX, device=device,
                                  hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                 smooth_std=self.principal_direction_smooth)
+                                 smooth_std=self.principal_direction_smooth)[:, None, :, :]
             downSampledX = F.avg_pool2d(downSampledX, 2)
-            pDir2 = compute_pdir(downSampledX,device=device,
+            pDir2 = compute_pdir(downSampledX, device=device,
                                  hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                 smooth_std=self.principal_direction_smooth)
+                                 smooth_std=self.principal_direction_smooth)[:, None, :, :]
             downSampledX = F.avg_pool2d(downSampledX, 2)
-            pDir3 = compute_pdir(downSampledX,device=device,
+            pDir3 = compute_pdir(downSampledX, device=device,
                                  hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                 smooth_std=self.principal_direction_smooth)
+                                 smooth_std=self.principal_direction_smooth)[:, None, :, :]
             downSampledX = F.avg_pool2d(downSampledX, 2)
-            pDir4 = compute_pdir(downSampledX,device=device,
+            pDir4 = compute_pdir(downSampledX, device=device,
                                  hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                 smooth_std=self.principal_direction_smooth)
+                                 smooth_std=self.principal_direction_smooth)[:, None, :, :]
             downSampledX = F.avg_pool2d(downSampledX, 2)
-            pDir5 = compute_pdir(downSampledX,device=device,
+            pDir5 = compute_pdir(downSampledX, device=device,
                                  hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                 smooth_std=self.principal_direction_smooth)
+                                 smooth_std=self.principal_direction_smooth)[:, None, :, :]
         else:
-            pDir1 = principal_direction.transpose(1,0)
+            pDir1 = principal_direction.transpose(1, 0)
             pDir2 = F.avg_pool2d(pDir1, 2)
-            pDir3 = F.avg_pool2d(pDir1, 2)
-            pDir4 = F.avg_pool2d(pDir1, 2)
-            pDir5 = F.avg_pool2d(pDir1, 2)
-        
+            pDir3 = F.avg_pool2d(pDir2, 2)
+            pDir4 = F.avg_pool2d(pDir3, 2)
+            pDir5 = F.avg_pool2d(pDir4, 2)
+
+            pDir1 = pDir1[:, :, None, :, :]
+            pDir2 = pDir2[:, :, None, :, :]
+            pDir3 = pDir3[:, :, None, :, :]
+            pDir4 = pDir4[:, :, None, :, :]
+            pDir5 = pDir5[:, :, None, :, :]
+
         # Down
         x1 = reduce(lambda x, conv: conv(x, project=pDir1), self.conv1, x)
-        
+
         x2 = self.pool1(x1)
         x2 = reduce(lambda x, conv: conv(x, project=pDir2), self.conv2, x2)
-        
+
         x3 = self.pool2(x2)
         x3 = reduce(lambda x, conv: conv(x, project=pDir3), self.conv3, x3)
         

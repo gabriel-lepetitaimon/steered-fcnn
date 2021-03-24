@@ -10,8 +10,8 @@ from src.classifier_net import BinaryClassifierNet, ExportValidation
 from src.utils import AttributeDict
 
 
-def run_train():
-    cfg = parse_arguments()
+def run_train(opt=None):
+    cfg = parse_arguments(opt)
     args = cfg['script-arguments']
     tmp = setup_log(cfg)
     tmp_path = tmp.name
@@ -47,6 +47,7 @@ def run_train():
         modelCheckpoints[metric] = checkpoint
         callbacks.append(checkpoint)
 
+    print('Stating training')
     trainer = pl.Trainer(gpus=args.gpus, callbacks=callbacks,
                          max_epochs=int(np.ceil(max_epoch/val_n_epoch)*val_n_epoch),
                          check_val_every_n_epoch=val_n_epoch,
@@ -65,7 +66,7 @@ def run_train():
 
     net.eval()
     tester = pl.Trainer(gpus=args.gpus,
-                        callbacks=[ExportValidation({(0,0): 'black', (1,1): 'white', (1,0): 'orange', (0,1): 'apple_green'}, path=tmp_path+'/samples')],
+                        callbacks=[ExportValidation({(0, 0): 'black', (1, 1): 'white', (1, 0): 'orange', (0, 1): 'apple_green'}, path=tmp_path+'/samples')],
                         )
     net.testset_names, testD = list(zip(*testD.items()))
 
@@ -75,32 +76,40 @@ def run_train():
     tmp.cleanup()
 
 
-def parse_arguments():
+def parse_arguments(opt=None):
     import argparse
     import os
 
     # --- PARSE ARGS & ENVIRONNEMENTS VARIABLES ---
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', required=True,
-                        help='config file with hyper parameters - in yaml format')
-    parser.add_argument('--debug', help='Debug trial (not logged into orion)',
-                        default=bool(os.getenv('TRIAL_DEBUG', False)))
-    parser.add_argument('--gpus', help='list of gpus to use for this trial',
-                        default=os.getenv('TRIAL_GPUS',None))
-    parser.add_argument('--tmp-dir', help='Directory where the trial temporary folders will be stored.',
-                        default=os.getenv('TRIAL_TMP_DIR',None))
-    args = parser.parse_args()
+    if opt is None:
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--config', required=True,
+                            help='config file with hyper parameters - in yaml format')
+        parser.add_argument('--debug', help='Debug trial (not logged into orion)',
+                            default=bool(os.getenv('TRIAL_DEBUG', False)))
+        parser.add_argument('--gpus', help='list of gpus to use for this trial',
+                            default=os.getenv('TRIAL_GPUS', None))
+        parser.add_argument('--tmp-dir', help='Directory where the trial temporary folders will be stored.',
+                            default=os.getenv('TRIAL_TMP_DIR', None))
+        args = vars(parser.parse_args())
+    else:
+        args = {}
+        args['config'] = opt.get('config')
+        args['debug'] = opt.get('debug', False)
+        args['gpus'] = opt.get('gpus', None)
+        args['tmp-dir'] = opt.get('tmp-dir', None)
+        args = AttributeDict.from_dict(args)
 
     # --- PARSE CONFIG ---
-    cfg = parse_config(args.config)
+    cfg = parse_config(args['config'])
 
     # Save scripts arguments
     script_args = cfg['script-arguments']
-    for k, v in vars(args).items():
+    for k, v in args.items():
         if v is not None:
             script_args[k] = v
     # Save trial info
-    cfg['trial'] = AttributeDict(id=int(os.getenv('TRIAL_ID'), 0),
+    cfg['trial'] = AttributeDict(id=int(os.getenv('TRIAL_ID', 0)),
                                  name=os.getenv('ORION_EXPERIMENT_NAME', 'trial-name'),
                                  version=os.getenv('ORION_EXPERIMENT_VERSION', 0))
     if script_args.debug:
@@ -118,7 +127,7 @@ def parse_config(cfg_file):
         global_config.recursive_update(AttributeDict.from_yaml(f))
     with open(cfg_file, 'r') as f:
         exp_config = AttributeDict.from_yaml(f)
-    exp_config = exp_config.filter(lambda k, v: not (isinstance(v, str) and v.startswith('orion~')))
+    exp_config = exp_config.filter(lambda k, v: not (isinstance(v, str) and v.startswith('orion~')), recursive=True)
     return global_config.recursive_update(exp_config)
 
 
@@ -126,6 +135,7 @@ def setup_log(cfg):
     import tempfile
     import shutil
     from os.path import join
+    import os
     from mlflow.tracking import MlflowClient
 
     # --- SETUP MLFOW ---
@@ -139,6 +149,7 @@ def setup_log(cfg):
     mlflow.start_run(run_name=run_name, tags=tags)
 
     # --- CREATE TMP ---
+    os.makedirs(os.path.dirname(cfg['script-arguments']['tmp-dir']), exist_ok=True)
     tmp = tempfile.TemporaryDirectory(dir=cfg['script-arguments']['tmp-dir'])
 
     # --- SAVE CFG ---
@@ -180,6 +191,7 @@ def load_dataset(cfg):
     from albumentations.pytorch import ToTensorV2
     from torch.utils.data import Dataset, DataLoader
     import cv2
+    import os
 
     da_config = cfg['data-augmentation']
 
@@ -187,7 +199,7 @@ def load_dataset(cfg):
         def __init__(self, dataset, file, factor=1):
             super(TrainDataset, self).__init__()
             import h5py
-            DATA = h5py.File(file, 'r')
+            DATA = h5py.File(os.path.join('DATA', file), 'r')
 
             self.data = DATA.get(f'{dataset}/data')
             self.av = DATA.get(f'{dataset}/av')
@@ -222,10 +234,10 @@ def load_dataset(cfg):
                     princ_dir /= np.sqrt(princ_dir[0]**2+princ_dir[1]**2) + 1e-5
                 img += [princ_dir.transpose(1, 2, 0)]
             img = np.concatenate(img, axis=2)
-            m = 1*(self.av[i]!=0)+self.mask[i]*16
+            m = 1*(self.av[i] != 0)+self.mask[i]*16
             d = self.geo_aug(image=img, mask=m)
             r = {'x': d['image'][:6],
-                 'y': (d['mask']%16).int(),
+                 'y': (d['mask'] % 16).int(),
                  'mask': d['mask']//16}
             if princ_dir_mode:
                 r['principal_direction'] = d['image'][6:]
@@ -235,7 +247,7 @@ def load_dataset(cfg):
         def __init__(self, dataset, file='DATA/vessels.h5'):
             super(TestDataset, self).__init__()
             import h5py
-            DATA = h5py.File(file, 'r')
+            DATA = h5py.File(os.path.join('DATA', file), 'r')
             
             self.data = DATA.get(f'{dataset}/data')
             self.av = DATA.get(f'{dataset}/av')
@@ -250,10 +262,10 @@ def load_dataset(cfg):
 
         def __getitem__(self, i):
             img = np.concatenate(
-                [self.data[i].transpose(1,2,0),
-                 self.field[i].transpose(1,2,0)],
+                [self.data[i].transpose(1, 2, 0),
+                 self.field[i].transpose(1, 2, 0)],
                 axis=2)
-            m = 1*(self.av[i]!=0)+self.mask[i]*16
+            m = 1*(self.av[i] != 0)+self.mask[i]*16
             d = self.geo_aug(image=img, mask=m)
             r = {'x': d['image'][:6],
                  'principal_direction': d['image'][6:],
@@ -261,7 +273,7 @@ def load_dataset(cfg):
                  'mask': d['mask']//16}
             return r
 
-    batch_size=cfg['hyper-parameters']['batch-size']
+    batch_size = cfg['hyper-parameters']['batch-size']
     train_dataset = cfg.training['training-dataset']
     dataset_file = cfg.training['dataset-file']
     trainD = DataLoader(TrainDataset('train/'+train_dataset, file=dataset_file, factor=cfg.training['training-dataset-factor']),
@@ -277,20 +289,18 @@ def load_dataset(cfg):
 
 
 def setup_model(model_cfg):
-    if model_cfg['rot-eq']:
+    if model_cfg['steered']:
         model = HemelingRotNet(6, principal_direction=1, nfeatures_base=model_cfg['nfeatures-base'],
                                half_kernel_height=model_cfg['half-kernel-height'],
                                padding=model_cfg['padding'],
                                depth=model_cfg['depth'],
-                               rotconv_squeeze=model_cfg['rotconv-squeeze'],
                                static_principal_direction=model_cfg['static-principal-direction'],
                                principal_direction_smooth=model_cfg['principal-direction-smooth'],
-                               principal_direction_hessian_threshold=model_cfg['principal-direction-hessian-threshold'],
-                               sym_kernel=model_cfg['sym-kernel'])
+                               principal_direction_hessian_threshold=model_cfg['principal-direction-hessian-threshold'])
     else:
         model = HemelingNet(6, nfeatures_base=model_cfg['nfeatures-base'],
-                               padding=model_cfg['padding'],
-                               half_kernel_height=model_cfg['half-kernel-height'])
+                            padding=model_cfg['padding'],
+                            half_kernel_height=model_cfg['half-kernel-height'])
     return model
 
 

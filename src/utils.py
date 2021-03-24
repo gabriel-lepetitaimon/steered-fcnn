@@ -6,10 +6,10 @@ def is_dict(o):
 
 
 def recursive_dict_update(destination, origin, append=False):
-    for n, v in origin.items():
-        dest_v = destination.get(n, None)
+    for k, v in origin.items():
+        dest_v = destination.get(k, None)
         if is_dict(v) and is_dict(dest_v):
-            recursive_dict_update(destination[n], v)
+            recursive_dict_update(destination[k], v)
         elif append and isinstance(v, list) and isinstance(dest_v, list):
             for list_v in v:
                 append_needed = True
@@ -22,7 +22,7 @@ def recursive_dict_update(destination, origin, append=False):
                 if append_needed:
                     dest_v.append(list_v)
         else:
-            destination[n] = v
+            destination[k] = v
 
 
 def recursive_dict_map(dictionnary, function):
@@ -98,17 +98,16 @@ class AttributeDict(OrderedDict):
     def __len__(self):
         return len(self.keys())
 
-    def recursive_update(self, d, **kwargs):
+    def recursive_update(self, d):
         recursive_dict_update(self, d)
-        for k, v in kwargs.items():
-            recursive_dict_update(self[k], v)
         return self
 
     def filter(self, condition, recursive=False):
-        for k, v in self.items():
+        for k in list(self.keys()):
+            v = self[k]
             if recursive and isinstance(v, AttributeDict):
                 v.filter(condition, True)
-            elif not condition(k,v):
+            elif not condition(k, v):
                 del self[k]
         return self
 
@@ -388,3 +387,14 @@ def str2color(str_color, bgr=True, uint8=True):
     if bgr:
         c = c[::-1]
     return c
+
+
+_warn_flags = set()
+
+
+def warn(msg):
+    if msg in _warn_flags:
+        return
+
+    _warn_flags.add(msg)
+    print(msg)

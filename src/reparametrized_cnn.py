@@ -49,8 +49,7 @@ class KernelBase:
         return self.base[0].get_device()
 
     def to(self, *args, **kwargs):
-        for b in self.base:
-            b.to(*args, **kwargs)
+        self.base = [b.to(*args, **kwargs) for b in self.base]
         return self
 
     # --- Composite Kernels ---

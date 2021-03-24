@@ -1,7 +1,7 @@
-import torch
 from torch import nn
 import numpy as np
 from .torch_utils import *
+from .utils import warn
 from .reparametrized_cnn import KernelBase
 
 
@@ -17,13 +17,13 @@ class SteerableOrthoKernelBase(KernelBase):
         self.k_ortho = sum(b.shape[0] for b in base_y)
 
     def equi_slice(self):
-        return slice(None, self.R_equi)
+        return slice(None, self.k_equi)
 
     def x_slice(self):
-        return slice(self.R_equi, self.R_equi+self.R_ortho)
+        return slice(self.k_equi, self.k_equi+self.k_ortho)
 
     def y_slice(self):
-        return slice(self.R_equi+self.R_ortho, None)
+        return slice(self.k_equi+self.k_ortho, None)
 
     @property
     def base_equi(self):
@@ -38,18 +38,16 @@ class SteerableOrthoKernelBase(KernelBase):
         return self.base[self.y_slice()]
 
     def create_params(self, n_in, n_out):
-        w = nn.Parameter(torch.empty((n_out, n_in, self.k_equi)), requires_grad=True)
+        w = nn.Parameter(torch.empty((n_out, n_in, self.k_equi+self.k_ortho*2)), requires_grad=True)
         b = np.sqrt(3/(n_in*self.k_ortho))
-        nn.init.uniform_(w, -b, b)
+        nn.init.uniform_(w[..., self.equi_slice()], -b, b)
 
-        w_x = nn.Parameter(torch.empty((n_out, n_in, self.k_ortho)), requires_grad=True)
-        b = np.sqrt(3/(n_in*self.k_ortho*2))
-        nn.init.uniform_(w_x, -b, b)
+        bx = np.sqrt(3/(n_in*self.k_ortho*2))
+        nn.init.uniform_(w[..., self.x_slice()], -bx, bx)
 
-        w_y = nn.Parameter(torch.empty((n_out, n_in, self.k_ortho)), requires_grad=True)
-        b = np.sqrt(3/(n_in*self.k_ortho*2))
-        nn.init.uniform_(w_y, -b, b)
-        return torch.cat((w, w_x, w_y), dim=2)
+        by = np.sqrt(3/(n_in*self.k_ortho*2))
+        nn.init.uniform_(w[..., self.y_slice()], -by, by)
+        return w
 
     @staticmethod
     def create_from_complex(ortho_base: 'list(np.ndarray) [n][f, h, w]', base: 'list(np.ndarray) [n][f, h, w]' = ()):
@@ -77,10 +75,10 @@ class SteerableOrthoKernelBase(KernelBase):
 
             def max_k(radius):
                 inter_area = circle_area(radius + .5) - circle_area(radius - .5)
-                return inter_area//2
+                return int(inter_area//2)
 
             for r in range(R):
-                rk[r] = [range(max_k(r))]
+                rk[r] = list(range(max_k(r)))
 
         from .rot_utils import polar_space
         K_ortho = []
@@ -123,66 +121,71 @@ class SteerableOrthoKernelBase(KernelBase):
             precompute_kernel = True
 
         if precompute_kernel:
-            return self.composite_kernels_conv2d(input=input, weight=weight, project=project, stride=stride,
-                                                 padding=padding, dilation=dilation)
+            f, fx, fy = self.composite_kernels_conv2d(input=input, weight=weight, stride=stride,
+                                                      padding=padding, dilation=dilation)
         else:
-            return self.preconvolved_base_conv2d(input=input, weight=weight, project=project, stride=stride,
-                                                 padding=padding, dilation=dilation)
+            f, fx, fy = self.preconvolved_base_conv2d(input=input, weight=weight, stride=stride,
+                                                      padding=padding, dilation=dilation)
+
+        if project is None:
+            return f, fx, fy
+        else:
+            u, v = project
+            if u.shape[-1] / fx.shape[-1] > 2 and u.shape[-1] / fx.shape[-1] > 2:
+                warn(f'WARNING: During the computation of a steered neuron, the dimension of the provided project '
+                     f'field is extensively larger than the dimension of the features. '
+                     f'It might be a down-sampling implementation error.\n'
+                     f'project.shape: {u.shape}, f.shape: {fx.shape}')
+            f += clip_pad_center(u, fx.shape) * fx
+            f += clip_pad_center(v, fy.shape) * fy
+            return f
 
     # --- Composite Kernels ---
     def composite_ortho_kernels(self, weight: 'np.array [n_out, n_in, K+Kx+Ky]'):
-        K_x = None
-        K_y = None
-
         k0 = 0
         W = weight[..., self.equi_slice()]
         Wx, Wy = weight[..., self.x_slice()], weight[..., self.y_slice()]
         n_out, n_in, n_k = Wx.shape
+        k, h_k, w_k = self.base[0].shape
+
+        K_x = torch.zeros((n_out, n_in, h_k, w_k), device=self.base[0].device)
+        K_y = torch.zeros((n_out, n_in, h_k, w_k), device=self.base[0].device)
+
         for base_x, base_y in zip(self.base_x, self.base_y):
             k, h_k, w_k = base_x.shape
             bx = base_x.reshape(k, h_k*w_k)
             by = base_y.reshape(k, h_k*w_k)
             k1 = k0 + k
-            # W: [n_out,n_in,k0:k0+k] x K: [k,h,w] -> [n_out, n_in, h, w]
 
+            # W: [n_out,n_in,k0:k0+k] x K: [k,h,w] -> [n_out, n_in, h, w]
             # F_x = sum (Wx * Kx - Wy - Ky)
+            print(Wx[:, :, k0:k1].shape, bx.shape)
             kernel = torch.matmul(Wx[:, :, k0:k1], bx).reshape(n_out, n_in, h_k, w_k)
             kernel -= torch.matmul(Wy[:, :, k0:k1], by).reshape(n_out, n_in, h_k, w_k)
-            if K_x is None:
-                K_x = kernel
-            else:
-                K_x = sum(pad_tensors(K_x, kernel))
+            K_x = sum(pad_tensors(K_x, kernel))
 
             # F_y = -sum (W_y * f_x + W_x - f_y)
             kernel = -torch.matmul(Wy[:, :, k0:k1], bx).reshape(n_out, n_in, h_k, w_k)
             kernel -= torch.matmul(Wx[:, :, k0:k1], by).reshape(n_out, n_in, h_k, w_k)
-            if K_y is None:
-                K_y = kernel
-            else:
-                K_y = sum(pad_tensors(K_y, kernel))
+            K_y = sum(pad_tensors(K_y, kernel))
+
             k0 = k1
         return KernelBase.composite_kernels(self.base_equi, W), K_x, K_y
 
     def composite_kernels_conv2d(self, input: 'torch.Tensor [b,i,w,h]', weight: 'np.array [2, n_out, n_in, h, w]',
-                                 project: 'torch.Tensor [UV,b,j,h,w]' = None,
                                  stride=1, padding='auto', dilation=1, groups=1):
         W, Wx, Wy = self.composite_ortho_kernels(weight)
 
         paddingX = get_padding(padding, W.shape)
-        R = F.conv2d(input, W, stride=stride, padding=paddingX, dilation=dilation, groups=groups)
+        f = F.conv2d(input, W, stride=stride, padding=paddingX, dilation=dilation, groups=groups)
 
         paddingX = get_padding(padding, Wx.shape)
-        Rx = F.conv2d(input, Wx, stride=stride, padding=paddingX, dilation=dilation, groups=groups)
+        fx = F.conv2d(input, Wx, stride=stride, padding=paddingX, dilation=dilation, groups=groups)
 
         paddingY = get_padding(padding, Wy.shape)
-        Ry = F.conv2d(input, Wy, stride=stride, padding=paddingY, dilation=dilation, groups=groups)
+        fy = F.conv2d(input, Wy, stride=stride, padding=paddingY, dilation=dilation, groups=groups)
 
-        if project is None:
-            return R, Rx, Ry
-        else:
-            px = project[0]
-            py = project[1]
-            return R+Rx*px+Ry*py
+        return f, fx, fy
 
     # --- Preconvolve Bases ---
     def preconvolve_ortho_bases(self, input: 'torch.Tensor [b,i,w,h]', stride=1, padding='auto', dilation=1):
@@ -192,7 +195,6 @@ class SteerableOrthoKernelBase(KernelBase):
         return base, baseX, baseY
 
     def preconvolved_base_conv2d(self, input: 'torch.Tensor [b,i,w,h]', weight: 'np.array [2, n_out, n_in, k]',
-                                 project: 'torch.Tensor [UV,b,j,h,w]' = None,
                                  stride=1, padding='auto', dilation=1):
         base, baseX, baseY = self.preconvolve_ortho_bases(input,
                                                           stride=stride, padding=padding, dilation=dilation)
@@ -218,13 +220,7 @@ class SteerableOrthoKernelBase(KernelBase):
         fx = (torch.matmul(Kx, Wx) - torch.matmul(Ky, Wy)).permute(0, 3, 1, 2)  # [b,n_out,h,w]
         fy = -(torch.matmul(Kx, Wy) + torch.matmul(Ky, Wx)).permute(0, 3, 1, 2)
 
-        if project is None:
-            return f, fx, fy
-        else:
-            u, v = project
-            f += clip_pad_center(u, fx.shape) * fx
-            f += clip_pad_center(v, fy.shape) * fy
-            return f
+        return f, fx, fy
 
 
 _DEFAULT_STEERABLE_BASE = SteerableOrthoKernelBase.create_radial_steerable(5)
@@ -262,20 +258,13 @@ class SteeredConv2d(nn.Module):
         self.bias = nn.Parameter(torch.zeros(n_out), requires_grad=True) if bias else None
 
     def forward(self, x, project):
-        out = self.base.conv2d(x, self.weight, project=self.project,
+        out = self.base.conv2d(x, self.weights, project=project,
                                stride=self.stride, padding=self.padding, dilation=self.dilation)
 
         # Bias
         if self.bias is not None:
             out += self.bias[None, :, None, None]
         return out
-
-    def _apply(self, fn):
-        super(SteeredConv2d, self)._apply(fn)
-        self.profile = fn(self.profile)
-        if self.sym_d_istart is not None:
-            self.sym_d_istart = tuple(fn(_) for _ in self.sym_d_istart)
-        return self
 
 
 class SteeredConvBN(nn.Module):

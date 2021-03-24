@@ -65,8 +65,10 @@ def run_experiment(cfg_path, env=None):
             orion_opt += "--debug --exp-max-trials 1"
         print(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}" '
                   f'python3 run_train.py --config "{cfg_path}"')
-        os.system(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}" '
-                  f'python3 run_train.py --config "{cfg_path}"')
+        r = os.system(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}" '
+                      f'python3 run_train.py --config "{cfg_path}"')
+    if r < 0:
+        raise RuntimeError
 
     return not bool(env.get('TRIAL_DEBUG', False))
 
