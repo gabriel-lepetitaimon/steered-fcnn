@@ -1,9 +1,9 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-import numpy as np
 
-from .steered_cnn import RotConvBN
+from .torch_utils import *
+from .steered_cnn import SteeredConvBN
 from .steered_cnn import principal_direction as compute_pdir
 
 
@@ -133,57 +133,57 @@ class HemelingRotNet(nn.Module):
         
         # Down
         self.conv1 = nn.ModuleList(
-                     [RotConvBN(half_kernel_height, n_in, n1, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)]\
-                   + [RotConvBN(half_kernel_height, o*n1, n1, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)
+                     [SteeredConvBN(half_kernel_height, n_in, n1, relu=True, bn=True, padding=padding)]
+                   + [SteeredConvBN(half_kernel_height, o * n1, n1, relu=True, bn=True, padding=padding)
                       for i in range(depth-1)])
         self.pool1 = nn.MaxPool2d(2)
 
         self.conv2 = nn.ModuleList(
-                     [RotConvBN(half_kernel_height, o*n1, n2, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)]\
-                   + [RotConvBN(half_kernel_height, o*n2, n2, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)
+                     [SteeredConvBN(half_kernel_height, o * n1, n2, relu=True, bn=True, padding=padding)]
+                   + [SteeredConvBN(half_kernel_height, o * n2, n2, relu=True, bn=True, padding=padding)
                       for i in range(depth-1)])
         self.pool2 = nn.MaxPool2d(2)
         
         self.conv3 = nn.ModuleList(
-                     [RotConvBN(half_kernel_height, o*n2, n3, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)]\
-                   + [RotConvBN(half_kernel_height, o*n3, n3, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)
+                     [SteeredConvBN(half_kernel_height, o * n2, n3, relu=True, bn=True,   padding=padding)]
+                   + [SteeredConvBN(half_kernel_height, o * n3, n3, relu=True, bn=True,   padding=padding)
                       for i in range(depth-1)])
         self.pool3 = nn.MaxPool2d(2)
         
         self.conv4 = nn.ModuleList(
-                     [RotConvBN(half_kernel_height, o*n3, n4, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)]\
-                   + [RotConvBN(half_kernel_height, o*n4, n4, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)
+                     [SteeredConvBN(half_kernel_height, o * n3, n4, relu=True, bn=True,   padding=padding)]
+                   + [SteeredConvBN(half_kernel_height, o * n4, n4, relu=True, bn=True,   padding=padding)
                       for i in range(depth-1)])
         self.pool4 = nn.MaxPool2d(2)
         
         self.conv5 = nn.ModuleList(
-                     [RotConvBN(half_kernel_height, o*n4, n5, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)]\
-                   + [RotConvBN(half_kernel_height, o*n5, n5, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)
+                     [SteeredConvBN(half_kernel_height, o * n4, n5, relu=True, bn=True, padding=padding)]
+                   + [SteeredConvBN(half_kernel_height, o * n5, n5, relu=True, bn=True, padding=padding)
                       for i in range(depth-1)])
         
         # Up
         self.upsample1 = nn.ConvTranspose2d(o*n5,o*n4, kernel_size=2, stride=2)
         self.conv6 = nn.ModuleList(
-                     [RotConvBN(half_kernel_height, 2*o*n4, n4, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)]\
-                   + [RotConvBN(half_kernel_height,   o*n4, n4, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)
+                     [SteeredConvBN(half_kernel_height, 2 * o * n4, n4, relu=True, bn=True, padding=padding)]
+                   + [SteeredConvBN(half_kernel_height, o * n4, n4, relu=True, bn=True, padding=padding)
                       for i in range(depth-1)])
         
         self.upsample2 = nn.ConvTranspose2d(o*n4,o*n3, kernel_size=2, stride=2)
         self.conv7 = nn.ModuleList(
-                     [RotConvBN(half_kernel_height, 2*o*n3, n3, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)]\
-                   + [RotConvBN(half_kernel_height,   o*n3, n3, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)
+                     [SteeredConvBN(half_kernel_height, 2 * o * n3, n3, relu=True, bn=True, padding=padding)]
+                   + [SteeredConvBN(half_kernel_height, o * n3, n3, relu=True, bn=True, padding=padding)
                       for i in range(depth-1)])
         
         self.upsample3 = nn.ConvTranspose2d(o*n3,o*n2, kernel_size=2, stride=2)
         self.conv8 = nn.ModuleList(
-                     [RotConvBN(half_kernel_height, 2*o*n2, n2, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)]\
-                   + [RotConvBN(half_kernel_height,   o*n2, n2, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)
+                     [SteeredConvBN(half_kernel_height, 2 * o * n2, n2, relu=True, bn=True, padding=padding)]
+                   + [SteeredConvBN(half_kernel_height, o * n2, n2, relu=True, bn=True, padding=padding )
                       for i in range(depth-1)])
 
         self.upsample4 = nn.ConvTranspose2d(o*n2,o*n1, kernel_size=2, stride=2)
         self.conv9 = nn.ModuleList(
-                     [RotConvBN(half_kernel_height, 2*o*n1, n1, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)]\
-                   + [RotConvBN(half_kernel_height,   o*n1, n1, relu=True, bn=True, squeeze=rotconv_squeeze, padding=padding, sym_kernel=sym_kernel)
+                     [SteeredConvBN(half_kernel_height, 2 * o * n1, n1, relu=True, bn=True, padding=padding )]\
+                   + [SteeredConvBN(half_kernel_height, o * n1, n1, relu=True, bn=True, padding=padding )
                       for i in range(depth-1)])
 
         # End
@@ -268,156 +268,3 @@ class HemelingRotNet(nn.Module):
     @p_dropout.setter
     def p_dropout(self, p):
         self.dropout.p = p
-
-
-class ConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels=None, depth=2, kernel=3, dilation=1, padding=0):
-        super(ConvBlock, self).__init__()
-        if out_channels is None:
-            out_channels = in_channels
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.depth = depth
-        self.kernel = kernel
-
-        self.model = []
-
-        if in_channels != out_channels:
-            conv = ConvBN(1, in_channels, out_channels, padding=padding)
-            self.model += [conv]
-
-        for i in range(depth):
-            conv = ConvBN(kernel, out_channels, out_channels, dilation=dilation, padding=padding)
-            self.model += [conv]
-        seq = []
-        for m in self.model:
-            seq += m.model
-        self.seq = nn.Sequential(*seq)
-
-    def forward(self, x):
-        return self.seq(x)
-
-    def __getattr__(self, attr):
-        if attr.startswith('conv') or attr.startswith('bn') or attr.startswith('relu'):
-            if attr.startswith('bn'):
-                i = int(attr[len('bn'):])
-                attr = 'bn'
-            elif attr.startswith('relu'):
-                i = int(attr[len('relu'):])
-                attr = 'relu'
-            elif attr.startswith('convbn'):
-                i = int(attr[len('convbn'):])
-                attr = 'convbn'
-            else:
-                i = int(attr[len('conv'):])
-                attr = 'conv'
-
-            if self.in_channels != self.out_channels:
-                convbn = self.model[i]
-            else:
-                if i == 0:
-                    raise AttributeError('Invalid attribute "conv0".')
-                convbn = self.model[i - 1]
-
-            return {'convbn': convbn,
-                    'conv': convbn.conv,
-                    'bn': convbn.bn,
-                    'relu': convbn.relu}[convbn]
-        return super(ConvBlock, self).__getattr__(attr)
-
-
-class ConvBN(nn.Module):
-    def __init__(self, kernel, n_in, n_out=None, stride=1, relu=True, padding=0, dilation=1, bn=False):
-        super(ConvBN, self).__init__()
-
-        self._bn = bn
-        if n_out is None:
-            n_out = n_in
-
-        if padding == 'auto':
-            padding = kernel//2, kernel//2
-
-        model = [nn.Conv2d(n_in, n_out, kernel_size=kernel, stride=stride, padding=padding, bias=False,
-                           dilation=dilation)]
-
-        if bn:
-            model += [nn.BatchNorm2d(n_out)]
-            if relu:
-                model += [nn.ReLU()]
-        elif relu:
-            model += [nn.SELU()]
-
-        self.model = nn.Sequential(*model)
-
-        # nn.init.kaiming_normal_(self.conv.weight, mode='fan_out', nonlinearity='relu')
-        # if bn:
-        # nn.init.constant_(self.bn.weight, 1)
-        # nn.init.constant_(self.bn.bias, 0)
-
-    def forward(self, x):
-        return self.model(x)
-
-    @property
-    def conv(self):
-        return self.model[0]
-
-    @property
-    def bn(self):
-        if self._bn:
-            return self.model[1]
-        return None
-
-    @property
-    def relu(self):
-        return self.model[2 if self._bn else 1]
-
-
-def clip_pad_center(tensor, shape, pad_mode='constant', pad_value=0):
-    s = tensor.shape[-2:]
-
-    y0 = (s[0] - shape[-2]) // 2
-    y1 = 0
-    if y0 < 0:
-        y1 = -y0
-        y0 = 0
-
-    x0 = (s[1] - shape[-1]) // 2
-    x1 = 0
-    if x0 < 0:
-        x1 = -x0
-        x0 = 0
-    tensor = tensor[..., y0:y0 + shape[-2], x0:x0 + shape[-1]]
-    if x1 or y1:
-        tensor = F.pad(tensor, (y1, y1, x1, x1), mode=pad_mode, value=pad_value)
-    return tensor
-
-
-def clip_tensors(t1, t2):
-    if t1.shape[-2:] == t2.shape[-2:]:
-        return t1, t2
-    h1, w1 = t1.shape[-2:]
-    h2, w2 = t2.shape[-2:]
-    dh = h1-h2
-    dw = w1-w2
-    i1 = max(dh,0)
-    j1 = max(dw,0)
-    h = h1 - i1
-    w = w1 - j1
-    i1 = i1 // 2
-    j1 = j1 // 2
-    i2 = i1 - dh//2
-    j2 = j1 - dw//2
-    
-    t1 = t1[...,i1:i1+h, j1:j1+w]
-    t2 = t2[...,i2:i2+h, j2:j2+w]
-    return t1, t2
-
-
-def neg_pad(t, pad):
-    even = pad // 2
-    odd = pad - even
-    return t[..., even:-odd, even:-odd]
-
-
-def cat_crop(x1, x2):
-    return torch.cat(clip_tensors(x1, x2), 1)
