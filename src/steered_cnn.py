@@ -15,6 +15,7 @@ class SteerableOrthoKernelBase(KernelBase):
             'base_x and base_y should have the same length and shape.'
         self.k_equi = sum(b.shape[0] for b in base)
         self.k_ortho = sum(b.shape[0] for b in base_y)
+        self.label = None
 
     def equi_slice(self):
         return slice(None, self.k_equi)
@@ -37,17 +38,19 @@ class SteerableOrthoKernelBase(KernelBase):
     def base_y(self):
         return self.base[self.y_slice()]
 
-    def create_params(self, n_in, n_out):
-        w = nn.Parameter(torch.empty((n_out, n_in, self.k_equi+self.k_ortho*2)), requires_grad=True)
+    def create_weights(self, n_in, n_out):        
+        w = torch.empty((n_out, n_in, self.k_equi))
         b = np.sqrt(3/(n_in*self.k_ortho))
-        nn.init.uniform_(w[..., self.equi_slice()], -b, b)
+        nn.init.uniform_(w, -b, b)
 
-        bx = np.sqrt(3/(n_in*self.k_ortho*2))
-        nn.init.uniform_(w[..., self.x_slice()], -bx, bx)
+        w_x = torch.empty((n_out, n_in, self.k_ortho))
+        b = np.sqrt(3/(n_in*self.k_ortho*2))
+        nn.init.uniform_(w_x, -b, b)
 
-        by = np.sqrt(3/(n_in*self.k_ortho*2))
-        nn.init.uniform_(w[..., self.y_slice()], -by, by)
-        return w
+        w_y = torch.empty((n_out, n_in, self.k_ortho))
+        b = np.sqrt(3/(n_in*self.k_ortho*2))
+        nn.init.uniform_(w_y, -b, b)
+        return torch.cat((w, w_x, w_y), dim=2)
 
     @staticmethod
     def create_from_complex(ortho_base: 'list(np.ndarray) [n][f, h, w]', base: 'list(np.ndarray) [n][f, h, w]' = ()):
@@ -83,9 +86,12 @@ class SteerableOrthoKernelBase(KernelBase):
         from .rot_utils import polar_space
         K_ortho = []
         K_equi = []
+        label_ortho = []
+        label_equi = []
         for r, Ks in rk.items():
             if r == 0:
                 K_equi.append(np.ones((1, 1, 1)))
+                label_equi.append('r0')
             else:
                 size = r*2+1
                 rho, phi = polar_space(size)
@@ -99,6 +105,7 @@ class SteerableOrthoKernelBase(KernelBase):
                         if norm_sum:
                             kernel = kernel / kernel.sum() * norm_sum
                         K_equi.append(kernel[None, :, :])
+                        label_equi.append(f'r{r}k{k}')
                     else:
                         if k == 0:
                             g[rho == 0] *= 0
@@ -107,9 +114,12 @@ class SteerableOrthoKernelBase(KernelBase):
                         if norm_sum:
                             kernel = kernel / kernel.sum() * norm_sum
                         kernels.append(kernel)
+                        label_ortho.append(f'r{r}k{k}')
                 if kernels:
                     K_ortho.append(np.stack(kernels))
-        return SteerableOrthoKernelBase.create_from_complex(K_ortho, K_equi)
+        B = SteerableOrthoKernelBase.create_from_complex(K_ortho, K_equi)
+        B.label = label_equi + [_+'x' for _ in label_ortho] + [_+'y' for _ in label_ortho]
+        return B
 
     def conv2d(self, input: 'torch.Tensor [b,i,w,h]', weight: 'np.array [2, n_out, n_in, h, w]',
                project: 'torch.Tensor [UV,b,j,h,w]' = None, precompute_kernel=None,
@@ -254,7 +264,7 @@ class SteeredConv2d(nn.Module):
         self.base = steerable_base
 
         # Weight
-        self.weights = self.base.create_params(n_in, n_out)
+        self.weights = nn.Parameter(self.base.create_weights(n_in, n_out), requires_grad=True)
         self.bias = nn.Parameter(torch.zeros(n_out), requires_grad=True) if bias else None
 
     def forward(self, x, project):

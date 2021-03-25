@@ -36,13 +36,43 @@ class KernelBase:
                 base.append(np.stack(kernels))
         return KernelBase(base)
 
-    def create_params(self, n_in, n_out):
+    def create_weights(self, n_in, n_out):
         R = len(self.base)
         K = sum([self.base[r].shape[0] for r in range(R)])
-        w = nn.Parameter(torch.empty((n_out, n_in, K)), requires_grad=True)
+        w = torch.empty((n_out, n_in, K))
         b = np.sqrt(3/(n_in*K))
         nn.init.uniform_(w, -b, b)
         return w
+
+    def approximate_weights(self, kernels: 'torch.Tensor [n_out, n_in, h, w]', info=None):
+        from sklearn.linear_model import LinearRegression
+        n_out, n_in, h, w = kernels.shape
+        base = self.padded_base().numpy()
+        k, n, m = base.shape
+
+        device = kernels.device
+        kernels = kernels.detach().cpu()
+        kernels = clip_pad_center(kernels, (n,m))
+
+        kernels = kernels.numpy()
+        X = base.reshape((k, n*m)).T
+        Y = kernels.reshape((n_out*n_in, n*m)).T
+        regr = LinearRegression(fit_intercept=False, n_jobs=-1)
+        regr.fit(X, Y)
+        if info is not None:
+            from sklearn.metrics import mean_squared_error, r2_score
+            y_approx = regr.predict(X)
+            info['r2'] = r2_score(Y, y_approx)
+            info['mse'] = mean_squared_error(Y, y_approx)
+            info['y_approx'] = torch.from_numpy(y_approx.T.reshape((n_out, n_in, n, m))).to(device=device)
+
+        coef = regr.coef_   # [n_out*n_in, k]
+        return torch.from_numpy(coef).to(device=device).reshape(n_out, n_in, k)
+
+    def padded_base(self):
+        n = max(b.shape[-2] for b in self.base)
+        m = max(b.shape[-1] for b in self.base)
+        return torch.cat([clip_pad_center(b.detach(), (n, m)) for b in self.base], dim=0)
 
     @property
     def device(self):
