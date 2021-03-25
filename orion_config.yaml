@@ -9,6 +9,10 @@ experiment:
             equal_weight: False
             prior_weight: 1.0
             full_weight_num: 25
+
+worker:
+    max_trials: 1
+
 storage:
     database:
         type: 'mongodb'

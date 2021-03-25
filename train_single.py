@@ -33,7 +33,7 @@ def run_experiment(cfg_path, env=None):
     orion_exp_name = f"{exp_cfg.name}-{exp_cfg['sub-experiment']}-{exp_cfg['sub-experiment-id']:03}"
 
     # --- Fetch Orion Infos ---
-    if(not bool(env.get('TRIAL_DEBUG', False))):
+    if not bool(env.get('TRIAL_DEBUG', False)):
         setup_storage(cfg.orion.storage.to_dict())
         try:
             orion_exp = get_experiment(orion_exp_name)

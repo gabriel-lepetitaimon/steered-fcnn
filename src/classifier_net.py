@@ -147,25 +147,12 @@ class ExportValidation(Callback):
         self.path = path
     
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
-        import os
-        import cv2
-
-        x = batch['x']
-        y = (batch['y']!=0).float()
-        y_pred = outputs.detach().cpu()>.5
-        y = clip_pad_center(y, y_pred.shape)
-
-        if not os.path.exists(self.path):
-            os.makedirs(self.path)
-        
-        diff = torch.stack((y, y_pred), dim=1)
-        diff = diff.numpy()
-        for i, diff_img in enumerate(diff):
-            diff_img = (self.color_lut(diff_img).transpose(1, 2, 0) * 255).astype(np.uint8)
-            path = abspath(os.path.join(self.path, f'/val{i}.png'))
-            cv2.imwrite(path, diff_img)
+        self.export_batch(batch, outputs, batch_idx, dataloader_idx, prefix='val')
 
     def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        self.export_batch(batch, outputs, batch_idx, dataloader_idx, prefix='test')
+
+    def export_batch(self, batch, outputs, batch_idx, dataloader_idx, prefix):
         import os
         import cv2
 
@@ -173,9 +160,14 @@ class ExportValidation(Callback):
             return
 
         x = batch['x']
-        y = (batch['y']!=0).float()
-        y_pred = outputs.detach().cpu()>.5
+        y = (batch['y'] != 0).float()
+        y_pred = outputs.detach().cpu() > .5
         y = clip_pad_center(y, y_pred.shape)
+
+        if 'mask' in batch:
+            mask = clip_pad_center(batch['mask'], y_pred.shape)
+            y = y*mask
+            y_pred = y_pred*mask
 
         if not os.path.exists(self.path):
             os.makedirs(self.path)
@@ -184,5 +176,5 @@ class ExportValidation(Callback):
         diff = diff.numpy()
         for i, diff_img in enumerate(diff):
             diff_img = (self.color_lut(diff_img).transpose(1, 2, 0) * 255).astype(np.uint8)
-            path = abspath(os.path.join(self.path, f'test{dataloader_idx}-{i}.png'))
+            path = abspath(os.path.join(self.path, f'{prefix}{dataloader_idx}-{i}.png'))
             cv2.imwrite(path, diff_img)

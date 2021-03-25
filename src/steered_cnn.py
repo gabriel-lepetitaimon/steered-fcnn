@@ -165,8 +165,8 @@ class SteerableOrthoKernelBase(KernelBase):
             K_x = sum(pad_tensors(K_x, kernel))
 
             # F_y = -sum (W_y * f_x + W_x - f_y)
-            kernel = -torch.matmul(Wy[:, :, k0:k1], bx).reshape(n_out, n_in, h_k, w_k)
-            kernel -= torch.matmul(Wx[:, :, k0:k1], by).reshape(n_out, n_in, h_k, w_k)
+            kernel = torch.matmul(Wy[:, :, k0:k1], bx).reshape(n_out, n_in, h_k, w_k)
+            kernel += torch.matmul(Wx[:, :, k0:k1], by).reshape(n_out, n_in, h_k, w_k)
             K_y = sum(pad_tensors(K_y, kernel))
 
             k0 = k1
@@ -218,12 +218,12 @@ class SteerableOrthoKernelBase(KernelBase):
 
         # K:[b,h,w,n_in*k] x W:[n_in*k, n_out] -> [b,h,w,n_out]
         fx = (torch.matmul(Kx, Wx) - torch.matmul(Ky, Wy)).permute(0, 3, 1, 2)  # [b,n_out,h,w]
-        fy = -(torch.matmul(Kx, Wy) + torch.matmul(Ky, Wx)).permute(0, 3, 1, 2)
+        fy = (torch.matmul(Kx, Wy) + torch.matmul(Ky, Wx)).permute(0, 3, 1, 2)
 
         return f, fx, fy
 
 
-_DEFAULT_STEERABLE_BASE = SteerableOrthoKernelBase.create_radial_steerable(5)
+_DEFAULT_STEERABLE_BASE = SteerableOrthoKernelBase.create_radial_steerable(4)
 
 
 class SteeredConv2d(nn.Module):
