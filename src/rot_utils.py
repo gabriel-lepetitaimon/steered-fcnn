@@ -22,17 +22,27 @@ def polar_space(size, center=None):
     return rho, phi
 
 
-def radial_steerable_filter(size, k, r, std=.5, sum=0):
+def radial_steerable_filter(size, k, r, std=.5):
     rho, phi = polar_space(size)
     G = np.exp(-(rho-r)**2/(2 * std**2))
+    G = G / G.sum()
     if k != 0:
         G[rho==0] *= 0
     PHI = np.exp(1j*k*phi)
 
     f = G*PHI
-    if sum:
-        f = f/f.sum()*sum
     return f
+
+
+def max_steerable_harmonics(radius):
+    if radius==0:
+        return 0
+
+    def circle_area(radius):
+        return np.pi * radius ** 2
+
+    inter_area = circle_area(radius + .5) - circle_area(radius - .5)
+    return int(inter_area//2)
 
 
 def plot_field(vy, vx, vr=None, mask=None, clip_norm=1, background=None):

@@ -139,3 +139,10 @@ def get_padding(padding, shape):
     return padding
 
 
+def get_outputs_dim(input_shape, weight_shape, padding=0, stride=1, dilation=1):
+    h, w = input_shape[-2:]
+    n, m = weight_shape[-2:]
+
+    h = (h+2*padding-dilation*(n-1)-1)/stride + 1
+    w = (w+2*padding-dilation*(m-1)-1)/stride + 1
+    return h,w

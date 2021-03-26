@@ -6,8 +6,10 @@ from .torch_utils import *
 
 
 class KernelBase:
-    def __init__(self, base: 'list(np.array) [n][f,h,w]'):
-        self.base = [torch.from_numpy(_).to(dtype=torch.float) for _ in base]
+    def __init__(self, base: 'np.array [n_k,h,w]'):
+        if isinstance(base, np.ndarray):
+            base = torch.from_numpy(base).to(dtype=torch.float)
+        self.base = base
 
     @staticmethod
     def cardinal_base(size=3):
@@ -84,51 +86,35 @@ class KernelBase:
 
     # --- Composite Kernels ---
     @staticmethod
-    def composite_kernels(base_kernels, weight: 'torch.Tensor [n_out, n_in, n_k]'):
-        kernels = None
-        k0 = 0
+    def composite_kernels(weight: 'torch.Tensor [n_out, n_in, n_k]', base: 'torch.Tensor [n_k, n, m]'):
         W = weight
         n_out, n_in, n_k = W.shape
-        for K in base_kernels:
-            k, h_k, w_k = K.shape
-            k1 = k0+k
-            K = K.reshape(k, h_k*w_k)
-            # W: [n_out,n_in,k0:k0+k] * F: [f,hw] -> [n_out, n_in, hw]
-            kernel = torch.matmul(W[:, :, k0:k1], K).reshape(n_out, n_in, h_k, w_k)
-            if kernels is None:
-                kernels = kernel
-            else:
-                kernels = sum(pad_tensors(kernels, kernel))
-            k0 = k1
-        return kernels
+        n_k, n, m = base.shape
+
+        K = base.reshape(n_k, n, m)
+
+        # W: [n_out,n_in,k0:k0+k] * F: [f,n*m] -> [n_out, n_in, n*m]
+        return torch.matmul(W, K).reshape(n_out, n_in, n, m)
 
     def composite_kernels_conv2d(self, input: 'torch.Tensor [b,i,w,h]', weight: 'np.array [n_out, n_in, k]',
                                  stride=1, padding='auto', dilation=1, groups=1):
-        W = KernelBase.composite_kernels(self.base, weight)
+        W = KernelBase.composite_kernels(weight, self.base)
         padding = get_padding(padding, W.shape)
         return F.conv2d(input, W, stride=stride, padding=padding, dilation=dilation, groups=groups)
 
     # --- Preconvolve Base ---
     @staticmethod
-    def preconvolve_base(input: 'torch.Tensor [b,i,w,h]', base_kernels,
+    def preconvolve_base(input: 'torch.Tensor [b,i,w,h]', base: 'torch.Tensor [n_k, n, m]',
                          stride=1, padding='auto', dilation=1):
-        base = None
         b, n_in, h, w = input.shape
+        n_k, n, m = base.shape
+        pad = get_padding(padding, (n, m))
+
         input = input.reshape(b * n_in, 1, h, w)
-
-        for kernel in base_kernels:
-            n_k, h_k, w_k = kernel.shape
-            pad = get_padding(padding, (h_k, w_k))
-
-            K = F.conv2d(input, kernel[:, None, :, :], stride=stride, padding=pad, dilation=dilation)
-            h, w = K.shape[-2:]     # h and w after padding, K.shape: [b*n_in, n_k, ~h, ~w]
-            K = K.reshape(b, n_in, n_k, h, w)
-
-            if base is None:
-                base = K
-            else:
-                base = torch.cat(clip_tensors(base, K), dim=2)
-        return base
+        base = base.reshape(n_k, 1, n, m)
+        K = F.conv2d(input, base, stride=stride, padding=pad, dilation=dilation)
+        h, w = K.shape[-2:]     # h and w after padding, K.shape: [b*n_in, n_k, ~h, ~w]
+        return K.reshape(b, n_in, n_k, h, w)
 
     def preconvolved_base_conv2d(self, input: 'torch.Tensor [b,i,w,h]', weight: 'np.array [n_out, n_in, k]',
                                  stride=1, padding='auto', dilation=1):
