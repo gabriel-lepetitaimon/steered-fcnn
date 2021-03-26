@@ -155,39 +155,35 @@ class SteerableKernelBase(KernelBase):
             self.to(input.device)
         padding = get_padding(padding, self.base.shape)
         conv_opts = dict(padding=padding, dilation=dilation, stride=stride)
-
         b, n_in, h, w = input.shape
         n_out, n_in_w, K = weight.shape
         assert n_in == n_in_w, 'Incoherent number of input neurons between the provided input and weight:\n' \
                               f'input.shape={input.shape} (n_in={n_in}), weight.shape={weight.shape} (n_in={n_in_w}).'
 
+        # If alpha=0 then the SteerableKernelBase behave like a simple KernelBase.
         if alpha is None or alpha == 0:
-            # If alpha=0 then the composite kernel is the sum of the real composite kernel.
-            K = self.composite_steerable_kernels_real(weight, k=self.k_values[0])
-            for k in self.k_values[1:]:
-                K += self.composite_steerable_kernels_real(weight, k=k)
+            return super(SteerableKernelBase, self).composite_kernels_conv2d(input, weight, **conv_opts)
 
-            return F.conv2d(input, K, **conv_opts)
-        if isinstance(alpha, (float, int)) or alpha.dim == 0:
-            alpha = alpha * torch.ones((1,1,1,1), dtype=self.base.dtype, device=self.base.device)
-        elif alpha.dim == 3:
-            alpha = alpha[:, None, :, :]
-
-        # Else if α != 0:
+        # Otherwise if α != 0:
         # f = X⊛K_equi + Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
 
+        # computing f = X ⊛ K_equi ...
         if self._n_k0:
-            # f = X⊛K_equi
             f = F.conv2d(input, self.composite_equi_kernels(weight), **conv_opts)
         else:
             f = torch.zeros((b, n_out)+get_outputs_dim(input.shape, weight.shape, **conv_opts),
                             device=self.base.device, dtype=self.base.dtype)
 
+        # then, computing cos(kα) and sin(kα)...
+        if isinstance(alpha, (float, int)) or alpha.dim == 0:
+            alpha = alpha * torch.ones((1,1,1,1), dtype=self.base.dtype, device=self.base.device)
+        elif alpha.dim == 3:
+            alpha = alpha[:, None, :, :]
         alpha = clip_pad_center(alpha, f.shape)
         cos_kalpha = torch.cos(alpha)
         sin_kalpha = torch.sin(alpha)
 
-        # f += Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
+        # finally: f += Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
         for k in self.k_values:
             if k == 0:
                 continue
@@ -222,7 +218,7 @@ class SteerableKernelBase(KernelBase):
             k: The desired polar harmonic. (0 <= k <= self.max_k)
 
         Returns: The composite kernel. (shape: [n_out, n_in, n, m])
-                 φR_jik = Σr[ ωR_jikr ΨR_kr - ωI_jikr ΨI_kr]
+                 φR_jik = Σr[ ωR_jikr ΨR_kr + ωI_jikr ΨI_kr]
         """
         if k == 0:
             return self.composite_equi_kernels(weight)
@@ -232,7 +228,7 @@ class SteerableKernelBase(KernelBase):
         w_real, w_imag = weight[real_idx], weight[imag_idx]
         psi_real, psi_imag = self.base[..., real_idx], self.base[..., imag_idx]
 
-        return KernelBase.composite_kernels(w_real, psi_real) - KernelBase.composite_kernels(w_imag, psi_imag)
+        return KernelBase.composite_kernels(w_real, psi_real) + KernelBase.composite_kernels(w_imag, psi_imag)
 
     def composite_steerable_kernels_imag(self, weight: 'torch.Tensor [n_out, n_in, K]', k) -> '[n_out, n_in, n, m]':
         """
@@ -245,7 +241,7 @@ class SteerableKernelBase(KernelBase):
             k: The desired polar harmonic. (0 <= k <= self.max_k)
 
         Returns: The composite kernel. (shape: [n_out, n_in, n, m])
-                 φI_jik = Σr[ ωI_jikr ΨR_kr + ωR_jikr ΨI_kr]
+                 φI_jik = Σr[ ωR_jikr ΨI_kr - ωI_jikr ΨR_kr]
         """
         if k == 0:
             n_out, n_in, K = weight.shape
@@ -256,7 +252,7 @@ class SteerableKernelBase(KernelBase):
         w_real, w_imag = weight[real_idx], weight[imag_idx]
         psi_real, psi_imag = self.base[..., real_idx], self.base[..., imag_idx]
 
-        return KernelBase.composite_kernels(w_imag, psi_real) + KernelBase.composite_kernels(w_real, psi_imag)
+        return KernelBase.composite_kernels(w_real, psi_imag) - KernelBase.composite_kernels(w_imag, psi_real)
 
 
 _DEFAULT_STEERABLE_BASE = SteerableKernelBase.create_from_rk(4)
