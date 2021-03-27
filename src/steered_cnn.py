@@ -25,37 +25,31 @@ class SteerableKernelBase(KernelBase):
 
         # Statically store the maximum harmonic order (max_k) and all harmonics orders values (k_values)
         self.max_k = max(n_kernel_by_k.keys())
-        self.k_values = [sorted(n_kernel_by_k.values())]
+        self.k_values = list(sorted(n_kernel_by_k.keys()))
 
         # Store the number of kernel for k=0
         self._n_k0 = n_kernel_by_k.get(0, 0)
 
         # Store list and cumulative list of kernel count for each k
-        self._n_kernel_by_n = []
+        self._n_kernel_by_k = []
         self._start_idx_by_k = [0]
         c = 0
         for k in range(0, self.max_k+1):
             n_kernel = n_kernel_by_k.get(k, 0)
-            self._n_kernel_by_n.append(n_kernel)
+            self._n_kernel_by_k.append(n_kernel)
             c += n_kernel
             self._start_idx_by_k.append(c)
-
-        assert self._start_idx_by_k[-1] == base.shape[0], 'The sum of n_kernel_by_k must be equal ' \
-                                                               'to the number of kernel in base (base.shape[0]).\n ' \
-                                   f'(base.shape: {base.shape}, n_kernel_by_k sum: {self._start_idx_by_k[-1]})'
 
         self.K_equi = self._n_k0
         self.K_steer = self._start_idx_by_k[-1] - self.K_equi
         self.K = self.K_equi + 2*self.K_steer
 
-    def idx(self, k, real=True):
-        if k > self.max_k or (k == 0 and not real):
-            return slice(self.K, self.K)    # Empty slice at the end of the list of kernels
+        assert self.K == base.shape[0], 'The sum of n_kernel_by_k must be equal ' \
+                                        'to the number of kernel in base (base.shape[0]).\n ' \
+                                        f'(base.shape: {base.shape}, n_kernel_by_k sum: {self._start_idx_by_k[-1]})'
 
-        K0 = 0
-        if not real:
-            K0 += self._start_idx_by_k[-1]
-        return slice(K0+self._start_idx_by_k[k], K0+self._start_idx_by_k[k+1])
+    def idx(self, k, real=True):
+        return self.idx_real(k) if real else self.idx_imag(k)
 
     def idx_equi(self):
         return slice(None, self.K_equi)
@@ -63,12 +57,16 @@ class SteerableKernelBase(KernelBase):
     def idx_real(self, k=None):
         if k is None:
             return slice(self.K_equi, self.K_equi+self.K_steer)
-        return self.idx(k, real=True)
+        if k > self.max_k:
+            return slice(self.K, self.K)    # Empty slice at the end of the list of kernels
+        return slice(self._start_idx_by_k[k], self._start_idx_by_k[k+1])
 
     def idx_imag(self, k=None):
         if k is None:
             return slice(self.K_equi+self.K_steer, None)
-        return self.idx(k, real=False)
+        if k > self.max_k or k <= 0:
+            return slice(self.K, self.K)    # Empty slice at the end of the list of kernels
+        return slice(self.K_steer+self._start_idx_by_k[k], self.K_steer+self._start_idx_by_k[k+1])
 
     @property
     def base_equi(self):
@@ -97,7 +95,7 @@ class SteerableKernelBase(KernelBase):
         return w
 
     @staticmethod
-    def create_from_rk(kr, std=.5):
+    def create_from_rk(kr, std=.5, size=None):
         """
         kr: A specification of which steerable filters should be included in the base.
         This parameter can one of:
@@ -124,9 +122,10 @@ class SteerableKernelBase(KernelBase):
         labels_real, labels_imag = [], []
         n_kernel_by_k = {}
 
-        r_max = max(max(R) for R in kr.values())
-        size = np.ceil(2*(r_max+std))
-        size += 1-(size % 2)    # Ensure size is odd
+        if size is None:
+            r_max = max(max(R) for R in kr.values())
+            size = int(np.ceil(2*(r_max+std)))
+            size += int(1-(size % 2))    # Ensure size is odd
 
         for k in sorted(kr.keys()):
             R = kr[k]
@@ -146,7 +145,7 @@ class SteerableKernelBase(KernelBase):
                     kernels_imag += [psi.imag]
 
         B = SteerableKernelBase(np.stack(kernels_real + kernels_imag), n_kernel_by_k=n_kernel_by_k)
-        B.label = labels_real + labels_imag
+        B.kernels_label = labels_real + labels_imag
         return B
 
     def conv2d(self, input: 'torch.Tensor [b,n_in,h,w]', weight: 'np.array [n_out,n_in,K]', alpha: 'torch.Tensor [b,?n_out,h,w]' = None,
@@ -174,21 +173,19 @@ class SteerableKernelBase(KernelBase):
             f = torch.zeros((b, n_out)+get_outputs_dim(input.shape, weight.shape, **conv_opts),
                             device=self.base.device, dtype=self.base.dtype)
 
-        # then, computing cos(kα) and sin(kα)...
+        # then, preparing α...
         if isinstance(alpha, (float, int)) or alpha.dim == 0:
-            alpha = alpha * torch.ones((1,1,1,1), dtype=self.base.dtype, device=self.base.device)
+            alpha = alpha * torch.ones((1, 1, 1, 1), dtype=self.base.dtype, device=self.base.device)
         elif alpha.dim == 3:
             alpha = alpha[:, None, :, :]
         alpha = clip_pad_center(alpha, f.shape)
-        cos_kalpha = torch.cos(alpha)
-        sin_kalpha = torch.sin(alpha)
 
         # finally: f += Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
         for k in self.k_values:
             if k == 0:
                 continue
-            f += cos_kalpha * F.conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts)
-            f += sin_kalpha * F.conv2d(input, self.composite_steerable_kernels_imag(weight, k=k), **conv_opts)
+            f += torch.cos(k*alpha) * F.conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts)
+            f += torch.sin(k*alpha) * F.conv2d(input, self.composite_steerable_kernels_imag(weight, k=k), **conv_opts)
 
         return f
 
@@ -205,7 +202,7 @@ class SteerableKernelBase(KernelBase):
                  φ_ji0 = Σr[ ωR_ji0r ΨR_0r]
         """
         idx = self.idx_equi()
-        return KernelBase.composite_kernels(self.base[..., idx], weight[idx])
+        return KernelBase.composite_kernels(weight[..., idx], self.base[idx])
 
     def composite_steerable_kernels_real(self, weight: 'torch.Tensor [n_out, n_in, K]', k) -> '[n_out, n_in, n, m]':
         """
@@ -225,8 +222,8 @@ class SteerableKernelBase(KernelBase):
 
         real_idx = self.idx_real(k)
         imag_idx = self.idx_imag(k)
-        w_real, w_imag = weight[real_idx], weight[imag_idx]
-        psi_real, psi_imag = self.base[..., real_idx], self.base[..., imag_idx]
+        w_real, w_imag = weight[..., real_idx], weight[..., imag_idx]
+        psi_real, psi_imag = self.base[real_idx], self.base[imag_idx]
 
         return KernelBase.composite_kernels(w_real, psi_real) + KernelBase.composite_kernels(w_imag, psi_imag)
 
@@ -249,8 +246,8 @@ class SteerableKernelBase(KernelBase):
             return torch.zeros((n_out, n_in, n, m), device=self.base.device, dtype=self.base.dtype)
         real_idx = self.idx_real(k)
         imag_idx = self.idx_imag(k)
-        w_real, w_imag = weight[real_idx], weight[imag_idx]
-        psi_real, psi_imag = self.base[..., real_idx], self.base[..., imag_idx]
+        w_real, w_imag = weight[..., real_idx], weight[..., imag_idx]
+        psi_real, psi_imag = self.base[real_idx], self.base[imag_idx]
 
         return KernelBase.composite_kernels(w_real, psi_imag) - KernelBase.composite_kernels(w_imag, psi_real)
 

@@ -49,7 +49,7 @@ class KernelBase:
     def approximate_weights(self, kernels: 'torch.Tensor [n_out, n_in, h, w]', info=None):
         from sklearn.linear_model import LinearRegression
         n_out, n_in, h, w = kernels.shape
-        base = self.padded_base().numpy()
+        base = self.base.cpu().numpy()
         k, n, m = base.shape
 
         device = kernels.device
@@ -64,24 +64,20 @@ class KernelBase:
         if info is not None:
             from sklearn.metrics import mean_squared_error, r2_score
             y_approx = regr.predict(X)
-            info['r2'] = r2_score(Y, y_approx)
-            info['mse'] = mean_squared_error(Y, y_approx)
+            mse = mean_squared_error(Y, y_approx)
+            info['mse'] = mse
+            info['r2'] = 1 if mse < 1e-12 else r2_score(Y, y_approx)
             info['y_approx'] = torch.from_numpy(y_approx.T.reshape((n_out, n_in, n, m))).to(device=device)
 
         coef = regr.coef_   # [n_out*n_in, k]
         return torch.from_numpy(coef).to(device=device).reshape(n_out, n_in, k)
 
-    def padded_base(self):
-        n = max(b.shape[-2] for b in self.base)
-        m = max(b.shape[-1] for b in self.base)
-        return torch.cat([clip_pad_center(b.detach(), (n, m)) for b in self.base], dim=0)
-
     @property
     def device(self):
-        return self.base[0].get_device()
+        return self.base.device
 
     def to(self, *args, **kwargs):
-        self.base = [b.to(*args, **kwargs) for b in self.base]
+        self.base = self.base.to(*args, **kwargs)
         return self
 
     # --- Composite Kernels ---
@@ -91,7 +87,7 @@ class KernelBase:
         n_out, n_in, n_k = W.shape
         n_k, n, m = base.shape
 
-        K = base.reshape(n_k, n, m)
+        K = base.reshape(n_k, n*m)
 
         # W: [n_out,n_in,k0:k0+k] * F: [f,n*m] -> [n_out, n_in, n*m]
         return torch.matmul(W, K).reshape(n_out, n_in, n, m)

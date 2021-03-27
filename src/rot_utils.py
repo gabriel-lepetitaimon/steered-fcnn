@@ -9,8 +9,8 @@ from skimage.transform import rotate as imrotate
 
 
 def polar_space(size, center=None):
-    if isinstance(size, int):
-        size = (size,size)
+    if not isinstance(size, tuple):
+        size = (size, size)
     if center is None:
         center = tuple(_/2 for _ in size)
         
@@ -42,7 +42,7 @@ def max_steerable_harmonics(radius):
         return np.pi * radius ** 2
 
     inter_area = circle_area(radius + .5) - circle_area(radius - .5)
-    return int(inter_area//2)
+    return int(inter_area//2)-1
 
 
 def plot_field(vy, vx, vr=None, mask=None, clip_norm=1, background=None):
@@ -77,6 +77,9 @@ def plot_field(vy, vx, vr=None, mask=None, clip_norm=1, background=None):
 
 
 def plot_filter(F, axis=True, spd=False):
+    import torch
+    if isinstance(F, torch.Tensor):
+        F = F.detach().cpu().numpy()
     h, w = F.shape
     v = max(F.max(), -F.min())
     
@@ -89,7 +92,7 @@ def plot_filter(F, axis=True, spd=False):
         fig, ax_filt = plt.subplots()
 
     # --- PLOT FILTER ---
-    im = ax_filt.imshow(F, interpolation='none', vmin=-v, vmax=v, aspect='equal', cmap='RdGy')
+    im = ax_filt.imshow(-F, interpolation='none', vmin=-v, vmax=v, aspect='equal', cmap='RdGy')
     if axis:
         # Major ticks
         ax_filt.set_xticks(np.arange(0, w, 1))
