@@ -176,9 +176,10 @@ class SteerableKernelBase(KernelBase):
         # then, preparing α...
         if isinstance(alpha, (float, int)) or alpha.dim == 0:
             alpha = alpha * torch.ones((1, 1, 1, 1), dtype=self.base.dtype, device=self.base.device)
-        elif alpha.dim == 3:
-            alpha = alpha[:, None, :, :]
-        alpha = clip_pad_center(alpha, f.shape)
+        else:
+            if alpha.dim == 3:
+                alpha = alpha[:, None, :, :]
+            alpha = clip_pad_center(alpha, f.shape)
 
         # finally: f += Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
         for k in self.k_values:
