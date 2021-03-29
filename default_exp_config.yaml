@@ -6,7 +6,6 @@ experiment:
 
 model:
     nfeatures-base: 16
-    half-kernel-height: 3
     depth: 2
     padding: 0
     steered: False

@@ -291,7 +291,6 @@ def load_dataset(cfg):
 def setup_model(model_cfg):
     if model_cfg['steered']:
         model = HemelingRotNet(6, principal_direction=1, nfeatures_base=model_cfg['nfeatures-base'],
-                               half_kernel_height=model_cfg['half-kernel-height'],
                                padding=model_cfg['padding'],
                                depth=model_cfg['depth'],
                                static_principal_direction=model_cfg['static-principal-direction'],

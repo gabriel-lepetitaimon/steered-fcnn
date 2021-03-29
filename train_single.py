@@ -61,11 +61,13 @@ def run_experiment(cfg_path, env=None):
         orion_cfg_filepath = os.path.join(tmp_path, orion_cfg.name)
 
         orion_opt = " "
+        exp_opt = " "
         if bool(env.get('TRIAL_DEBUG', False)):
-            orion_opt += "--debug --exp-max-trials 1"
-        print(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}" '
+            orion_opt += "--debug "
+            exp_opt += "--exp-max-trials 1 "
+        print(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}"{exp_opt}'
                   f'python3 run_train.py --config "{cfg_path}"')
-        r = os.system(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}" '
+        r = os.system(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}"{exp_opt}'
                       f'python3 run_train.py --config "{cfg_path}"')
     if r < 0:
         raise RuntimeError

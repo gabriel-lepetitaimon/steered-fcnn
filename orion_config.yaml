@@ -19,3 +19,6 @@ storage:
         name: 'orion_fundus'
         host: 'mongodb://localhost'
         port: 27017
+
+evc:
+    ignore_code_changes: True

@@ -24,8 +24,7 @@ def polar_space(size, center=None):
 
 def radial_steerable_filter(size, k, r, std=.5):
     rho, phi = polar_space(size)
-    G = np.exp(-(rho-r)**2/(2 * std**2))
-    G = G / G.sum()
+    G = np.exp(-(rho-r)**2/(2 * std**2)) / (std * np.sqrt(2*np.pi))
     if k != 0:
         G[rho==0] *= 0
     PHI = np.exp(1j*k*phi)
