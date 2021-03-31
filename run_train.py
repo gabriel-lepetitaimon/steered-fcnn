@@ -47,7 +47,6 @@ def run_train(opt=None):
         modelCheckpoints[metric] = checkpoint
         callbacks.append(checkpoint)
 
-    print('Stating training')
     trainer = pl.Trainer(gpus=args.gpus, callbacks=callbacks,
                          max_epochs=int(np.ceil(max_epoch/val_n_epoch)*val_n_epoch),
                          check_val_every_n_epoch=val_n_epoch,
@@ -187,6 +186,7 @@ def setup_log(cfg):
 
 
 def load_dataset(cfg):
+    from src.data_augment import DataAugment
     import albumentations as A
     from albumentations.pytorch import ToTensorV2
     from torch.utils.data import Dataset, DataLoader
@@ -203,21 +203,16 @@ def load_dataset(cfg):
 
             self.data = DATA.get(f'{dataset}/data')
             self.av = DATA.get(f'{dataset}/av')
-            self.field = DATA.get(f'{dataset}/radial-field')
+            self.alpha = DATA.get(f'{dataset}/principal-angle')
             self.mask = DATA.get(f'{dataset}/mask')
 
-            self.geo_aug = A.Compose([
-                #A.PadIfNeeded(800, 800, value=0, border_mode=cv2.BORDER_CONSTANT),
-                #A.RandomCrop(da_config['crop-size'], da_config['crop-size']),
-                A.HorizontalFlip(p=0.5),
-                A.Rotate(limit=(-180, 180)),
-                A.ElasticTransform(alpha=da_config['elastic-transform']['alpha'],
-                                   sigma=da_config['elastic-transform']['sigma'],
-                                   alpha_affine=da_config['elastic-transform']['alpha-affine'],
-                                   border_mode=cv2.BORDER_CONSTANT, p=.9),
-                A.VerticalFlip(p=0.5),
-                ToTensorV2()
-            ])
+            self.geo_aug = (DataAugment().flip()
+                                         .rotate()
+                                         .elastic_distortion(alpha=da_config['elastic-transform']['alpha'],
+                                                             sigma=da_config['elastic-transform']['sigma'],
+                                                             alpha_affine=da_config['elastic-transform']['alpha-affine'],
+                                                             border_mode=cv2.BORDER_CONSTANT)
+                           ).compile(images='x', labels='y,mask', angles='alpha', to_torch=True)
             self.factor = factor
             self._data_length = len(self.data)
 
@@ -226,22 +221,8 @@ def load_dataset(cfg):
 
         def __getitem__(self, i):
             i = i % self._data_length
-            img = [self.data[i].transpose(1, 2, 0)]
-            princ_dir_mode = cfg['model']['static-principal-direction']
-            if princ_dir_mode:
-                princ_dir = self.field[i]
-                if princ_dir_mode == 'normalized':
-                    princ_dir /= np.sqrt(princ_dir[0]**2+princ_dir[1]**2) + 1e-5
-                img += [princ_dir.transpose(1, 2, 0)]
-            img = np.concatenate(img, axis=2)
-            m = 1*(self.av[i] != 0)+self.mask[i]*16
-            d = self.geo_aug(image=img, mask=m)
-            r = {'x': d['image'][:6],
-                 'y': (d['mask'] % 16).int(),
-                 'mask': d['mask']//16}
-            if princ_dir_mode:
-                r['principal_direction'] = d['image'][6:]
-            return r
+            img = self.data[i].transpose(1, 2, 0)
+            return self.geo_aug(x=img, y=self.av[i], mask=self.mask[i], alpha=self.alpha[i])
 
     class TestDataset(Dataset):
         def __init__(self, dataset, file='DATA/vessels.h5'):
@@ -251,27 +232,17 @@ def load_dataset(cfg):
             
             self.data = DATA.get(f'{dataset}/data')
             self.av = DATA.get(f'{dataset}/av')
-            self.field = DATA.get(f'{dataset}/radial-field')
+            self.alpha = DATA.get(f'{dataset}/principal-angle')
             self.mask = DATA.get(f'{dataset}/mask')
-            self.geo_aug = A.Compose([#A.PadIfNeeded(800, 800, value=0, border_mode=cv2.BORDER_CONSTANT),
-                                      ToTensorV2()])
+            self.geo_aug = DataAugment().compile(images='x', labels='y,mask', angles='alpha', to_torch=True)
             self._data_length = len(self.data)
 
         def __len__(self):
             return self._data_length
 
         def __getitem__(self, i):
-            img = np.concatenate(
-                [self.data[i].transpose(1, 2, 0),
-                 self.field[i].transpose(1, 2, 0)],
-                axis=2)
-            m = 1*(self.av[i] != 0)+self.mask[i]*16
-            d = self.geo_aug(image=img, mask=m)
-            r = {'x': d['image'][:6],
-                 'principal_direction': d['image'][6:],
-                 'y': (d['mask'] % 16).int(),
-                 'mask': d['mask']//16}
-            return r
+            img = self.data[i].transpose(1, 2, 0)
+            return self.geo_aug(x=img, y=self.av[i], mask=self.mask[i], alpha=self.alpha[i])
 
     batch_size = cfg['hyper-parameters']['batch-size']
     train_dataset = cfg.training['training-dataset']

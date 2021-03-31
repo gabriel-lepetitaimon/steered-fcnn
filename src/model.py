@@ -194,44 +194,20 @@ class HemelingRotNet(nn.Module):
         
         self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else lambda x: x
 
-    def forward(self, x, principal_direction=None, **kwargs):
+    def forward(self, x, alpha=None, **kwargs):
         from functools import reduce
-        if not self.static_principal_direction or principal_direction is None:
+        if alpha is None:
             raise NotImplementedError()
-            
-            if self.principal_direction == 'all':
-                downSampledX = x.mean(axis=1)
-            else:
-                downSampledX = x[:, self.principal_direction]
-            device = self.final_conv.weight.device
-            alpha1 = compute_pdir(downSampledX, device=device,
-                                 hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                 smooth_std=self.principal_direction_smooth)[:, None, :, :]
-            downSampledX = F.avg_pool2d(downSampledX, 2)
-            alpha2 = compute_pdir(downSampledX, device=device,
-                                 hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                 smooth_std=self.principal_direction_smooth)[:, None, :, :]
-            downSampledX = F.avg_pool2d(downSampledX, 2)
-            alpha3 = compute_pdir(downSampledX, device=device,
-                                 hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                 smooth_std=self.principal_direction_smooth)[:, None, :, :]
-            downSampledX = F.avg_pool2d(downSampledX, 2)
-            alpha4 = compute_pdir(downSampledX, device=device,
-                                 hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                 smooth_std=self.principal_direction_smooth)[:, None, :, :]
-            downSampledX = F.avg_pool2d(downSampledX, 2)
-            alpha5 = compute_pdir(downSampledX, device=device,
-                                 hessian_value_threshold=self.principal_direction_hessian_threshold,
-                                 smooth_std=self.principal_direction_smooth)[:, None, :, :]
         else:
             with torch.no_grad():
-                alpha = torch.atan2(principal_direction[:, 1], principal_direction[:, 0])
+                if alpha.dim == 4 and alpha.shape[1] == 2:
+                    alpha = torch.atan2(alpha[:, 1], alpha[:, 0])
                 
                 max_k = self.base.max_k
                 b, h, w = alpha.shape
                 
-                k_alpha = torch.stack([k*alpha for k in range(1,self.base.max_k+1)])
-                cos_sin_kalpha = torch.stack((torch.cos(k_alpha),torch.sin(k_alpha)))
+                k_alpha = torch.stack([k*alpha for k in range(1, self.base.max_k+1)])
+                cos_sin_kalpha = torch.stack((torch.cos(k_alpha), torch.sin(k_alpha)))
                 
                 alpha1 = cos_sin_kalpha.reshape((2*max_k,b,h,w))
                 alpha2 = F.avg_pool2d(alpha1, 2)

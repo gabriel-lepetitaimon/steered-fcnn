@@ -91,7 +91,7 @@ class SteerableKernelBase(KernelBase):
 
         nn.init.normal_(w[..., self.idx_equi()], std=std_equi)
 
-        std_ortho = gain*np.sqrt(3 / (n_in * self.K_steer * 2))
+        std_ortho = gain*np.sqrt(3 / (n_in * self.K_steer))
         nn.init.normal_(w[..., self.idx_real()], std=std_ortho)
         nn.init.normal_(w[..., self.idx_imag()], std=std_ortho)
 
@@ -266,6 +266,54 @@ class SteerableKernelBase(KernelBase):
         psi_real, psi_imag = self.base[real_idx], self.base[imag_idx]
 
         return KernelBase.composite_kernels(w_real, psi_imag) - KernelBase.composite_kernels(w_imag, psi_real)
+    
+    def format_weights(self, weights, mean=True):
+        from pandas import DataFrame
+        from .utils import iter_index
+        data = dict(r=[_['r'] for _ in self.kernels_info],
+                    k=[_['k'] for _ in self.kernels_info],
+                    type=[_['type'] for _ in self.kernels_info])
+        if isinstance(weights, torch.Tensor):
+            weights = weights.detach().cpu().numpy()
+        s = weights.shape[:-1]
+        if not len(s) or np.prod(s)==1:
+            data['weight'] = weights.flatten()
+        else:
+            for idx in iter_index(weights.shape):
+                    data[f'weights{list(idx)}'] = weights[idx]
+            if mean:
+                data['weights_mean'] = weights.mean(axis=tuple(range(len(s))))
+                data['weights_std'] = weights.std(axis=tuple(range(len(s))))
+        return DataFrame(data=data)
+    
+    def weights_dist(self, weights, Q=3):
+        from pandas import DataFrame
+        if isinstance(weights, torch.Tensor):
+            weights = weights.detach().cpu().numpy()
+        weights = weights.reshape((np.prod(weights.shape[:-1]), weights.shape[-1]))
+        data = dict(r=[_['r'] for _ in self.kernels_info],
+                    k=[_['k'] for _ in self.kernels_info],
+                    type=[_['type'] for _ in self.kernels_info],
+                    name=[f'r={_["r"]}, k={_["k"]}, {"Real" if _["type"]=="R" else "Imag"}' for _ in self.kernels_info])
+        if isinstance(Q, int):
+            Q = [i/(Q+1) for i in range(Q)]
+        q = np.array(Q)*100
+        q = q/2
+        q = np.concatenate([50-q[::-1], [50], 50+q]).flatten()
+        perc = np.percentile(weights, q, axis=0)
+        data['median'] = perc[len(Q)]
+        
+        for i, q in enumerate(Q):
+            data[f'q{i}']= perc[-i-1]
+            data[f'-q{i}']= perc[i]
+        return data
+        
+        
+    
+    def plot_weights(self, weights):
+        pass
+        import altair as alt
+        
 
 
 _DEFAULT_STEERABLE_BASE = SteerableKernelBase.create_from_rk(4, max_k=5)

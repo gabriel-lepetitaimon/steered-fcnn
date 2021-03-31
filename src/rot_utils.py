@@ -149,7 +149,7 @@ def polar_spectral_power(arr: '.hw', theta=8, plot=False, split=False):
     return spectral_power(arr, plot=plot, split=split)
     
 
-def spectral_power(arr: 'θ.hw', plot=False, split=False):
+def spectral_power(arr: 'θ.hw', plot=False, split=False, sort=True):
     from scipy import fft
     spe = fft(arr, axis=0)
     spe = abs(spe)**2
@@ -171,6 +171,9 @@ def spectral_power(arr: 'θ.hw', plot=False, split=False):
         if split:
             W = 0.8
             w = W/spe.shape[1]
+            if sort:
+                idx = spe[0].argsort()
+                spe = spe[:, idx]
             for i in range(spe.shape[1]):
                 y = spe[:len(spe)//2+1, i]
                 if split == 'normed':

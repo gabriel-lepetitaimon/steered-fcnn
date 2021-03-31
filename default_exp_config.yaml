@@ -57,6 +57,7 @@ hyper-parameters:
 
 
 data-augmentation:
+    rot: True
     crop-size: 758
     elastic-transform:
         alpha: 10
