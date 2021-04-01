@@ -1,7 +1,0 @@
-mlflow:
-    uri: 'http://localhost:8000'
-
-script-arguments:
-    gpus: 1
-    debug: False
-    tmp-dir: 'tmp/'
