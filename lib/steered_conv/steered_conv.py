@@ -1,9 +1,12 @@
+import torch
 from torch import nn
-import numpy as np
-from .torch_utils import *
-from .utils import warn
-from .reparametrized_cnn import KernelBase
+import torch.nn.functional as F
+
+from ..kbase_conv import KernelBase
+from ..utils import compute_padding, compute_conv_outputs_dim, clip_pad_center
+
 from collections import OrderedDict
+from typing import Union, Dict, List
 
 
 class SteerableKernelBase(KernelBase):
@@ -87,30 +90,32 @@ class SteerableKernelBase(KernelBase):
         from torch.nn.init import calculate_gain
         gain = calculate_gain('relu')
         w = torch.empty((n_out, n_in, self.K))
-        std_equi = gain*np.sqrt(3/(n_in*self.K_equi))     # Each kernel is assume to sum to 1
+        std_equi = gain*torch.sqrt(3/(n_in*self.K_equi))     # Each kernel is assume to sum to 1
 
         nn.init.normal_(w[..., self.idx_equi()], std=std_equi)
 
-        std_ortho = gain*np.sqrt(3 / (n_in * self.K_steer))
+        std_ortho = gain*torch.sqrt(3 / (n_in * self.K_steer))
         nn.init.normal_(w[..., self.idx_real()], std=std_ortho)
         nn.init.normal_(w[..., self.idx_imag()], std=std_ortho)
 
         return w
 
     @staticmethod
-    def create_from_rk(kr, std=.5, size=None, max_k=None):
+    def create_from_rk(kr: Union[int, Dict[int, List[int]]], std=.5, size=None, max_k=None):
         """
         kr: A specification of which steerable filters should be included in the base.
         This parameter can one of:
             - a dictionary mapping harmonics order to a list of radius:
                 {k0: [r0, r1, ...], k1: [r2, r3, ...], ...}
             - an integer interpreted as the wanted kernel size:
-                for every r <= kr/2, k will be set to be the maximum number of harmonics before the apparition of aliasing artefact
+                for every r <= kr/2, k will be set to be the maximum number of harmonics
+                before the apparition of aliasing artefact
         std: The standard deviation of the gaussian distribution which weights the kernels radially.
         return: A SteerableKernelBase parametrized by the corresponding kernels.
         """
+        from .steerable_filters import max_steerable_harmonics, radial_steerable_filter
+        import numpy as np
         if isinstance(kr, int):
-            from .rot_utils import max_steerable_harmonics
             rk = {r: np.arange(max_steerable_harmonics(r)+1) for r in range(kr)}
             kr = {}
             for r, K in rk.items():
@@ -122,7 +127,6 @@ class SteerableKernelBase(KernelBase):
                     else:
                         kr[k] = [r]
 
-        from .rot_utils import radial_steerable_filter
         kernels_real, kernels_imag = [], []
         labels_real, labels_imag = [], []
         info_real, info_imag = [], []
@@ -145,11 +149,11 @@ class SteerableKernelBase(KernelBase):
                 # TODO: normalize?
 
                 labels_real += [f'k{k}r{r}'+('r' if k > 0 else '')]
-                info_real += [{'k':k, 'r': r, 'type':'R'}]
+                info_real += [{'k': k, 'r': r, 'type': 'R'}]
                 kernels_real += [psi.real]
                 if k > 0:
                     labels_imag += [f'k{k}r{r}I']
-                    info_real += [{'k':k, 'r': r, 'type':'I'}]
+                    info_real += [{'k': k, 'r': r, 'type': 'I'}]
                     kernels_imag += [psi.imag]
 
         B = SteerableKernelBase(np.stack(kernels_real + kernels_imag), n_kernel_by_k=n_kernel_by_k)
@@ -157,16 +161,17 @@ class SteerableKernelBase(KernelBase):
         B.kernels_info = info_real + info_imag
         return B
 
-    def conv2d(self, input: 'torch.Tensor [b,n_in,h,w]', weight: 'np.array [n_out,n_in,K]', alpha: 'torch.Tensor [b,?n_out,h,w]' = None,
+    def conv2d(self, input: 'torch.Tensor [b,n_in,h,w]', weight: 'np.array [n_out,n_in,K]',
+               alpha: 'torch.Tensor [b,?n_out,h,w]' = None,
                stride=1, padding='auto', dilation=1) -> 'torch.Tensor [b,n_out,~h,~w]':
         if self.device != input.device:
             self.to(input.device)
-        padding = get_padding(padding, self.base.shape)
+        padding = compute_padding(padding, self.base.shape)
         conv_opts = dict(padding=padding, dilation=dilation, stride=stride)
         b, n_in, h, w = input.shape
         n_out, n_in_w, K = weight.shape
         assert n_in == n_in_w, 'Incoherent number of input neurons between the provided input and weight:\n' \
-                              f'input.shape={input.shape} (n_in={n_in}), weight.shape={weight.shape} (n_in={n_in_w}).'
+                               f'input.shape={input.shape} (n_in={n_in}), weight.shape={weight.shape} (n_in={n_in_w}).'
 
         # If alpha=0 then the SteerableKernelBase behave like a simple KernelBase.
         if alpha is None:
@@ -179,7 +184,7 @@ class SteerableKernelBase(KernelBase):
         if self._n_k0:
             f = F.conv2d(input, self.composite_equi_kernels(weight), **conv_opts)
         else:
-            f = torch.zeros((b, n_out)+get_outputs_dim(input.shape, weight.shape, **conv_opts),
+            f = torch.zeros((b, n_out)+compute_conv_outputs_dim(input.shape, weight.shape, **conv_opts),
                             device=self.base.device, dtype=self.base.dtype)
 
         # then, preparing α...
@@ -269,25 +274,27 @@ class SteerableKernelBase(KernelBase):
     
     def format_weights(self, weights, mean=True):
         from pandas import DataFrame
-        from .utils import iter_index
+        import numpy as np
+        from ..utils import iter_index
         data = dict(r=[_['r'] for _ in self.kernels_info],
                     k=[_['k'] for _ in self.kernels_info],
                     type=[_['type'] for _ in self.kernels_info])
         if isinstance(weights, torch.Tensor):
             weights = weights.detach().cpu().numpy()
         s = weights.shape[:-1]
-        if not len(s) or np.prod(s)==1:
+        if not len(s) or np.prod(s) == 1:
             data['weight'] = weights.flatten()
         else:
             for idx in iter_index(weights.shape):
-                    data[f'weights{list(idx)}'] = weights[idx]
+                data[f'weights{list(idx)}'] = weights[idx]
             if mean:
                 data['weights_mean'] = weights.mean(axis=tuple(range(len(s))))
                 data['weights_std'] = weights.std(axis=tuple(range(len(s))))
         return DataFrame(data=data)
     
     def weights_dist(self, weights, Q=3):
-        from pandas import DataFrame
+        import numpy as np
+
         if isinstance(weights, torch.Tensor):
             weights = weights.detach().cpu().numpy()
         weights = weights.reshape((np.prod(weights.shape[:-1]), weights.shape[-1]))
@@ -304,16 +311,12 @@ class SteerableKernelBase(KernelBase):
         data['median'] = perc[len(Q)]
         
         for i, q in enumerate(Q):
-            data[f'q{i}']= perc[-i-1]
-            data[f'-q{i}']= perc[i]
+            data[f'q{i}'] = perc[-i-1]
+            data[f'-q{i}'] = perc[i]
         return data
-        
-        
-    
+
     def plot_weights(self, weights):
         pass
-        import altair as alt
-        
 
 
 _DEFAULT_STEERABLE_BASE = SteerableKernelBase.create_from_rk(4, max_k=5)
@@ -351,7 +354,7 @@ class SteeredConv2d(nn.Module):
         self.bias = None
         if bias:
             self.bias = nn.Parameter(torch.zeros(n_out), requires_grad=True) if bias else None
-            b = 1*np.sqrt(3/(n_out))
+            b = 1*torch.sqrt(3/n_out)
             nn.init.uniform_(self.bias, -b, b)
 
     def forward(self, x, alpha=None):
@@ -398,148 +401,3 @@ class SteeredConvBN(nn.Module):
     @property
     def relu(self):
         return self.model[1 if self._bn else 0]
-
-
-_gprof = torch.Tensor([1, 2, 1])
-_gkernel = torch.Tensor([-1, 0, 1])[:, np.newaxis] * _gprof[np.newaxis, :]
-_gkernel_t = _gkernel.transpose(0,1).unsqueeze(0).unsqueeze(0)
-_gkernel = _gkernel.unsqueeze(0).unsqueeze(0)
-
-
-def smooth(t, smooth_std, device=None):
-    if isinstance(smooth_std, (int,float)):
-        from .gaussian import get_gaussian_kernel2d
-        smooth_ksize = int(np.ceil(3*smooth_std))
-        smooth_ksize += 1-(smooth_ksize % 2)
-        smooth_kernel = get_gaussian_kernel2d((smooth_ksize, smooth_ksize), (smooth_std, smooth_std)) \
-            .unsqueeze(0).unsqueeze(0)
-        if device is not None:
-            smooth_kernel = smooth_kernel.to(device)
-
-    elif isinstance(smooth_std, torch.Tensor):
-        smooth_kernel = smooth_std.device(device) if device is not None else smooth_std
-        smooth_kernel.unsqueeze(0).unsqueeze(0)
-        smooth_ksize = smooth_kernel.shape[-1]
-    else:
-        raise TypeError
-    return F.conv2d(t, smooth_kernel, padding=(smooth_ksize-1)//2)
-
-
-def grad(t, smooth_std=1.2, device=None):
-    with torch.no_grad():
-        b, c, h, w = t.shape
-        t = t.reshape(b*c,1,h,w)
-
-        if smooth_std:
-            t = smooth(t, smooth_std, device=device)
-
-
-        gkernel_t = _gkernel_t.device(device) if device else _gkernel_t
-        gkernel = _gkernel_t.device(device) if device else _gkernel
-
-        gx = F.conv2d( t, gkernel_t, padding=1)
-        gy = F.conv2d( t, gkernel, padding=1)
-
-        return gy.reshape(b,c,h,w), gx.reshape(b,c,h,w)
-
-
-def hessian_principal_direction(t, smooth_std=1.2, max_dir=True, device=None, logs=None):
-    """ Compute the principal direction (first eigen vector) of the hessian for each pixels in t.
-    t.shape = (b, c, h, w)
-    Return vy, vx, vr (namely horizontal and vertical component of the unitary vector of the principal hessian direction, and norm of the vector before normalization).
-    """
-    #global _smooth_kernel
-    with torch.no_grad():
-        b, c, h, w = t.shape
-        t = t.reshape(b*c,1,h,w)
-
-        if smooth_std:
-            t = smooth(t, smooth_std, device=device)
-
-        gkernel_t = _gkernel_t.to(device) if device else _gkernel_t
-        gkernel = _gkernel_t.to(device) if device else _gkernel
-
-        gx = F.conv2d( t, gkernel_t, padding=1)
-        gy = F.conv2d( t, gkernel, padding=1)
-        gxx = F.conv2d(gx, gkernel_t, padding=1)
-        gxy = F.conv2d(gx, gkernel, padding=1)
-        gyy = F.conv2d(gy, gkernel, padding=1)
-
-        hessian = torch.stack([torch.stack([gyy,gxy],dim=-1), torch.stack([gxy,gxx],dim=-1)],dim=-2)
-        eig_values, eig_vectors = torch.symeig(hessian, eigenvectors=True)   #Needs PyTorch >=1.6
-        max_dir = 1 if max_dir else 0
-        hessian_u = eig_vectors[..., :, max_dir] # Min eigen vector
-        eig_values = eig_values.abs()
-        hessian_vratio = eig_values[..., 1]/eig_values.sum(dim=-1).clamp(10e-7)
-
-        pdir_y, pdir_x = hessian_u[...,0], hessian_u[...,1]
-        reverse = 1-2*((pdir_y*gy+pdir_x*gx)<0)
-        pdir_y = pdir_y * reverse * hessian_vratio
-        pdir_x = pdir_x * reverse * hessian_vratio
-
-        if logs is not None:
-            logs['gx'] = gx
-            logs['gy'] = gy
-            logs['gxx'] = gxx
-            logs['gxy'] = gxy
-            logs['gyy'] = gyy
-            logs['vratio'] = hessian_vratio
-
-        return pdir_y.reshape(b,c,h,w), pdir_x.reshape(b,c,h,w)
-
-
-def principal_direction(t, smooth_std=5, device=None, hessian_value_threshold=.7):
-    """ Compute the principal direction (first eigen vector) of the hessian for each pixels in t.
-    t.shape = (b, c, h, w)
-    Return vy, vx, vr (namely horizontal and vertical component of the unitary vector of the principal hessian direction, and norm of the vector before normalization).
-    """
-    with torch.no_grad():
-        shape = t.shape
-        if len(shape)==2:
-            b = 1
-            c = 1
-            h,w = shape
-        elif len(shape)==3:
-            c = 1
-            b,h,w = shape
-        elif len(shape)==4:
-            b,c,h,w = shape
-        else:
-            raise ValueError()
-
-        t = t.reshape(b*c,1,h,w)
-
-        if smooth_std:
-            t = smooth(t, smooth_std, device=device)
-
-        gkernel_t = _gkernel_t.to(device) if device else _gkernel_t
-        gkernel = _gkernel_t.to(device) if device else _gkernel
-
-        gx = F.conv2d( t, gkernel_t, padding=1)
-        gy = F.conv2d( t, gkernel, padding=1)
-
-        if hessian_value_threshold != 1:
-            gxx = F.conv2d(gx, gkernel_t, padding=1)
-            gxy = F.conv2d(gx, gkernel, padding=1)
-            gyy = F.conv2d(gy, gkernel, padding=1)
-
-            hessian = torch.stack([torch.stack([gyy,gxy],dim=-1), torch.stack([gxy,gxx],dim=-1)],dim=-2)
-            eig_values, eig_vectors = torch.symeig(hessian, eigenvectors=True)   #Needs PyTorch >=1.6
-            hessian_u = eig_vectors[..., :, 1] # Min eigen vector
-            eig_values = eig_values.abs()
-            hessian_vratio = eig_values[..., 1]/eig_values.sum(dim=-1).clamp(10e-7)
-
-            pdir_y, pdir_x = hessian_u[...,0], hessian_u[...,1]
-            reverse = 1-2*((pdir_y*gy+pdir_x*gx)<0)
-            pdir_y = pdir_y * reverse * hessian_vratio
-            pdir_x = pdir_x * reverse * hessian_vratio
-
-            hessian_mask = hessian_vratio > hessian_value_threshold
-            pdir_y = pdir_y*hessian_mask + gy*torch.logical_not(hessian_mask)
-            pdir_x = pdir_x*hessian_mask + gx*torch.logical_not(hessian_mask)
-
-        else:
-            pdir_y = gy
-            pdir_x = gx
-
-        return pdir_y.reshape(*shape), pdir_x.reshape(*shape)

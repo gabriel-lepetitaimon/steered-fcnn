@@ -1,0 +1,450 @@
+import cv2
+import functools
+import inspect
+import numpy as np
+from collections import OrderedDict
+from copy import deepcopy
+
+_augment_methods = {}
+_augment_by_type = {}
+
+
+def augment_method(augment_type=None, cv=False):
+    def decorator(func):
+        @functools.wraps(func)
+        def register_augment(self, *params, **kwargs):
+            params = bind_args(func, params, kwargs)
+            self._augment_stack.append((func.__name__, params))
+            return self
+
+        _augment_methods[func.__name__] = func, augment_type
+        _augment_by_type[augment_type] = func.__name__
+        return register_augment
+
+    return decorator
+
+
+class DataAugment:
+    def __init__(self, rng=None):
+        self._augment_stack = []
+
+    def compile(self, images='', labels='', angles='', to_torch=False):
+        if isinstance(images, str):
+            images = [_.strip() for _ in images.split(',') if _.strip()]
+        if isinstance(labels, str):
+            labels = [_.strip() for _ in labels.split(',') if _.strip()]
+        if isinstance(angles, str):
+            angles = [_.strip() for _ in angles.split(',') if _.strip()]
+
+        images_f = None
+        labels_f = None
+        angles_f = None
+
+        rng_states_def = []
+        if images:
+            images_f = self.compile_stack(rng_states=rng_states_def)
+        if labels:
+            labels_f = self.compile_stack(rng_states=rng_states_def,
+                                          interpolation=cv2.INTER_NEAREST, except_type={'color'})
+        if angles:
+            angles_f = self.compile_stack(rng_states=rng_states_def,
+                                          except_type={'color'}, value_type='angle')
+
+        def augment(rng=np.random.RandomState(1234), **kwargs):
+            rng_states = [[s(rng) for s in states.values()] for states in rng_states_def]
+            
+            d = {}
+            for image in images:
+                d[image] = images_f(kwargs[image], rng_states)
+
+            mixed_label = sum(kwargs[label]*(4**i) for i, label in enumerate(labels))
+            mixed_label = labels_f(mixed_label, rng_states)
+            for i, label in enumerate(labels):
+                d[label] = (mixed_label//(4**i)) % 4
+
+            for angle in angles:
+                d[angle] = angles_f(kwargs[angle], rng_states)
+
+            if to_torch:
+                def to_tensor(x):
+                    import torch
+                    if x.ndim == 3:
+                        x = x.transpose(2, 0, 1)
+                    return torch.from_numpy(x)
+                return {k: to_tensor(v) for k, v in d.items()}
+            return d
+
+        return augment
+
+    def compile_stack(self, only_type='', except_type='', rng_states=None, **kwargs):
+
+        only_type = str2tuple(only_type)
+        except_type = str2tuple(except_type)
+        
+        # --- Prepare functions stack ---
+        f_stack = []
+        if rng_states is None:
+            rng_states = []
+        if len(rng_states) == 0:
+            rng_states += [OrderedDict() for _ in range(len(self._augment_stack))]
+
+        for f_i, (f_name, f_params) in enumerate(self._augment_stack):
+            f, a_type = _augment_methods[f_name]
+
+            if a_type is not None and (a_type in except_type or (only_type and a_type not in only_type)):
+                continue
+
+            # Rerun the function generating augment() with the custom provided parameters
+            params = bind_args_partial(f, kwargs=kwargs)
+            params.update(f_params)
+            f_augment, *rng_params = match_params(f, self=self, **params)
+
+            # Read the name of the random parameters needed by augment()
+            rng_params_names = list(inspect.signature(f_augment).parameters.keys())[1:]
+            assert len(rng_params_names) == len(rng_params), f'Invalid random parameters count for ' \
+                                                              f'augmentation function: {f_name}(**{params}).'
+            for p_name, p_dist in zip(rng_params_names, rng_params):
+                if p_name in rng_states[f_i]:
+                    if rng_states[f_i][p_name] != p_dist:
+                        raise ValueError(f'Inconsistent distribution for the random parameter {p_name} of the '
+                                         f'augment function {f_name}: \n'
+                                         f'{rng_states[f_i][p_name]} != {p_dist}')
+                    else:
+                        continue
+                rng_states[f_i][p_name] = p_dist
+            f_stack.append((f_i, f_augment))
+
+        def augment(x, rng_state):
+            reduce = False
+            if x.ndim == 2:
+                reduce = True
+                x = x[:, :, np.newaxis]
+            elif x.ndim != 3:
+                raise ValueError('Invalid cv image format, shape is: %s' % repr(x.shape))
+            h, w, c = x.shape
+            x_cv = []
+            for i in range(c//3):
+                x_cv += [x[..., i*3:(i+1)*3]]
+            for i in range(c-(c % 3), c):
+                x_cv += [x[..., i:i+1]]
+
+            for f_i, f_augment in f_stack:
+                f_params = list(rng_state[f_i])
+                x_cv = [f_augment(x, *f_params) for x in x_cv]
+
+            x_cv = np.concatenate(x_cv, axis=2)
+            if reduce and x_cv.shape[2]==1:
+                x_cv = x_cv[:,:,0]
+            return x_cv
+        return augment
+
+    @augment_method('geometric')
+    def flip(self, p_horizontal=0.5, p_vertical=0.5, value_type=None):
+        h_flip = _RD.binary(p_horizontal)
+        v_flip = _RD.binary(p_vertical)
+
+        if value_type is None:
+            h_flip_value = lambda x: x
+            v_flip_value = lambda x: x
+        elif value_type == 'angle':
+            h_flip_value = lambda x: -x
+            v_flip_value = lambda x: np.pi-x
+
+        def augment(x, h, v):
+            if h:
+                x = np.flip(x, axis=1)
+                x = h_flip_value(x)
+            if v:
+                x = np.flip(x, axis=0)
+                x = v_flip_value(x)
+            return x
+        return augment, h_flip, v_flip
+
+    def flip_horizontal(self, p=0.5):
+        return self.flip(p_horizontal=p, p_vertical=0)
+
+    def flip_vertical(self, p=0.5):
+        return self.flip(p_horizontal=0, p_vertical=p)
+
+    @augment_method('geometric')
+    def rot90(self, value_type=None):
+        rot90 = _RD.discrete_uniform(4)
+
+        if value_type is None:
+            rot90_value = lambda x, k: x
+        elif value_type == 'angle':
+            rot90_value = lambda x, k: x+k*np.pi/2
+
+        def augment(x, k):
+            x = np.rot90(x, k=k, axes=(0, 1))
+            return rot90_value(x, k)
+        return augment, rot90
+
+    @augment_method('geometric')
+    def rotate(self, angle=(-180, +180), value_type=None,
+               interpolation=cv2.INTER_LINEAR, border_mode=cv2.BORDER_CONSTANT, border_value=0):
+        import albumentations.augmentations.functional as AF
+        angle = _RD.auto(angle, symetric=True)
+
+        rot_value = lambda x, phi: x
+        if value_type == 'angle':
+            rot_value = lambda x, phi: x+(phi*np.pi/180)
+
+        def augment(x, angle):
+            x = rot_value(x, angle)
+            return AF.rotate(x, angle, interpolation=interpolation, border_mode=border_mode, value=border_value)
+
+        return augment, angle
+
+    @augment_method('geometric')
+    def elastic_distortion(self, alpha=1, sigma=50, alpha_affine=50,
+                           approximate=False, interpolation=cv2.INTER_LINEAR,
+                           border_mode=cv2.BORDER_CONSTANT, border_value=0.0):
+        import albumentations.augmentations.functional as AF
+        def augment(x, rng_seed):
+            random_state = np.random.RandomState(rng_seed)
+            return AF.elastic_transform(x, alpha=alpha, sigma=sigma, alpha_affine=alpha_affine, approximate=approximate,
+                                        interpolation=interpolation, border_mode=border_mode, value=border_value,
+                                        random_state=random_state)
+        return augment, _RD.randint(1e8)
+
+    @augment_method('color')
+    def color(self, brightness=None, contrast=None, gamma=None, r=None, g=None, b=None):
+        brightness = _RD.constant(0) if brightness is None else _RD.auto(brightness, symetric=True)
+        contrast = _RD.constant(0) if contrast is None else _RD.auto(contrast, symetric=True)
+        gamma = _RD.gamma(0) if gamma is None else _RD.auto(gamma, symetric=True)
+
+        r = _RD.constant(0) if r is None else _RD.auto(r, symetric=True)
+        g = _RD.constant(0) if r is None else _RD.auto(g, symetric=True)
+        b = _RD.constant(0) if r is None else _RD.auto(b, symetric=True)
+
+        def augment(x, brightness, contrast, gamma, r, g, b):
+            x = ((x+brightness)*(contrast+1.))**(gamma+1.)
+            
+            if r or b or g :
+                n = x.shape[0]//3
+                bgr = np.array([b, g, r]*n)
+                x[..., :3*n] = x[..., :3*n] + bgr[np.newaxis, np.newaxis, :]
+            return np.clip(x, a_min=0, a_max=1)
+        return augment, brightness, contrast, gamma, r, g, b
+
+    def brightness(self, brightness=(-0.1, 0.1)):
+        return self.color(brightness=brightness)
+
+    def contrast(self, contrast=(-0.1, 0.1)):
+        return self.color(contrast=contrast)
+
+    def gamma(self, gamma=(-0.1, 0.1)):
+        return self.color(gamma=gamma)
+
+    @augment_method('color')
+    def hsv(self, hue=None, saturation=None, value=None):
+        hue = _RD.constant(0) if hue is not None else _RD.auto(hue, symetric=True)
+        saturation = _RD.constant(0) if saturation is not None else _RD.auto(saturation, symetric=True)
+        value = _RD.constant(0) if value is not None else _RD.auto(value, symetric=True)
+
+        a_min = np.array([0, 0, 0], np.uint8)
+        a_max = np.array([179, 255, 255], np.uint8)
+
+        def augment(x, h, s , v):
+            hsv = cv2.cvtColor(x, cv2.COLOR_BGR2HSV)
+            hsv = hsv + np.array([h, s, v])
+            hsv[:, :, 0] = hsv[:, :, 0] % 179
+            hsv = np.clip(hsv, a_min=a_min, a_max=a_max).astype(np.uint8)
+            return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+        return augment, hue, saturation, value
+
+    def hue(self, hue=(-20, 20)):
+        return self.hsv(hue=hue)
+
+    def saturation(self, saturation=(-20, 20)):
+        return self.hsv(saturation=saturation)
+
+
+########################################################################################################################
+class RandomDistribution:
+    def __init__(self, random_f, name, **kwargs):
+        self._f = random_f
+        self._name = name
+        self._kwargs = kwargs
+
+    def __call__(self, rng, shape=None):
+        if isinstance(rng, int):
+            rng = np.random.RandomState(seed=rng)
+        elif not isinstance(rng, np.random.RandomState):
+            raise ValueError('rng is not a valid RandomState or seed')
+        return self._f(rng=rng, shape=shape, **self._kwargs)
+    
+    def __repr__(self):
+        return f"RandomDistribution.{self._name}(**{self._kwargs})"
+
+    def __getattr__(self, item):
+        if item in self._kwargs:
+            return self._kwargs[item]
+
+    def __setattr__(self, key, value):
+        if not key.startswith('_') and key in self._kwargs:
+            self._kwargs[key] = value
+        else:
+            super(RandomDistribution, self).__setattr__(key, value)
+        
+    def __eq__(self, other):
+        return self._name == other._name and self._kwargs==other._kwargs
+    
+    def __neq__(self, other):
+        return self._name != other._name or self._kwargs!=other._kwargs
+
+    @staticmethod
+    def auto(info, symetric=False):
+        """
+        Generate a RandomDistribution according to the value of an argument
+        :rtype: RandomDistribution
+        """
+        if isinstance(info, tuple):
+            if len(info) == 2:
+                return RandomDistribution.uniform(*info)
+            elif len(info) == 1:
+                return RandomDistribution.uniform(low=-info[0], high=+info[0])
+        elif isinstance(info, (float, int)):
+            if symetric:
+                return RandomDistribution.uniform(low=-info, high=info)
+            else:
+                return RandomDistribution.uniform(high=info)
+        elif isinstance(info, RandomDistribution):
+            return info
+        raise ValueError('Not interpretable random distribution: %s.' % repr(info))
+
+    @staticmethod
+    def discrete_uniform(values):
+        if isinstance(values, (list, tuple, set, np.ndarray)):
+            values = np.array(values)
+            def f(rng: np.random.RandomState, shape, distribution):
+                return distribution[rng.randint(low=0, high=len(distribution), size=shape)]
+            return RandomDistribution(f, distribution=values)
+        elif isinstance(values, int):
+            def f(rng: np.random.RandomState, shape, distribution):
+                return rng.randint(low=0, high=distribution, size=shape)
+
+            return RandomDistribution(f, 'discrete_uniform', distribution=values)
+
+    @staticmethod
+    def uniform(high=1, low=0):
+        if high < low:
+            low, high = high, low
+
+        def f(rng: np.random.RandomState, shape, low, high):
+            return rng.uniform(low=low, high=high, size=shape)
+        return RandomDistribution(f, 'uniform', low=low, high=high)
+
+    @staticmethod
+    def normal(mean=0, std=1):
+        def f(rng: np.random.RandomState, shape, mean, std):
+            return rng.normal(loc=mean, scale=std, size=shape)
+        return RandomDistribution(f, 'normal', mean=mean, std=std)
+
+    @staticmethod
+    def truncated_normal(mean=0, std=1, truncate_high=1, truncate_low=None):
+        if truncate_low is None:
+            truncate_low = -truncate_high
+
+        def f(rng, shape, mean, std, truncate_low, truncate_high):
+            return np.clip(rng.normal(loc=mean, scale=std, size=shape), a_min=truncate_low, a_max=truncate_high)
+        return RandomDistribution(f, 'truncated_normal', mean=mean, std=std, truncate_high=truncate_high, truncate_low=truncate_low)
+
+    @staticmethod
+    def binary(p=0.5):
+        def f(rng: np.random.RandomState, shape, p):
+            return rng.binomial(n=1, p=p, size=shape) > 0
+        return RandomDistribution(f, 'binary', p=p)
+
+    @staticmethod
+    def constant(c=0):
+        def f(rng, shape, c):
+            return np.ones(shape=shape, dtype=type(c))*c
+        return RandomDistribution(f, 'constant', c=c)
+
+    @staticmethod
+    def custom(f_dist, **kwargs):
+        def f(rng, shape, **kwargs):
+            return f_dist(x=rng.uniform(0, 1, size=shape), **kwargs)
+
+        return RandomDistribution(f, 'custom: '+f_dist.__name__, **kwargs)
+
+    @staticmethod
+    def randint(low, high=None, dtype='i'):
+        def f(rng, shape, low, high, dtype):
+            return rng.randint(low, high=high, size=shape, dtype=dtype)
+        return RandomDistribution(f, 'randint', low=low, high=high, dtype=dtype)
+
+
+_RD = RandomDistribution
+
+
+########################################################################################################################
+def bind_args(f, args=(), kwargs=None):
+    bind = bind_args_partial(f, args, kwargs)
+    missing_args = set(not_optional_args(f)).intersection(bind.keys())
+    missing_args.difference_update({'self'})
+    if missing_args:
+        raise ValueError("%s() missing %i required arguments: '%s'"
+                         % (f.__name__, len(missing_args), "', '".join(missing_args)))
+    return bind
+
+
+def bind_args_partial(f, args=(), kwargs=None):
+    from collections import OrderedDict
+    if kwargs is None:
+        kwargs = {}
+    params = list(inspect.signature(f).parameters.keys())
+    bind = OrderedDict()
+    for i, a in enumerate(args):
+        if params[i] in kwargs:
+            raise ValueError("%s() got multiple value for argument '%s'" % (f.__name__, params[i]))
+        bind[params[i]] = a
+    for k, a in kwargs.items():
+        bind[k] = a
+    return bind
+
+
+def match_params(method, args=None, **kwargs):
+    """
+    Call the specified method, matching the arguments it needs with those,
+    provided in kwargs. The useless arguments are ignored.
+    If some not optional arguments is missing, a ValueError exception is raised.
+    :param method: The method to call
+    :param kwargs: Parameters provided to method
+    :return: Whatever is returned by method (might be None)
+    """
+    method_params = inspect.signature(method).parameters.keys()
+    method_params = {_: kwargs[_] for _ in method_params & kwargs.keys()}
+
+    if args is None:
+        args = []
+    i_args = 0
+    for not_opt in not_optional_args(method):
+        if not_opt not in method_params:
+            if i_args < len(args):
+                method_params[not_opt] = args[i_args]
+                i_args += 1
+            else:
+                raise ValueError('%s is not optional to call method: %s.' % (not_opt, method))
+
+    return method(**method_params)
+
+
+def not_optional_args(f):
+    """
+    List all the parameters not optional of a method
+    :param f: The method to analise
+    :return: The list of parameters
+    :rtype: list
+    """
+    sig = inspect.signature(f)
+    return [p_name for p_name, p in sig.parameters.items()
+            if isinstance(inspect._empty, type(p.default)) and inspect._empty == p.default]
+
+
+def str2tuple(v):
+    if isinstance(v, str):
+        return tuple(_.strip() for _ in v if _.strip())
+    return v

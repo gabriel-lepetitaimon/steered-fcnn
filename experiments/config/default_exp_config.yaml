@@ -1,0 +1,65 @@
+experiment:
+    name: 'RotEquivariance'
+    sub-experiment: 'default'
+    sub-experiment-id: 0
+    tags: {}
+
+model:
+    nfeatures-base: 16
+    depth: 2
+    padding: 0
+    steered: False
+    principal-direction-smooth: 3
+    principal-direction-hessian-threshold: 1
+    static-principal-direction: False   # True / False / 'normalized'
+
+
+training:
+    dataset-file: 'vessels.h5'
+    training-dataset: 'DRIVE'
+    training-dataset-factor: 8
+    max-epoch: 30
+    val-every-n-epoch: 1
+    half-precision: False
+    optimize: 'val-acc'
+    num-worker: 8
+    early-stopping:
+        monitor: 'auto'
+        min_delta: 0.005
+        patience: 5
+        mode: 'max'
+
+    
+hyper-parameters:
+    lr: 1.e-2
+    batch-size: 8
+    drop-out: 0
+    loss: 'dice'
+    optimizer:
+        type: 'Adam' # also supported: AdamW and Adammax
+        weight_decay: 0
+        beta: 0.9       # coefficients used for computing running averages of gradient
+        beta_sqr: 0.999 # and its square
+        amsgrad: True
+
+    # optimizer:
+    #     type: 'ASGD' 
+    #     weight_decay: 0
+        alpha: 0.75
+        t0: 1000000.0
+    
+    # optimizer:
+    #     type: 'SGD' 
+    #     weight_decay: 0
+        momentum: 0, 
+        dampening: 0
+        nesterov: False
+
+
+data-augmentation:
+    rot: True
+    crop-size: 758
+    elastic-transform:
+        alpha: 10
+        sigma: 20
+        alpha-affine: 50
