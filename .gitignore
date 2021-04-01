@@ -1,6 +1,5 @@
 .idea/
 .ipynb_checkpoints/
-experiments/
 lightning_logs/
 experiments_backup/
 mlruns/

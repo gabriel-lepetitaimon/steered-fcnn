@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import numpy as np
-from .torch_utils import *
+from ..utils import clip_pad_center, compute_padding
 
 
 class KernelBase:
@@ -15,8 +15,8 @@ class KernelBase:
     def cardinal_base(size=3):
         base = []
         for k in range(1, size+1, 2):
-            if k==1:
-                base.append(np.ones((1,1,1)))
+            if k == 1:
+                base.append(np.ones((1, 1, 1)))
             else:
                 kernels = []
                 for i in range(k-1):
@@ -54,7 +54,7 @@ class KernelBase:
 
         device = kernels.device
         kernels = kernels.detach().cpu()
-        kernels = clip_pad_center(kernels, (n,m))
+        kernels = clip_pad_center(kernels, (n, m))
 
         kernels = kernels.numpy()
         X = base.reshape((k, n*m)).T
@@ -95,7 +95,7 @@ class KernelBase:
     def composite_kernels_conv2d(self, input: 'torch.Tensor [b,i,w,h]', weight: 'np.array [n_out, n_in, k]',
                                  stride=1, padding='auto', dilation=1, groups=1):
         W = KernelBase.composite_kernels(weight, self.base)
-        padding = get_padding(padding, W.shape)
+        padding = compute_padding(padding, W.shape)
         return F.conv2d(input, W, stride=stride, padding=padding, dilation=dilation, groups=groups)
 
     # --- Preconvolve Base ---
@@ -104,7 +104,7 @@ class KernelBase:
                          stride=1, padding='auto', dilation=1):
         b, n_in, h, w = input.shape
         n_k, n, m = base.shape
-        pad = get_padding(padding, (n, m))
+        pad = compute_padding(padding, (n, m))
 
         input = input.reshape(b * n_in, 1, h, w)
         base = base.reshape(n_k, 1, n, m)
@@ -127,5 +127,3 @@ class KernelBase:
         W = weight.reshape(n_out, n_in*k).transpose(0, 1)
         f = torch.matmul(K, W)  # K:[b,h,w,n_in*k] x W:[n_in*k, n_out] -> [b,h,w,n_out]
         return f.permute(0, 3, 1, 2)    # [b,n_out,h,w]
-
-

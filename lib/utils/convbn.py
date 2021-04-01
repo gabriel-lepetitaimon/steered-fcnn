@@ -13,7 +13,7 @@ class ConvBN(torch.nn.Module):
             padding = kernel//2, kernel//2
 
         model = [torch.nn.Conv2d(n_in, n_out, kernel_size=kernel, stride=stride, padding=padding, bias=False,
-                           dilation=dilation)]
+                                 dilation=dilation)]
 
         if bn:
             model += [torch.nn.BatchNorm2d(n_out)]
@@ -48,7 +48,7 @@ class ConvBN(torch.nn.Module):
 
 
 # --- Utils function ---
-def get_padding(padding, shape):
+def compute_padding(padding, shape):
     if padding == 'auto':
         hW, wW = shape[-2:]
         padding = (hW//2, wW//2)
@@ -57,7 +57,7 @@ def get_padding(padding, shape):
     return padding
 
 
-def get_outputs_dim(input_shape, weight_shape, padding=0, stride=1, dilation=1):
+def compute_conv_outputs_dim(input_shape, weight_shape, padding=0, stride=1, dilation=1):
     h, w = input_shape[-2:]
     n, m = weight_shape[-2:]
 

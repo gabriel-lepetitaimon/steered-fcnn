@@ -1,1 +1,2 @@
-# FCNN Equivariant by Rotation
+# Steered Convolution Neural Network
+
