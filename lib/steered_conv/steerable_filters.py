@@ -70,3 +70,46 @@ def plot_filter(F, axis=True, spd=False):
         polar_spectral_power(F, plot=ax_spd, theta=spd)
     fig.tight_layout(w_pad=-3)
     fig.show()
+
+
+def cos_sin_ka(cos_sin_a, cos_sin_km1_a):
+    """
+    Computes cos((k+1)α) and sin((k+1)α) given cos(α), sin(α), cos(kα) and sin(kα):
+         cos((k+1)α) = cos(kα)cos(α) - sin(kα)sin(α)
+         sin((k+1)α) = cos(kα)sin(α) + sin(kα)cos(α)
+    Args:
+        cos_sin_a: A tensor of shape [2, n1, n2, ...], where cos1_sin1[0]=cos(α) and cos1_sin1[1]=sin(α).
+        cos_sin_km1_a: A tensor of shape [2, n1, n2, ...], where coskm1_sinkm1[0]=cos(kα) and coskm1_sinkm1[1]=sin(kα).
+
+    Returns: A tensor cosk_sink of shape [2, n1, n2, ...], where cosk_sink[0]=cos((k+1)α) and cosk_sink[1]=sin((k+1)α).
+    """
+    import torch
+    return torch.stack((
+        cos_sin_km1_a[0] * cos_sin_a[0] - cos_sin_km1_a[1] * cos_sin_a[1],
+        cos_sin_km1_a[0] * cos_sin_a[1] + cos_sin_km1_a[1] * cos_sin_a[0]
+    ))
+
+
+def cos_sin_ka_stack(cos_alpha, sin_alpha, k):
+    """
+    Computes the matrix:
+    [[cos(α), cos(2α), ..., cos(kα)],
+     [sin(α), sin(2α), ..., sin(kα)]]
+
+    Args:
+        cos_alpha: The tensor cos(α) of shape [n0, n1, ...]
+        sin_alpha: The tensor sin(α) of shape [n0, n1, ...]
+        k: The max k.
+
+    Returns: The tensor cos_sin_ka of shape [2, k, n0, n1, ...], where:
+                cos_sin_ka[0] = [cos(α), cos(2α), ..., cos(kα)]
+                cos_sin_ka[1] = [sin(α), sin(2α), ..., sin(kα)]
+    """
+    import torch
+    cos_sin_alpha = torch.stack(cos_alpha, sin_alpha)
+    cos_sin_km1_alpha = cos_sin_alpha
+    r = [cos_sin_alpha]
+    for i in range(k-1):
+        cos_sin_km1_alpha = cos_sin_ka(cos_sin_alpha, cos_sin_km1_alpha)
+        r += [cos_sin_km1_alpha]
+    return torch.stack(r, dim=1)

@@ -3,21 +3,18 @@ from torch import nn
 import torch.nn.functional as F
 from ..utils import cat_crop
 from ..steered_conv import SteeredConvBN, SteerableKernelBase
+from ..steered_conv.steerable_filters import cos_sin_ka_stack
 
 
 class SteeredHemelingNet(nn.Module):
 
     def __init__(self, n_in, n_out=1, nfeatures_base=6, depth=2, base=None,
                  p_dropout=0, padding=0,
-                 static_principal_direction=False,
-                 principal_direction='all', principal_direction_smooth=3, principal_direction_hessian_threshold=1):
+                 static_principal_direction=False):
         super(SteeredHemelingNet, self).__init__()
         self.n_in = n_in
         self.n_out = n_out
         self.static_principal_direction = static_principal_direction
-        self.principal_direction = principal_direction
-        self.principal_direction_smooth = principal_direction_smooth
-        self.principal_direction_hessian_threshold = principal_direction_hessian_threshold
 
         if base is None:
             base = SteerableKernelBase.create_from_rk(4, max_k=5)
@@ -93,31 +90,52 @@ class SteeredHemelingNet(nn.Module):
         self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else lambda x: x
 
     def forward(self, x, alpha=None):
+        """
+        Args:
+            x: The input tensor.
+            alpha: The angle by which the network is steered. (If None then alpha=0.)
+                    To enhance the efficiency of the steering computation, α should not be provided as an angle but as a
+                    vertical and horizontal projection: cos(α) and sin(α).
+                    Hence this parameter should be a 4D tensor: alpha[b, 0, h, w]=cos(α) and alpha[b, 1, h, w]=sin(α).
+                    (Alpha can be broadcasted along b, h or w, if these dimensions are of length 1.)
+                    Default: None
+
+        Shape:
+            input: (b, n_in, h, w)
+            alpha: (b, 2, ~h, ~w)     (b, h and w are broadcastable)
+            return: (b, n_out, ~h, ~w)
+
+        Returns: The prediction of the network (without the sigmoid).
+
+        """
         from functools import reduce
         if alpha is None:
             raise NotImplementedError()
         else:
             with torch.no_grad():
-                if alpha.dim == 4 and alpha.shape[1] == 2:
-                    alpha = torch.atan2(alpha[:, 1], alpha[:, 0])
+                k_max = self.base.k_max
 
-                max_k = self.base.max_k
-                b, h, w = alpha.shape
+                if alpha.dim == 3:
+                    cos_sin_kalpha = cos_sin_ka_stack(torch.cos(alpha), torch.sin(alpha), k=k_max)
+                elif alpha.dim == 4 and alpha.shape[1] == 2:
+                    cos_sin_kalpha = cos_sin_ka_stack(alpha[:, 0], alpha[:, 1], k=k_max)
+                else:
+                    raise ValueError(f'alpha shape should be either [b, h, w] or [b, 2, h, w] '
+                                     f'but provided tensor shape is {alpha.shape}.')
 
-                k_alpha = torch.stack([k * alpha for k in range(1, self.base.max_k + 1)])
-                cos_sin_kalpha = torch.stack((torch.cos(k_alpha), torch.sin(k_alpha)))
+                _, k_max, b, h, w = alpha.shape
 
-                alpha1 = cos_sin_kalpha.reshape((2 * max_k, b, h, w))
+                alpha1 = cos_sin_kalpha.reshape((2 * k_max, b, h, w))
                 alpha2 = F.avg_pool2d(alpha1, 2)
                 alpha3 = F.avg_pool2d(alpha2, 2)
                 alpha4 = F.avg_pool2d(alpha3, 2)
                 alpha5 = F.avg_pool2d(alpha4, 2)
 
-                alpha1 = tuple(alpha1.reshape(2, max_k, b, 1, *alpha1.shape[-2:]))
-                alpha2 = tuple(alpha2.reshape(2, max_k, b, 1, *alpha2.shape[-2:]))
-                alpha3 = tuple(alpha3.reshape(2, max_k, b, 1, *alpha3.shape[-2:]))
-                alpha4 = tuple(alpha4.reshape(2, max_k, b, 1, *alpha4.shape[-2:]))
-                alpha5 = tuple(alpha5.reshape(2, max_k, b, 1, *alpha5.shape[-2:]))
+                alpha1 = tuple(alpha1.reshape(2, k_max, b, 1, *alpha1.shape[-2:]))
+                alpha2 = tuple(alpha2.reshape(2, k_max, b, 1, *alpha2.shape[-2:]))
+                alpha3 = tuple(alpha3.reshape(2, k_max, b, 1, *alpha3.shape[-2:]))
+                alpha4 = tuple(alpha4.reshape(2, k_max, b, 1, *alpha4.shape[-2:]))
+                alpha5 = tuple(alpha5.reshape(2, k_max, b, 1, *alpha5.shape[-2:]))
 
         # Down
         x1 = reduce(lambda X, conv: conv(X, alpha=alpha1), self.conv1, x)
