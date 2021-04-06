@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from .steerable_kbase import SteerableKernelBase
+from .steered_kbase import SteerableKernelBase
 
 
 _DEFAULT_STEERABLE_BASE = SteerableKernelBase.create_from_rk(4, max_k=5)
