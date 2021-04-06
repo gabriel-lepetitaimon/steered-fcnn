@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import math
 
 from .steered_kbase import SteerableKernelBase
 
@@ -9,7 +10,8 @@ _DEFAULT_STEERABLE_BASE = SteerableKernelBase.create_from_rk(4, max_k=5)
 
 class SteeredConv2d(nn.Module):
     def __init__(self, n_in, n_out=None, steerable_base: SteerableKernelBase = None,
-                 stride=1, padding='auto', dilation=1, groups=1, bias=True):
+                 stride=1, padding='same', dilation=1, groups=1, bias=True,
+                 nonlinearity='relu', nonlinearity_param=None):
         """
         :param n_in:
         :param n_out:
@@ -20,7 +22,7 @@ class SteeredConv2d(nn.Module):
         :param bias:
         """
         super(SteeredConv2d, self).__init__()
-        
+
         if n_out is None:
             n_out = n_in
         
@@ -35,11 +37,12 @@ class SteeredConv2d(nn.Module):
         self.base = steerable_base
 
         # Weight
-        self.weights = nn.Parameter(self.base.create_weights(n_in, n_out), requires_grad=True)
+        self.weights = nn.Parameter(self.base.create_weights(n_in, n_out, nonlinearity, nonlinearity_param),
+                                    requires_grad=True)
         self.bias = None
         if bias:
             self.bias = nn.Parameter(torch.zeros(n_out), requires_grad=True) if bias else None
-            b = 1*torch.sqrt(3/n_out)
+            b = 1*math.sqrt(1/n_out)
             nn.init.uniform_(self.bias, -b, b)
 
     def forward(self, x, alpha=None):

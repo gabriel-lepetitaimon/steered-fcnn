@@ -87,17 +87,17 @@ class SteerableKernelBase(KernelBase):
     def base_y(self):
         return self.base[self.idx_imag()]
 
-    def create_weights(self, n_in, n_out):
+    def create_weights(self, n_in, n_out, nonlinearity='relu', nonlinearity_param=None):
         from torch.nn.init import calculate_gain
-        gain = calculate_gain('relu')
+        import math
+        gain = calculate_gain(nonlinearity, nonlinearity_param)
         w = torch.empty((n_out, n_in, self.K))
-        std_equi = gain*torch.sqrt(3/(n_in*self.K_equi))     # Each kernel is assume to sum to 1
+        std = gain*math.sqrt(1/(n_in*self.K))
+        nn.init.normal_(w, std=std)
 
-        nn.init.normal_(w[..., self.idx_equi()], std=std_equi)
-
-        std_ortho = gain*torch.sqrt(3 / (n_in * self.K_steer))
-        nn.init.normal_(w[..., self.idx_real()], std=std_ortho)
-        nn.init.normal_(w[..., self.idx_imag()], std=std_ortho)
+        # std_ortho = gain*math.sqrt(1 / (n_in))
+        # nn.init.normal_(w[..., self.idx_real()], std=std_ortho)
+        # nn.init.normal_(w[..., self.idx_imag()], std=std_ortho)
 
         return w
 
@@ -153,7 +153,6 @@ class SteerableKernelBase(KernelBase):
                     n_kernel_by_k[k] = 1
 
                 psi = radial_steerable_filter(size, k, r, std=std)
-                # TODO: normalize?
 
                 labels_real += [f'k{k}r{r}'+('r' if k > 0 else '')]
                 info_real += [{'k': k, 'r': r, 'type': 'R'}]
@@ -163,12 +162,15 @@ class SteerableKernelBase(KernelBase):
                     info_real += [{'k': k, 'r': r, 'type': 'I'}]
                     kernels_imag += [psi.imag]
 
-        B = SteerableKernelBase(np.stack(kernels_real + kernels_imag), n_kernel_by_k=n_kernel_by_k)
+        K = np.stack(kernels_real + kernels_imag)
+        # K /= np.sqrt((K**2).sum((1, 2)).mean())
+
+        B = SteerableKernelBase(K, n_kernel_by_k=n_kernel_by_k)
         B.kernels_label = labels_real + labels_imag
         B.kernels_info = info_real + info_imag
         return B
 
-    def conv2d(self, input: torch.Tensor, weight: torch.Tensor, alpha: torch.Tensor = None,
+    def conv2d(self, input: torch.Tensor, weight: torch.Tensor, alpha: Union[int, float, torch.Tensor] = None,
                stride=1, padding='same', dilation=1) -> torch.Tensor:
         """
         Compute the convolution of `input` and this base's kernels steered by the angle `alpha`
@@ -215,6 +217,9 @@ class SteerableKernelBase(KernelBase):
         # If alpha=0 then the SteerableKernelBase behave like a simple KernelBase.
         if alpha is None:
             return super(SteerableKernelBase, self).composite_kernels_conv2d(input, weight, **conv_opts)
+        elif isinstance(alpha, (int, float)):
+            alpha = torch.Tensor([alpha])
+            alpha = torch.stack((torch.cos(alpha), torch.sin(alpha)))[:, None, None, None]
 
         # Otherwise if α != 0:
         # f = X⊛K_equi + Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
@@ -226,15 +231,14 @@ class SteerableKernelBase(KernelBase):
             f = torch.zeros((b, n_out, h, w),
                             device=self.base.device, dtype=self.base.dtype)
 
-        alpha = clip_pad_center(alpha, f.shape)
+        alpha = clip_pad_center(alpha, f.shape, broadcastable=True)
 
         # finally: f += Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
         for k in self.k_values:
             if k == 0:
                 continue
-
             if alpha.dim() == 5:
-                if k == 0:
+                if k == 1:
                     cos_sin_kalpha = alpha
                 else:
                     cos_sin_kalpha = cos_sin_ka(alpha, cos_sin_kalpha)
