@@ -49,7 +49,7 @@ class ConvBN(torch.nn.Module):
 
 # --- Utils function ---
 def compute_padding(padding, shape):
-    if padding == 'same':
+    if padding == 'same' or padding == 'auto':
         hW, wW = shape[-2:]
         padding = (hW//2, wW//2)
     elif padding == 'true':

@@ -46,7 +46,7 @@ class KernelBase:
         nn.init.uniform_(w, -b, b)
         return w
 
-    def approximate_weights(self, kernels: 'torch.Tensor [n_out, n_in, h, w]', info=None):
+    def approximate_weights(self, kernels: 'torch.Tensor [n_out, n_in, h, w]',  info=None, bias=False):
         from sklearn.linear_model import LinearRegression
         n_out, n_in, h, w = kernels.shape
         base = self.base.cpu().numpy()
@@ -59,6 +59,10 @@ class KernelBase:
         kernels = kernels.numpy()
         X = base.reshape((k, n*m)).T
         Y = kernels.reshape((n_out*n_in, n*m)).T
+
+        if bias:
+            X = np.concatenate([X, np.ones((n*m, 1))], axis=1)
+
         regr = LinearRegression(fit_intercept=False, n_jobs=-1)
         regr.fit(X, Y)
         if info is not None:
@@ -70,7 +74,11 @@ class KernelBase:
             info['y_approx'] = torch.from_numpy(y_approx.T.reshape((n_out, n_in, n, m))).to(device=device)
 
         coef = regr.coef_   # [n_out*n_in, k]
-        return torch.from_numpy(coef).to(device=device).reshape(n_out, n_in, k)
+        coef = torch.from_numpy(coef).to(device=device, dtype=torch.float).reshape(n_out, n_in, -1)
+        if not bias:
+            return coef
+        else:
+            return coef[..., :-1], coef[..., -1]
 
     @property
     def device(self):
@@ -93,7 +101,7 @@ class KernelBase:
         return torch.matmul(W, K).reshape(n_out, n_in, n, m)
 
     def composite_kernels_conv2d(self, input: 'torch.Tensor [b,i,w,h]', weight: 'np.array [n_out, n_in, k]',
-                                 stride=1, padding='auto', dilation=1, groups=1):
+                                 stride=1, padding='same', dilation=1, groups=1):
         W = KernelBase.composite_kernels(weight, self.base)
         padding = compute_padding(padding, W.shape)
         return F.conv2d(input, W, stride=stride, padding=padding, dilation=dilation, groups=groups)
@@ -101,7 +109,7 @@ class KernelBase:
     # --- Preconvolve Base ---
     @staticmethod
     def preconvolve_base(input: 'torch.Tensor [b,i,w,h]', base: 'torch.Tensor [n_k, n, m]',
-                         stride=1, padding='auto', dilation=1):
+                         stride=1, padding='same', dilation=1):
         b, n_in, h, w = input.shape
         n_k, n, m = base.shape
         pad = compute_padding(padding, (n, m))
@@ -113,7 +121,7 @@ class KernelBase:
         return K.reshape(b, n_in, n_k, h, w)
 
     def preconvolved_base_conv2d(self, input: 'torch.Tensor [b,i,w,h]', weight: 'np.array [n_out, n_in, k]',
-                                 stride=1, padding='auto', dilation=1):
+                                 stride=1, padding='same', dilation=1):
         bases = KernelBase.preconvolve_base(input, self.base, stride=stride, padding=padding, dilation=dilation)
         b, n_in, k, h, w = bases.shape
         n_out, n_in_w, k_w = weight.shape

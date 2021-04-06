@@ -178,20 +178,22 @@ def setup_log(cfg):
     return tmp
 
 
-def setup_model(model_cfg):
-    from lib.models import HemelingNet, SteeredHemelingNet
+def setup_model(model_cfg, old=False):
+    from lib.models import HemelingNet, SteeredHemelingNet, OldHemelingNet
     if model_cfg['steered']:
-        model = SteeredHemelingNet(6, principal_direction=1, nfeatures_base=model_cfg['nfeatures-base'],
+        model = SteeredHemelingNet(6, nfeatures_base=model_cfg['nfeatures-base'],
                                    padding=model_cfg['padding'],
                                    depth=model_cfg['depth'],
-                                   static_principal_direction=model_cfg['static-principal-direction'],
-                                   principal_direction_smooth=model_cfg['principal-direction-smooth'],
-                                   principal_direction_hessian_threshold=model_cfg[
-                                       'principal-direction-hessian-threshold'])
+                                   static_principal_direction=model_cfg['static-principal-direction'])
     else:
-        model = HemelingNet(6, nfeatures_base=model_cfg['nfeatures-base'],
-                            padding=model_cfg['padding'],
-                            half_kernel_height=model_cfg['half-kernel-height'])
+        if old:
+            model = OldHemelingNet(6, nfeatures_base=model_cfg['nfeatures-base'],
+                                padding=model_cfg['padding'],
+                                half_kernel_height=model_cfg['half-kernel-height'])
+        else:
+            model = HemelingNet(6, nfeatures_base=model_cfg['nfeatures-base'],
+                                padding=model_cfg['padding'],
+                                half_kernel_height=model_cfg['half-kernel-height'])
     return model
 
 
