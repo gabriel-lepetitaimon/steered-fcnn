@@ -40,7 +40,7 @@ class TrainDataset(Dataset):
         DATA = h5py.File(file, 'r')
         self.data = DATA.get(f'{dataset}/data')
         self.av = DATA.get(f'{dataset}/av')
-        self.alpha = DATA.get(f'{dataset}/principal-angle')
+        self.cos_sin_alpha = DATA.get(f'{dataset}/principal-angle')
         self.mask = DATA.get(f'{dataset}/mask')
 
         self.geo_aug = (DataAugment().flip()
@@ -48,7 +48,7 @@ class TrainDataset(Dataset):
                         .elastic_distortion(alpha=data_augmentation_cfg['elastic-transform']['alpha'],
                                             sigma=data_augmentation_cfg['elastic-transform']['sigma'],
                                             alpha_affine=data_augmentation_cfg['elastic-transform']['alpha-affine'])
-                        ).compile(images='x', labels='y,mask', angles='alpha', to_torch=True)
+                        ).compile(images='x', labels='y,mask', fields='cos_sin_alpha', to_torch=True)
         self.factor = factor
         self._data_length = len(self.data)
 
@@ -58,7 +58,7 @@ class TrainDataset(Dataset):
     def __getitem__(self, i):
         i = i % self._data_length
         img = self.data[i].transpose(1, 2, 0)
-        return self.geo_aug(x=img, y=self.av[i], mask=self.mask[i], alpha=self.alpha[i])
+        return self.geo_aug(x=img, y=self.av[i], mask=self.mask[i], cos_sin_alpha=self.cos_sin_alpha[i])
 
 
 class TestDataset(Dataset):
@@ -68,9 +68,9 @@ class TestDataset(Dataset):
 
         self.data = DATA.get(f'{dataset}/data')
         self.av = DATA.get(f'{dataset}/av')
-        self.alpha = DATA.get(f'{dataset}/principal-angle')
+        self.cos_sin_alpha = DATA.get(f'{dataset}/principal-angle')
         self.mask = DATA.get(f'{dataset}/mask')
-        self.geo_aug = DataAugment().compile(images='x', labels='y,mask', angles='alpha', to_torch=True)
+        self.geo_aug = DataAugment().compile(images='x', labels='y,mask', fields='cos_sin_alpha', to_torch=True)
         self._data_length = len(self.data)
 
     def __len__(self):
@@ -78,4 +78,4 @@ class TestDataset(Dataset):
 
     def __getitem__(self, i):
         img = self.data[i].transpose(1, 2, 0)
-        return self.geo_aug(x=img, y=self.av[i], mask=self.mask[i], alpha=self.alpha[i])
+        return self.geo_aug(x=img, y=self.av[i], mask=self.mask[i], cos_sin_alpha=self.cos_sin_alpha[i])

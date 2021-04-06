@@ -28,17 +28,20 @@ class DataAugment:
     def __init__(self, rng=None):
         self._augment_stack = []
 
-    def compile(self, images='', labels='', angles='', to_torch=False):
+    def compile(self, images='', labels='', angles='', fields='', to_torch=False):
         if isinstance(images, str):
             images = [_.strip() for _ in images.split(',') if _.strip()]
         if isinstance(labels, str):
             labels = [_.strip() for _ in labels.split(',') if _.strip()]
         if isinstance(angles, str):
             angles = [_.strip() for _ in angles.split(',') if _.strip()]
+        if isinstance(fields, str):
+            fields = [_.strip() for _ in fields.split(',') if _.strip()]
 
         images_f = None
         labels_f = None
         angles_f = None
+        fields_f = None
 
         rng_states_def = []
         if images:
@@ -49,6 +52,9 @@ class DataAugment:
         if angles:
             angles_f = self.compile_stack(rng_states=rng_states_def,
                                           except_type={'color'}, value_type='angle')
+        if fields:
+            fields_f = self.compile_stack(rng_states=rng_states_def,
+                                          except_type={'color'}, value_type='field')
 
         def augment(rng=np.random.RandomState(1234), **kwargs):
             rng_states = [[s(rng) for s in states.values()] for states in rng_states_def]
@@ -64,6 +70,9 @@ class DataAugment:
 
             for angle in angles:
                 d[angle] = angles_f(kwargs[angle], rng_states)
+
+            for field in fields:
+                d[field] = fields_f(kwargs[field], rng_states)
 
             if to_torch:
                 def to_tensor(x):
@@ -149,6 +158,13 @@ class DataAugment:
         elif value_type == 'angle':
             h_flip_value = lambda x: -x
             v_flip_value = lambda x: np.pi-x
+        elif value_type == 'field':
+            def hflip_value(x):
+                u, v = x
+                return u, -v
+            def v_flip_value(x):
+                u, v = x
+                return -u, v
 
         def augment(x, h, v):
             if h:
@@ -174,6 +190,18 @@ class DataAugment:
             rot90_value = lambda x, k: x
         elif value_type == 'angle':
             rot90_value = lambda x, k: x+k*np.pi/2
+        elif value_type == 'field':
+            def rot90_value(x, k):
+                k %= 4
+                u, v = x
+                if k == 0:
+                    return x
+                elif k == 1:
+                    return np.stack([-v, u])
+                elif k == 2:
+                    return np.stack([-u, -v])
+                else:
+                    return np.stack([v, -u])
 
         def augment(x, k):
             x = np.rot90(x, k=k, axes=(0, 1))
@@ -189,6 +217,14 @@ class DataAugment:
         rot_value = lambda x, phi: x
         if value_type == 'angle':
             rot_value = lambda x, phi: x+(phi*np.pi/180)
+        elif value_type == 'field':
+            def rot_value(x, phi):
+                u, v = x
+                phi = phi*np.pi/180
+                return np.stack([
+                    u*np.cos(phi) - v*np.sin(phi),
+                    v*np.cos(phi) + u*np.sin(phi)
+                ])
 
         def augment(x, angle):
             x = rot_value(x, angle)

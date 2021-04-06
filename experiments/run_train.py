@@ -6,6 +6,10 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from orion.client import report_objective
 from pytorch_lightning.utilities.cloud_io import load as pl_load
 
+import sys
+import os.path as P
+sys.path.insert(0, P.abspath(P.join(P.dirname(__file__), '../')))
+
 
 def run_train(opt=None):
     from .datasets import load_dataset
@@ -175,7 +179,7 @@ def setup_log(cfg):
 
 
 def setup_model(model_cfg):
-    from ..lib.models import HemelingNet, SteeredHemelingNet
+    from lib.models import HemelingNet, SteeredHemelingNet
     if model_cfg['steered']:
         model = SteeredHemelingNet(6, principal_direction=1, nfeatures_base=model_cfg['nfeatures-base'],
                                    padding=model_cfg['padding'],
