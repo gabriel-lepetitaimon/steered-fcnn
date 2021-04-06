@@ -74,7 +74,7 @@ class KernelBase:
             info['y_approx'] = torch.from_numpy(y_approx.T.reshape((n_out, n_in, n, m))).to(device=device)
 
         coef = regr.coef_   # [n_out*n_in, k]
-        coef = torch.from_numpy(coef).to(device=device).reshape(n_out, n_in, -1)
+        coef = torch.from_numpy(coef).to(device=device, dtype=torch.float).reshape(n_out, n_in, -1)
         if not bias:
             return coef
         else:

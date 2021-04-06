@@ -18,7 +18,6 @@ def polar_space(size, center=None):
 def spectral_power(arr: 'θ.hw', plot=False, split=False, sort=True):
     from scipy import fft
     import matplotlib.pyplot as plt
-    plt.rcParams["figure.figsize"] = (18, 5)
 
     spe = fft(arr, axis=0)
     spe = abs(spe) ** 2
