@@ -9,9 +9,9 @@ from ..steered_conv.steerable_filters import cos_sin_ka_stack
 class SteeredHemelingNet(nn.Module):
 
     def __init__(self, n_in, n_out=1, nfeatures_base=6, depth=2, base=None,
-                 p_dropout=0, padding=0,
+                 p_dropout=0, padding='same', batchnorm=True,
                  static_principal_direction=False):
-        super(SteeredHemelingNet, self).__init__()
+        super().__init__()
         self.n_in = n_in
         self.n_out = n_out
         self.static_principal_direction = static_principal_direction
@@ -31,57 +31,57 @@ class SteeredHemelingNet(nn.Module):
 
         # Down
         self.conv1 = nn.ModuleList(
-            [SteeredConvBN(n_in, n1, relu=True, bn=True, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n1, n1, relu=True, bn=True, padding=padding, steerable_base=base)
+            [SteeredConvBN(n_in, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
+            + [SteeredConvBN(n1, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
                for _ in range(depth - 1)])
         self.pool1 = nn.MaxPool2d(2)
 
         self.conv2 = nn.ModuleList(
-            [SteeredConvBN(n1, n2, relu=True, bn=True, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n2, n2, relu=True, bn=True, padding=padding, steerable_base=base)
+            [SteeredConvBN(n1, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
+            + [SteeredConvBN(n2, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
                for _ in range(depth - 1)])
         self.pool2 = nn.MaxPool2d(2)
 
         self.conv3 = nn.ModuleList(
-            [SteeredConvBN(n2, n3, relu=True, bn=True, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n3, n3, relu=True, bn=True, padding=padding, steerable_base=base)
+            [SteeredConvBN(n2, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
+            + [SteeredConvBN(n3, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
                for _ in range(depth - 1)])
         self.pool3 = nn.MaxPool2d(2)
 
         self.conv4 = nn.ModuleList(
-            [SteeredConvBN(n3, n4, relu=True, bn=True, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n4, n4, relu=True, bn=True, padding=padding, steerable_base=base)
+            [SteeredConvBN(n3, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
+            + [SteeredConvBN(n4, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
                for _ in range(depth - 1)])
         self.pool4 = nn.MaxPool2d(2)
 
         self.conv5 = nn.ModuleList(
-            [SteeredConvBN(n4, n5, relu=True, bn=True, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n5, n5, relu=True, bn=True, padding=padding, steerable_base=base)
+            [SteeredConvBN(n4, n5, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
+            + [SteeredConvBN(n5, n5, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
                for _ in range(depth - 1)])
 
         # Up
         self.upsample1 = nn.ConvTranspose2d(n5, n4, kernel_size=(2, 2), stride=(2, 2))
         self.conv6 = nn.ModuleList(
-            [SteeredConvBN(2 * n4, n4, relu=True, bn=True, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n4, n4, relu=True, bn=True, padding=padding, steerable_base=base)
+            [SteeredConvBN(2 * n4, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
+            + [SteeredConvBN(n4, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
                for _ in range(depth - 1)])
 
         self.upsample2 = nn.ConvTranspose2d(n4, n3, kernel_size=(2, 2), stride=(2, 2))
         self.conv7 = nn.ModuleList(
-            [SteeredConvBN(2 * n3, n3, relu=True, bn=True, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n3, n3, relu=True, bn=True, padding=padding, steerable_base=base)
+            [SteeredConvBN(2 * n3, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
+            + [SteeredConvBN(n3, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
                for _ in range(depth - 1)])
 
         self.upsample3 = nn.ConvTranspose2d(n3, n2, kernel_size=(2, 2), stride=(2, 2))
         self.conv8 = nn.ModuleList(
-            [SteeredConvBN(2 * n2, n2, relu=True, bn=True, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n2, n2, relu=True, bn=True, padding=padding, steerable_base=base)
+            [SteeredConvBN(2 * n2, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
+            + [SteeredConvBN(n2, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
                for _ in range(depth - 1)])
 
         self.upsample4 = nn.ConvTranspose2d(n2, n1, kernel_size=(2, 2), stride=(2, 2))
         self.conv9 = nn.ModuleList(
-            [SteeredConvBN(2 * n1, n1, relu=True, bn=True, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n1, n1, relu=True, bn=True, padding=padding, steerable_base=base)
+            [SteeredConvBN(2 * n1, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
+            + [SteeredConvBN(n1, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
                for _ in range(depth - 1)])
 
         # End
@@ -89,7 +89,7 @@ class SteeredHemelingNet(nn.Module):
 
         self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else lambda x: x
 
-    def forward(self, x, alpha=None):
+    def forward(self, x, alpha=None, **kwargs):
         """
         Args:
             x: The input tensor.
@@ -115,15 +115,15 @@ class SteeredHemelingNet(nn.Module):
             with torch.no_grad():
                 k_max = self.base.k_max
 
-                if alpha.dim == 3:
+                if alpha.dim() == 3:
                     cos_sin_kalpha = cos_sin_ka_stack(torch.cos(alpha), torch.sin(alpha), k=k_max)
-                elif alpha.dim == 4 and alpha.shape[1] == 2:
+                elif alpha.dim() == 4 and alpha.shape[1] == 2:
                     cos_sin_kalpha = cos_sin_ka_stack(alpha[:, 0], alpha[:, 1], k=k_max)
                 else:
                     raise ValueError(f'alpha shape should be either [b, h, w] or [b, 2, h, w] '
                                      f'but provided tensor shape is {alpha.shape}.')
 
-                _, k_max, b, h, w = alpha.shape
+                _, k_max, b, h, w = cos_sin_kalpha.shape
 
                 alpha1 = cos_sin_kalpha.reshape((2 * k_max, b, h, w))
                 alpha2 = F.avg_pool2d(alpha1, 2)
@@ -131,11 +131,11 @@ class SteeredHemelingNet(nn.Module):
                 alpha4 = F.avg_pool2d(alpha3, 2)
                 alpha5 = F.avg_pool2d(alpha4, 2)
 
-                alpha1 = tuple(alpha1.reshape(2, k_max, b, 1, *alpha1.shape[-2:]))
-                alpha2 = tuple(alpha2.reshape(2, k_max, b, 1, *alpha2.shape[-2:]))
-                alpha3 = tuple(alpha3.reshape(2, k_max, b, 1, *alpha3.shape[-2:]))
-                alpha4 = tuple(alpha4.reshape(2, k_max, b, 1, *alpha4.shape[-2:]))
-                alpha5 = tuple(alpha5.reshape(2, k_max, b, 1, *alpha5.shape[-2:]))
+                alpha1 = alpha1.reshape(2, k_max, b, 1, *alpha1.shape[-2:])
+                alpha2 = alpha2.reshape(2, k_max, b, 1, *alpha2.shape[-2:])
+                alpha3 = alpha3.reshape(2, k_max, b, 1, *alpha3.shape[-2:])
+                alpha4 = alpha4.reshape(2, k_max, b, 1, *alpha4.shape[-2:])
+                alpha5 = alpha5.reshape(2, k_max, b, 1, *alpha5.shape[-2:])
 
         # Down
         x1 = reduce(lambda X, conv: conv(X, alpha=alpha1), self.conv1, x)
