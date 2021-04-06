@@ -18,13 +18,14 @@ def radial_steerable_filter(size, k, r, std=.5):
     G = np.exp(-(rho-r)**2/(2 * std**2)) / (std * np.sqrt(2*np.pi))
     if k != 0:
         G[rho == 0] *= 0
+        G *= np.sqrt(2)
     PHI = np.exp(1j*k*phi)
 
     f = G*PHI
     return f
 
 
-def plot_filter(F, axis=True, spd=False):
+def plot_filter(F, axis=True, spd=False, plot=None, colorbar=False):
     from ..utils.rotequivariance_toolbox import polar_spectral_power
     import torch
     import matplotlib.pyplot as plt
@@ -38,12 +39,15 @@ def plot_filter(F, axis=True, spd=False):
 
     if spd:
         fig, (ax_filt, ax_spd) = plt.subplots(1, 2)
+    elif plot is not None:
+        ax_filt = plot
+        fig = None
     else:
         fig, ax_filt = plt.subplots()
         ax_spd = None
 
     # --- PLOT FILTER ---
-    ax_filt.imshow(-F, interpolation='none', vmin=-v, vmax=v, aspect='equal', cmap='RdGy')
+    im = ax_filt.imshow(-F, interpolation='none', vmin=-v, vmax=v, aspect='equal', cmap='RdGy')
     if axis:
         # Major ticks
         ax_filt.set_xticks(np.arange(0, w, 1))
@@ -65,11 +69,15 @@ def plot_filter(F, axis=True, spd=False):
     # Gridlines based on minor ticks
     ax_filt.grid(which='minor', color='w', linestyle='-', linewidth=2)
 
+    if colorbar:
+        plt.colorbar(im)
+
     # --- PLOT SPD ---
     if spd:
         polar_spectral_power(F, plot=ax_spd, theta=spd)
-    fig.tight_layout(w_pad=-3)
-    fig.show()
+    if fig:
+        fig.tight_layout(w_pad=-3)
+        fig.show()
 
 
 def cos_sin_ka(cos_sin_a, cos_sin_km1_a):
@@ -106,10 +114,10 @@ def cos_sin_ka_stack(cos_alpha, sin_alpha, k):
                 cos_sin_ka[1] = [sin(α), sin(2α), ..., sin(kα)]
     """
     import torch
-    cos_sin_alpha = torch.stack(cos_alpha, sin_alpha)
+    cos_sin_alpha = torch.stack([cos_alpha, sin_alpha])
     cos_sin_km1_alpha = cos_sin_alpha
     r = [cos_sin_alpha]
-    for i in range(k-1):
+    for i in range(2, k+1):
         cos_sin_km1_alpha = cos_sin_ka(cos_sin_alpha, cos_sin_km1_alpha)
         r += [cos_sin_km1_alpha]
     return torch.stack(r, dim=1)
