@@ -3,14 +3,14 @@ import torch
 
 class ConvBN(torch.nn.Module):
     def __init__(self, kernel, n_in, n_out=None, stride=1, relu=True, padding=0, dilation=1, bn=False):
-        super(ConvBN, self).__init__()
+        super().__init__()
 
         self._bn = bn
         if n_out is None:
             n_out = n_in
-
-        if padding == 'auto':
-            padding = kernel//2, kernel//2
+        if isinstance(kernel, int):
+            kernel = kernel, kernel
+        padding = compute_padding(padding, kernel)
 
         model = [torch.nn.Conv2d(n_in, n_out, kernel_size=kernel, stride=stride, padding=padding, bias=False,
                                  dilation=dilation)]
@@ -66,6 +66,14 @@ def compute_conv_outputs_dim(input_shape, weight_shape, padding=0, stride=1, dil
     h, w = input_shape[-2:]
     n, m = weight_shape[-2:]
 
-    h = (h+2*padding-dilation*(n-1)-1)/stride + 1
-    w = (w+2*padding-dilation*(m-1)-1)/stride + 1
-    return h,w
+    if not isinstance(padding, tuple):
+        padding = compute_padding(padding, weight_shape)
+
+    if isinstance(stride, int):
+        stride = stride, stride
+
+    if isinstance(dilation, int):
+        dilation = dilation, dilation
+    h = (h+2*padding[0]-dilation[0]*(n-1)-1)/stride[0] + 1
+    w = (w+2*padding[1]-dilation[1]*(m-1)-1)/stride[1] + 1
+    return h, w

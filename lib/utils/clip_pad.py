@@ -2,23 +2,36 @@ import torch
 import torch.nn.functional as F
 
 
-def clip_pad_center(tensor, shape, pad_mode='constant', pad_value=0):
+def clip_pad_center(tensor, shape, pad_mode='constant', pad_value=0, broadcastable=False):
     s = tensor.shape
-
-    y0 = (s[-2]-shape[-2])//2
-    y1 = 0
-    yodd = (shape[-2]-s[-2]) % 2
-    if y0 < 0:
-        y1 = -y0
+    h, w = shape[-2:]
+    if s[-2] == 1 and broadcastable:
         y0 = 0
+        y1 = 0
+        h = 1
+        yodd = 0
+    else:
+        y0 = (s[-2]-h)//2
+        y1 = 0
+        yodd = (h-s[-2]) % 2
+        if y0 < 0:
+            y1 = -y0
+            y0 = 0
 
-    x0 = (s[-1]-shape[-1])//2
-    x1 = 0
-    xodd = (shape[-1]-s[-1]) % 2
-    if x0 < 0:
-        x1 = -x0
+    if s[-1] == 1 and broadcastable:
         x0 = 0
-    tensor = tensor[..., y0:y0+shape[-2], x0:x0+shape[-1]]
+        x1 = 0
+        w = 1
+        xodd = 0
+    else:
+        x0 = (s[-1]-w)//2
+        x1 = 0
+        xodd = (w-s[-1]) % 2
+        if x0 < 0:
+            x1 = -x0
+            x0 = 0
+
+    tensor = tensor[..., y0:y0+h, x0:x0+w]
     if x1 or y1:
         tensor = F.pad(tensor, (y1-yodd, y1, x1-xodd, x1), mode=pad_mode, value=pad_value)
     return tensor
@@ -31,8 +44,8 @@ def clip_tensors(t1, t2):
     h2, w2 = t2.shape[-2:]
     dh = h1-h2
     dw = w1-w2
-    i1 = max(dh,0)
-    j1 = max(dw,0)
+    i1 = max(dh, 0)
+    j1 = max(dw, 0)
     h = h1 - i1
     w = w1 - j1
     i1 = i1 // 2

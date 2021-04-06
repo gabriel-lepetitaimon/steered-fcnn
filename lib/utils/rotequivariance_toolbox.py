@@ -18,6 +18,7 @@ def polar_space(size, center=None):
 def spectral_power(arr: 'θ.hw', plot=False, split=False, sort=True):
     from scipy import fft
     import matplotlib.pyplot as plt
+    plt.rcParams["figure.figsize"] = (18, 5)
 
     spe = fft(arr, axis=0)
     spe = abs(spe) ** 2
@@ -34,24 +35,27 @@ def spectral_power(arr: 'θ.hw', plot=False, split=False, sort=True):
         if plot is True:
             fig, plot = plt.subplots()
 
-        N = len(spe) // 2 + 1
+        N = spe.shape[0] // 2 + 1
 
         if split:
             W = 0.8
             w = W / spe.shape[1]
+
+            spe = spe[:N]
+            if split == 'normed':
+                spe = spe / spe.sum(axis=tuple(_ for _ in range(spe.ndim) if _ != 1))[None, :]
+            else:
+                spe = spe / spe.sum(axis=-1).mean(axis=tuple(_ for _ in range(spe.ndim)
+                                                             if _ not in (1, spe.ndim-1)))[None, :]
             if sort:
                 idx = spe[0].argsort()
-                spe = spe[:, idx]
+                spe = spe[:, idx[::-1]]
             for i in range(spe.shape[1]):
-                y = spe[:len(spe) // 2 + 1, i]
-                if split == 'normed':
-                    y = y / y.sum()
-                else:
-                    y = y / spe[:N].sum(axis=-1).mean()
+                y = spe[:, i]
                 x = np.arange(len(y))
                 plot.bar(x + w / 2 - W / 2 + i * w, y, width=w, bottom=0.001, zorder=10)
         else:
-            y = spe[:N] / spe[:len(spe) // 2 + 1].sum()
+            y = spe[:N] / spe[:N].sum()
             x = np.arange(len(y))
             plot.bar(x, y, width=.8, bottom=0.001, zorder=10, color='gray')
 
