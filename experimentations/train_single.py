@@ -1,10 +1,12 @@
-from run_train import parse_config
 import os
 import argparse
-from orion.storage.base import setup_storage
-from orion.client import get_experiment, create_experiment
+import orion.client
+import orion.storage
+from orion.client import get_experiment
 from orion.core.utils.exceptions import NoConfigurationError
 from tempfile import NamedTemporaryFile
+
+from src.config import parse_config
 
 
 def main():
@@ -34,7 +36,7 @@ def run_experiment(cfg_path, env=None):
 
     # --- Fetch Orion Infos ---
     if not bool(env.get('TRIAL_DEBUG', False)):
-        setup_storage(cfg.orion.storage.to_dict())
+        orion.storage.base.setup_storage(cfg.orion.storage.to_dict())
         try:
             orion_exp = get_experiment(orion_exp_name)
         except NoConfigurationError:
@@ -69,7 +71,7 @@ def run_experiment(cfg_path, env=None):
                   f'python3 run_train.py --config "{cfg_path}"')
         r = os.system(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}"{exp_opt}'
                       f'python3 run_train.py --config "{cfg_path}"')
-    if r < 0:
+    if r != 10:
         raise RuntimeError
 
     return not bool(env.get('TRIAL_DEBUG', False))

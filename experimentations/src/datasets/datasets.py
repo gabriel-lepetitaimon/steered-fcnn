@@ -1,4 +1,3 @@
-import os
 import os.path as P
 import h5py
 from torch.utils.data import Dataset, DataLoader
@@ -21,7 +20,8 @@ def load_dataset(cfg=None, data_path=DEFAULT_DATA_PATH):
                                      data_augmentation_cfg=cfg['data-augmentation']),
                         pin_memory=True, shuffle=True,
                         batch_size=batch_size,
-                        num_workers=cfg.training['num-worker'])
+                        num_workers=0 #cfg.training['num-worker']
+                        )
     validD = DataLoader(TestDataset('val/'+train_dataset, file=dataset_file),
                         pin_memory=True, num_workers=6, batch_size=6)
     testD = {_: DataLoader(TestDataset('test/'+_, file=dataset_file),
@@ -42,13 +42,15 @@ class TrainDataset(Dataset):
         self.av = DATA.get(f'{dataset}/av')
         self.cos_sin_alpha = DATA.get(f'{dataset}/principal-angle')
         self.mask = DATA.get(f'{dataset}/mask')
-
-        self.geo_aug = (DataAugment().flip()
-                        .rotate()
-                        .elastic_distortion(alpha=data_augmentation_cfg['elastic-transform']['alpha'],
+        
+        DA = DataAugment().flip()
+        if data_augmentation_cfg['rotation']:
+            DA.rotate()
+        
+        self.geo_aug = DA.elastic_distortion(alpha=data_augmentation_cfg['elastic-transform']['alpha'],
                                             sigma=data_augmentation_cfg['elastic-transform']['sigma'],
-                                            alpha_affine=data_augmentation_cfg['elastic-transform']['alpha-affine'])
-                        ).compile(images='x', labels='y,mask', fields='cos_sin_alpha', to_torch=True)
+                                            alpha_affine=data_augmentation_cfg['elastic-transform']['alpha-affine']
+                       ).compile(images='x', labels='y,mask', fields='alpha', to_torch=True)
         self.factor = factor
         self._data_length = len(self.data)
 
@@ -58,7 +60,8 @@ class TrainDataset(Dataset):
     def __getitem__(self, i):
         i = i % self._data_length
         img = self.data[i].transpose(1, 2, 0)
-        return self.geo_aug(x=img, y=self.av[i], mask=self.mask[i], cos_sin_alpha=self.cos_sin_alpha[i])
+        cos_sin_alpha = self.cos_sin_alpha[i].transpose(1, 2, 0)
+        return self.geo_aug(x=img, y=self.av[i], mask=self.mask[i], alpha=cos_sin_alpha)
 
 
 class TestDataset(Dataset):
@@ -70,7 +73,7 @@ class TestDataset(Dataset):
         self.av = DATA.get(f'{dataset}/av')
         self.cos_sin_alpha = DATA.get(f'{dataset}/principal-angle')
         self.mask = DATA.get(f'{dataset}/mask')
-        self.geo_aug = DataAugment().compile(images='x', labels='y,mask', fields='cos_sin_alpha', to_torch=True)
+        self.geo_aug = DataAugment().compile(images='x', labels='y,mask', fields='alpha', to_torch=True)
         self._data_length = len(self.data)
 
     def __len__(self):
@@ -78,4 +81,5 @@ class TestDataset(Dataset):
 
     def __getitem__(self, i):
         img = self.data[i].transpose(1, 2, 0)
-        return self.geo_aug(x=img, y=self.av[i], mask=self.mask[i], cos_sin_alpha=self.cos_sin_alpha[i])
+        cos_sin_alpha = self.cos_sin_alpha[i].transpose(1, 2, 0)
+        return self.geo_aug(x=img, y=self.av[i], mask=self.mask[i], alpha=cos_sin_alpha)

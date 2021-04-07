@@ -1,7 +1,8 @@
 __all__ = ['default_config', 'parse_config']
 
 import os.path as P
-from ..utils.collections import AttributeDict
+
+from .attribute_dict import AttributeDict
 
 
 ORION_CFG_PATH = P.join(P.dirname(P.abspath(__file__)), 'orion_config.yaml')
@@ -22,6 +23,8 @@ def default_config():
 
 def parse_config(cfg_file):
     default_cfg = default_config()
+    if cfg_file is None:
+        return default_cfg
     with open(cfg_file, 'r') as f:
         exp_config = AttributeDict.from_yaml(f)
     exp_config = exp_config.filter(lambda k, v: not (isinstance(v, str) and v.startswith('orion~')), recursive=True)

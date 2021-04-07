@@ -1,23 +1,26 @@
-import sys
 import numpy as np
 import mlflow
+import torch
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from orion.client import report_objective
 from pytorch_lightning.utilities.cloud_io import load as pl_load
-
 import sys
-import os.path as P
-sys.path.insert(0, P.abspath(P.join(P.dirname(__file__), '../')))
+
+from src.datasets import load_dataset
+from src.trainer import BinaryClassifierNet, ExportValidation
+from src.trainer.loggers import setup_log
 
 
-def run_train(opt=None):
-    from .datasets import load_dataset
-    from .trainer.classifier_net import BinaryClassifierNet, ExportValidation
+def run_train(**opt):
     cfg = parse_arguments(opt)
     args = cfg['script-arguments']
     tmp = setup_log(cfg)
     tmp_path = tmp.name
+    
+    if isinstance(cfg.training['seed'], int):
+        torch.manual_seed(cfg.training['seed'])
+        np.random.seed(cfg.training['seed'])
 
     trainD, validD, testD = load_dataset(cfg)
 
@@ -78,14 +81,13 @@ def run_train(opt=None):
     mlflow.log_artifacts(tmp.name)
     mlflow.end_run()
     tmp.cleanup()
-    sys.exit(2)
+    sys.exit(10)
 
 
 def parse_arguments(opt=None):
     import argparse
     import os
-    from .config import parse_config
-    from .utils.collections import AttributeDict
+    from src.config import parse_config, AttributeDict
 
     # --- PARSE ARGS & ENVIRONNEMENTS VARIABLES ---
     if opt is None:
@@ -123,67 +125,13 @@ def parse_arguments(opt=None):
     return cfg
 
 
-def setup_log(cfg):
-    import tempfile
-    import shutil
-    from os.path import join
-    import os
-    from mlflow.tracking import MlflowClient
-
-    # --- SETUP MLFOW ---
-    mlflow.set_tracking_uri(cfg['mlflow']['uri'])
-    mlflow.set_experiment(cfg['experiment']['name'] if not cfg['script-arguments'].debug else 'DEBUG_RUNS')
-    mlflow.pytorch.autolog(log_models=False)
-    tags = cfg.experiment.tags.to_dict()
-    tags['subexp'] = cfg.experiment['sub-experiment']
-    tags['subexpID'] = str(cfg.experiment['sub-experiment-id'])
-    run_name = f"{cfg.experiment['sub-experiment']}{cfg.experiment['sub-experiment-id']}-{cfg.trial.id:02}"
-    mlflow.start_run(run_name=run_name, tags=tags)
-
-    # --- CREATE TMP ---
-    os.makedirs(os.path.dirname(cfg['script-arguments']['tmp-dir']), exist_ok=True)
-    tmp = tempfile.TemporaryDirectory(dir=cfg['script-arguments']['tmp-dir'])
-
-    # --- SAVE CFG ---
-    shutil.copy(cfg['script-arguments'].config, join(tmp.name, 'cfg.yaml'))
-    mlflow.log_artifact(join(tmp.name, 'cfg.yaml'))
-    # Sanity check of artifact saving
-    client = MlflowClient()
-    artifacts = client.list_artifacts(mlflow.active_run().info.run_id)
-    if len(artifacts) != 1 or artifacts[0].path != 'cfg.yaml':
-        raise RuntimeError('The sanity check for storing artifacts failed.'
-                           'Interrupting the script before the training starts.')
-
-    with open(join(tmp.name, 'cfg_extended.yaml'), 'w') as f:
-        cfg.to_yaml(f)
-
-    mlflow.log_param('sub-experiment', cfg.experiment['sub-experiment'])
-    if cfg.experiment['sub-experiment-id']:
-        mlflow.log_param('sub-experiment-id', cfg.experiment['sub-experiment-id'])
-    for k, v in cfg.trial.items():
-        mlflow.log_param('trial.' + k, v)
-
-    for k, v in cfg['model'].items():
-        mlflow.log_param(f'model.{k}', v)
-    for k, v in cfg['data-augmentation'].items():
-        if isinstance(v, dict):
-            for k1, v1 in v.items():
-                mlflow.log_param(f'DA.{k} {k1}', v1)
-        else:
-            mlflow.log_param(f'DA.{k}', v)
-    mlflow.log_param('dropout', cfg['hyper-parameters']['drop-out'])
-    mlflow.log_param('training.file', cfg.training['dataset-file'])
-    mlflow.log_param('training.dataset', cfg.training['training-dataset'])
-
-    return tmp
-
-
 def setup_model(model_cfg, old=False):
-    from lib.models import HemelingNet, SteeredHemelingNet, OldHemelingNet
+    from steered_cnn.models import HemelingNet, SteeredHemelingNet, OldHemelingNet
     if model_cfg['steered']:
         model = SteeredHemelingNet(6, nfeatures_base=model_cfg['nfeatures-base'],
                                    padding=model_cfg['padding'],
                                    depth=model_cfg['depth'],
+                                   batchnorm=model_cfg['batchnorm'],
                                    static_principal_direction=model_cfg['static-principal-direction'])
     else:
         if old:
@@ -193,6 +141,8 @@ def setup_model(model_cfg, old=False):
         else:
             model = HemelingNet(6, nfeatures_base=model_cfg['nfeatures-base'],
                                 padding=model_cfg['padding'],
+                                depth=model_cfg['depth'],
+                                batchnorm=model_cfg['batchnorm'],
                                 half_kernel_height=model_cfg['half-kernel-height'])
     return model
 

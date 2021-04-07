@@ -1,3 +1,5 @@
+__all__ = ['ExportValidation']
+
 import numpy as np
 from pytorch_lightning.callbacks import Callback
 
@@ -6,7 +8,7 @@ class ExportValidation(Callback):
     def __init__(self, color_map, path):
         super(ExportValidation, self).__init__()
 
-        from ..utils.lut import prepare_lut
+        from .lut import prepare_lut
         self.color_lut = prepare_lut(color_map, source_dtype=np.int)
         self.path = path
 
@@ -20,7 +22,7 @@ class ExportValidation(Callback):
         import os
         import cv2
         import torch
-        from ...lib.utils.clip_pad import clip_pad_center
+        from lib.steered_cnn.utils import clip_pad_center
 
         if batch_idx:
             return

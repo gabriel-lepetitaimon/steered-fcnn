@@ -46,8 +46,8 @@ class KernelBase:
         nn.init.uniform_(w, -b, b)
         return w
 
-    def approximate_weights(self, kernels: 'torch.Tensor [n_out, n_in, h, w]',  info=None, bias=False):
-        from sklearn.linear_model import LinearRegression
+    def approximate_weights(self, kernels: 'torch.Tensor [n_out, n_in, h, w]',  info=None, bias=False, ridge_alpha=.1):
+        from sklearn.linear_model import Ridge
         n_out, n_in, h, w = kernels.shape
         base = self.base.cpu().numpy()
         k, n, m = base.shape
@@ -63,7 +63,7 @@ class KernelBase:
         if bias:
             X = np.concatenate([X, np.ones((n*m, 1))], axis=1)
 
-        regr = LinearRegression(fit_intercept=False, n_jobs=-1)
+        regr = Ridge(alpha=ridge_alpha, fit_intercept=False)
         regr.fit(X, Y)
         if info is not None:
             from sklearn.metrics import mean_squared_error, r2_score

@@ -3,10 +3,7 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 import pytorch_lightning.metrics.functional as metricsF
 
-import sys
-import os.path as P
-sys.path.insert(0, P.abspath(P.join(P.dirname(__file__), '../../')))
-from lib.utils.clip_pad import clip_pad_center
+from steered_cnn.utils import clip_pad_center
 
 
 class BinaryClassifierNet(pl.LightningModule):

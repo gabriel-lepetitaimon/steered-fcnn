@@ -5,16 +5,16 @@ experiment:
     tags: {}
 
 model:
+    steered: False
     nfeatures-base: 16
     depth: 2
     padding: 0
-    steered: False
-    principal-direction-smooth: 3
-    principal-direction-hessian-threshold: 1
+    batchnorm: True
     static-principal-direction: False   # True / False / 'normalized'
 
 
 training:
+    seed: 1234
     dataset-file: 'vessels.h5'
     training-dataset: 'DRIVE'
     training-dataset-factor: 8
@@ -57,7 +57,7 @@ hyper-parameters:
 
 
 data-augmentation:
-    rot: True
+    rotation: True
     crop-size: 758
     elastic-transform:
         alpha: 10

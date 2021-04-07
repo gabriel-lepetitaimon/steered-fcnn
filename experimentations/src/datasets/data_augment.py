@@ -3,7 +3,6 @@ import functools
 import inspect
 import numpy as np
 from collections import OrderedDict
-from copy import deepcopy
 
 _augment_methods = {}
 _augment_by_type = {}
@@ -108,6 +107,14 @@ class DataAugment:
             params.update(f_params)
             f_augment, *rng_params = match_params(f, self=self, **params)
 
+            if isinstance(f_augment, dict):
+                f_pre = f_augment.get('pre', None)
+                f_post = f_augment.get('post', None)
+                f_augment = f_augment['augment']
+            else:
+                f_pre = None
+                f_post = None
+
             # Read the name of the random parameters needed by augment()
             rng_params_names = list(inspect.signature(f_augment).parameters.keys())[1:]
             assert len(rng_params_names) == len(rng_params), f'Invalid random parameters count for ' \
@@ -121,7 +128,7 @@ class DataAugment:
                     else:
                         continue
                 rng_states[f_i][p_name] = p_dist
-            f_stack.append((f_i, f_augment))
+            f_stack.append((f_i, f_pre, f_augment, f_post))
 
         def augment(x, rng_state):
             reduce = False
@@ -137,9 +144,13 @@ class DataAugment:
             for i in range(c-(c % 3), c):
                 x_cv += [x[..., i:i+1]]
 
-            for f_i, f_augment in f_stack:
+            for f_i, f_pre, f_augment, f_post in f_stack:
                 f_params = list(rng_state[f_i])
+                if f_pre is not None:
+                    x_cv = f_pre(x_cv, *f_params)
                 x_cv = [f_augment(x, *f_params) for x in x_cv]
+                if f_post is not None:
+                    x_cv = f_post(x_cv, *f_params)
 
             x_cv = np.concatenate(x_cv, axis=2)
             if reduce and x_cv.shape[2]==1:
@@ -152,29 +163,22 @@ class DataAugment:
         h_flip = _RD.binary(p_horizontal)
         v_flip = _RD.binary(p_vertical)
 
-        if value_type is None:
-            h_flip_value = lambda x: x
-            v_flip_value = lambda x: x
-        elif value_type == 'angle':
-            h_flip_value = lambda x: -x
-            v_flip_value = lambda x: np.pi-x
+        post_flip = None
+        if value_type == 'angle':
+            def post_flip(X, h, v):
+                return [np.pi-x for x in X]
         elif value_type == 'field':
-            def hflip_value(x):
-                u, v = x
-                return u, -v
-            def v_flip_value(x):
-                u, v = x
-                return -u, v
+            def post_flip(X, h, v):
+                x, y = X
+                return x*(-1 if v else 1), y*(-1 if h else 1)
 
         def augment(x, h, v):
             if h:
                 x = np.flip(x, axis=1)
-                x = h_flip_value(x)
             if v:
                 x = np.flip(x, axis=0)
-                x = v_flip_value(x)
             return x
-        return augment, h_flip, v_flip
+        return {'augment': augment, 'post': post_flip}, h_flip, v_flip
 
     def flip_horizontal(self, p=0.5):
         return self.flip(p_horizontal=p, p_vertical=0)
@@ -186,27 +190,27 @@ class DataAugment:
     def rot90(self, value_type=None):
         rot90 = _RD.discrete_uniform(4)
 
-        if value_type is None:
-            rot90_value = lambda x, k: x
-        elif value_type == 'angle':
-            rot90_value = lambda x, k: x+k*np.pi/2
+        post_rot90 = None
+        if value_type == 'angle':
+            def post_rot90(X, k):
+                return [x+k*np.pi/2 for x in X]
         elif value_type == 'field':
-            def rot90_value(x, k):
+            def post_rot90(X, k):
                 k %= 4
-                u, v = x
+                u, v = X
                 if k == 0:
-                    return x
+                    return X
                 elif k == 1:
-                    return np.stack([-v, u])
+                    return -v, u
                 elif k == 2:
-                    return np.stack([-u, -v])
+                    return -u, -v
                 else:
-                    return np.stack([v, -u])
+                    return v, -u
 
         def augment(x, k):
-            x = np.rot90(x, k=k, axes=(0, 1))
-            return rot90_value(x, k)
-        return augment, rot90
+            return np.rot90(x, k=k, axes=(0, 1))
+
+        return {'augment': augment, 'post': post_rot90}, rot90
 
     @augment_method('geometric')
     def rotate(self, angle=(-180, +180), value_type=None,
@@ -214,23 +218,21 @@ class DataAugment:
         import albumentations.augmentations.functional as AF
         angle = _RD.auto(angle, symetric=True)
 
-        rot_value = lambda x, phi: x
+        pre_rot = None
         if value_type == 'angle':
-            rot_value = lambda x, phi: x+(phi*np.pi/180)
+            def pre_rot(X, phi):
+                return [x+(phi*np.pi/180) for x in X]
         elif value_type == 'field':
-            def rot_value(x, phi):
-                u, v = x
+            def pre_rot(X, phi):
+                u, v = X
                 phi = phi*np.pi/180
-                return np.stack([
-                    u*np.cos(phi) - v*np.sin(phi),
-                    v*np.cos(phi) + u*np.sin(phi)
-                ])
+                return (u*np.cos(phi) - v*np.sin(phi),
+                        v*np.cos(phi) + u*np.sin(phi))
 
         def augment(x, angle):
-            x = rot_value(x, angle)
             return AF.rotate(x, angle, interpolation=interpolation, border_mode=border_mode, value=border_value)
 
-        return augment, angle
+        return {'pre': pre_rot, 'augment': augment}, angle
 
     @augment_method('geometric')
     def elastic_distortion(self, alpha=1, sigma=50, alpha_affine=50,
