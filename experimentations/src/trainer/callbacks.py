@@ -22,7 +22,7 @@ class ExportValidation(Callback):
         import os
         import cv2
         import torch
-        from lib.steered_cnn.utils import clip_pad_center
+        from steered_cnn.utils import clip_pad_center
 
         if batch_idx:
             return
@@ -34,8 +34,7 @@ class ExportValidation(Callback):
 
         if 'mask' in batch:
             mask = clip_pad_center(batch['mask'], y_pred.shape)
-            y = y*mask
-            y_pred = y_pred*mask
+            y[mask==0] = float('nan')
 
         if not os.path.exists(self.path):
             os.makedirs(self.path)

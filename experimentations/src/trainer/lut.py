@@ -3,6 +3,9 @@ def prepare_lut(lut_map, source_dtype=None, axis=None, sampling=None, default=No
     assert isinstance(lut_map, dict) and len(lut_map)
 
     import numpy as np
+    if default is not None:
+        lut_map['default'] = default
+        default = None
 
     # Prepare map
     source_list = []
@@ -13,17 +16,18 @@ def prepare_lut(lut_map, source_dtype=None, axis=None, sampling=None, default=No
     add_empty_axis = False
     source, dest = None, None
     for source, dest in lut_map.items():
-        if isinstance(source, str):
-            source = str2color(source, uint8=str(source_dtype) == 'uint8')
-        source = np.array(source)
-        if source.ndim == 0:
-            source = source.reshape((1,))
-            add_empty_axis = True
-        if source_shape is None:
-            source_shape = source.shape
-        elif source_shape != source.shape:
-            raise ValueError('Invalid source values: %s (shape should be %s)' % (repr(source), source_shape))
-        source_list.append(source)
+        if source != 'default':
+            if isinstance(source, str):
+                source = str2color(source, uint8=str(source_dtype) == 'uint8')
+            source = np.array(source)
+            if source.ndim == 0:
+                source = source.reshape((1,))
+                add_empty_axis = True
+            if source_shape is None:
+                source_shape = source.shape
+            elif source_shape != source.shape:
+                raise ValueError('Invalid source values: %s (shape should be %s)' % (repr(source), source_shape))
+            source_list.append(source)
 
         if isinstance(dest, str):
             dest = str2color(dest, uint8=str(source_dtype) == 'uint8')
@@ -34,7 +38,11 @@ def prepare_lut(lut_map, source_dtype=None, axis=None, sampling=None, default=No
             dest_shape = dest.shape
         elif dest_shape != dest.shape:
             raise ValueError('Invalid destination values: %s (shape should be %s)' % (repr(source), dest_shape))
-        dest_list.append(dest)
+
+        if source != 'default':
+            dest_list.append(dest)
+        else:
+            default = dest
 
     if axis:
         if isinstance(axis, int):
@@ -127,14 +135,14 @@ def prepare_lut(lut_map, source_dtype=None, axis=None, sampling=None, default=No
         else:
             if sampling != 1:
                 array = (array / sampling).astype(np.int32)
-            id_mapped = np.logical_not(np.any(np.logical_or(array > maxs, array < mins), axis=1))
+            id_mapped = np.logical_not(np.any(np.logical_or(np.logical_or(array > maxs, array < mins), np.isnan(array)), axis=1))
             array = np.sum((array - mins) * stride, axis=1).astype(np.uint32)
 
         # Map values
         if isinstance(lut_sources, str):    # and lut_sources == 'nearest':
             a = np.sum((array[np.newaxis, :, :] - sources[:, np.newaxis, :]) * 2, axis=-1)
             a = np.argmin(a, axis=0) + 1
-        elif lut_sources is not None:
+        elif id_mapped is not None:
             a = np.zeros(shape=(map_size,), dtype=np.uint32)
             if lut_sources is not None:
                 a[id_mapped] = lut_sources[array[id_mapped]]
@@ -146,6 +154,8 @@ def prepare_lut(lut_map, source_dtype=None, axis=None, sampling=None, default=No
             else:
                 a = array + 1
         array = lut_dests[a]
+        
+        print(a.shape, lut_dests.shape, array.shape)
 
         del a
         del id_mapped
@@ -220,27 +230,14 @@ def str2color(str_color, bgr=True, uint8=True):
         m = float('0. ' + c[1])
         if c_str.lower() == 'black':
             m = 1 - m
-
+    import webcolors
     try:
-        c = dict(
-            blue=(0, 0, 255),
-            magenta=(255, 0, 255),
-            red=(255, 0, 0),
-            yellow=(255, 255, 0),
-            green=(0, 255, 0),
-            cyan=(0, 255, 255),
-            turquoise=(0, 255, 127),
-            sky_blue=(0, 127, 255),
-            orange=(255, 127, 0),
-            apple_green=(127, 255, 0),
-            pruple=(127, 0, 255),
-            pink=(255, 0, 127),
-            white=(255, 255, 255),
-            grey=(127, 127, 127),
-            black=(0, 0, 0)
-        )[c_str.lower()]
-    except KeyError:
-        raise ValueError('Invalid color code: %s' % c) from None
+        c = webcolors.name_to_rgb(c_str)
+    except ValueError:
+        try:
+            c = webcolors.hex_to_rgb(c_str)
+        except ValueError:
+            raise ValueError('Invalid color code: %s' % c) from None
     c = np.array(c, dtype=np.float16) * m
     if uint8:
         c = c.astype(dtype=np.uint8)

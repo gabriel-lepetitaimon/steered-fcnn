@@ -31,6 +31,7 @@ def run_train(**opt):
     model = setup_model(cfg['model'])
 
     # ---  TRAIN  ---
+    r_code = 10
     trainer_kwargs = {}
     hyper_params = cfg['hyper-parameters']
     net = BinaryClassifierNet(model=model, loss=hyper_params['loss'],
@@ -47,20 +48,30 @@ def run_train(**opt):
             cfg.training['early-stopping']['monitor'] = cfg.training['optimize']
         callbacks += [EarlyStopping(verbose=False, strict=False, **cfg.training['early-stopping'])]
 
+    checkpointed_metrics = ['val-acc', 'val-roc', 'val-iou']
     modelCheckpoints = {}
-    for metric in ('val-acc', 'val-roc', 'val-iou'):
+    for metric in checkpointed_metrics:
         checkpoint = ModelCheckpoint(dirpath=tmp_path + '/', filename='best-' + metric, monitor=metric, mode='max')
         modelCheckpoints[metric] = checkpoint
         callbacks.append(checkpoint)
-
+        
     trainer = pl.Trainer(gpus=args.gpus, callbacks=callbacks,
                          max_epochs=int(np.ceil(max_epoch / val_n_epoch) * val_n_epoch),
                          check_val_every_n_epoch=val_n_epoch,
                          progress_bar_refresh_rate=1 if args.debug else 0,
                          **trainer_kwargs)
     net.log(cfg.training['optimize'], 0)
-    trainer.fit(net, trainD, validD)
+    try:
+        trainer.fit(net, trainD, validD)
+    except KeyboardInterrupt:
+        r_code = 1
 
+    
+    # --- TEST ---
+    reported_metric = cfg.training['optimize']
+    if reported_metric not in modelCheckpoints:
+        print(f'Invalid optimized metric {reported_metric}, optimizing {checkpointed_metrics[0]} instead.')
+        reported_metric = reported_metric[0]
     for metric_name, checkpoint in modelCheckpoints.items():
         metric_value = float(checkpoint.best_model_score.cpu().numpy())
         mlflow.log_metric('best-' + metric_name, metric_value)
@@ -70,18 +81,23 @@ def run_train(**opt):
             net.load_state_dict(state_dict)
 
     net.eval()
+    
+    if cfg.training['dataset-file'].startswith('av'):
+        cmap = {(0, 0): 'blue', (1, 1): 'red', (1, 0): 'cyan', (0, 1): 'pink', 'default': 'lightgray'}
+    else:
+        cmap = {(0, 0): 'black', (1, 1): 'white', (1, 0): 'orange', (0, 1): 'greenyellow', 'default': 'lightgray'}
+        
+    
     tester = pl.Trainer(gpus=args.gpus,
-                        callbacks=[ExportValidation(
-                            {(0, 0): 'black', (1, 1): 'white', (1, 0): 'orange', (0, 1): 'apple_green'},
-                            path=tmp_path + '/samples')],
-                        )
+                        callbacks=[ExportValidation(cmap, path=tmp_path + '/samples')],)
     net.testset_names, testD = list(zip(*testD.items()))
-
     tester.test(net, testD)
+    
+    # --- LOG ---
     mlflow.log_artifacts(tmp.name)
     mlflow.end_run()
     tmp.cleanup()
-    sys.exit(10)
+    sys.exit(r_code)
 
 
 def parse_arguments(opt=None):
@@ -90,7 +106,7 @@ def parse_arguments(opt=None):
     from src.config import parse_config, AttributeDict
 
     # --- PARSE ARGS & ENVIRONNEMENTS VARIABLES ---
-    if opt is None:
+    if not opt:
         parser = argparse.ArgumentParser()
         parser.add_argument('--config', required=True,
                             help='config file with hyper parameters - in yaml format')

@@ -6,7 +6,7 @@ from ..config import default_config
 from .data_augment import DataAugment
 
 
-DEFAULT_DATA_PATH = P.join(P.abspath(P.dirname(__file__)), 'DATA')
+DEFAULT_DATA_PATH = P.join(P.abspath(P.dirname(__file__)), '../../DATA')
 
 
 def load_dataset(cfg=None, data_path=DEFAULT_DATA_PATH):
@@ -20,7 +20,7 @@ def load_dataset(cfg=None, data_path=DEFAULT_DATA_PATH):
                                      data_augmentation_cfg=cfg['data-augmentation']),
                         pin_memory=True, shuffle=True,
                         batch_size=batch_size,
-                        num_workers=0 #cfg.training['num-worker']
+                        num_workers=cfg.training['num-worker']
                         )
     validD = DataLoader(TestDataset('val/'+train_dataset, file=dataset_file),
                         pin_memory=True, num_workers=6, batch_size=6)

@@ -71,10 +71,12 @@ def run_experiment(cfg_path, env=None):
                   f'python3 run_train.py --config "{cfg_path}"')
         r = os.system(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}"{exp_opt}'
                       f'python3 run_train.py --config "{cfg_path}"')
-    if r != 10:
-        raise RuntimeError
+        print(f'r_code={r}')
+        print('')
+        print('-'*30)
+        print('')
 
-    return not bool(env.get('TRIAL_DEBUG', False))
+    return 10 <= r <=20
 
 
 if __name__ == '__main__':

@@ -33,7 +33,7 @@ def train_multiple(path=None, debug=False, gpus=None, env=None):
         ended = True
         for cfg in cfgs:
             if run_experiment(os.path.join(path, cfg), env):
-                ended = bool(env.get('TRIAL_DEBUG', False))
+                ended = bool(env.get('TRIAL_DEBUG', False))   # True if debug else False
                 break
 
 
