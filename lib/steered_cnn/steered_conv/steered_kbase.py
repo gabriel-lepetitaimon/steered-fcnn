@@ -244,9 +244,8 @@ class SteerableKernelBase(KernelBase):
                     cos_sin_kalpha = cos_sin_ka(alpha, cos_sin_kalpha)
             else:
                 cos_sin_kalpha = alpha[:, k-1]
-
-            f += cos_sin_kalpha[0] * F.conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts)
-            f += cos_sin_kalpha[1] * F.conv2d(input, self.composite_steerable_kernels_imag(weight, k=k), **conv_opts)
+            f.addcmul_(cos_sin_kalpha[0], F.conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts))
+            f.addcmul_(cos_sin_kalpha[1], F.conv2d(input, self.composite_steerable_kernels_imag(weight, k=k), **conv_opts))
 
         return f
 
