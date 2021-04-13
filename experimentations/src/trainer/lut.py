@@ -154,8 +154,6 @@ def prepare_lut(lut_map, source_dtype=None, axis=None, sampling=None, default=No
             else:
                 a = array + 1
         array = lut_dests[a]
-        
-        print(a.shape, lut_dests.shape, array.shape)
 
         del a
         del id_mapped

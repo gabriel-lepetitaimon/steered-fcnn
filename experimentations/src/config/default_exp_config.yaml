@@ -8,6 +8,7 @@ model:
     steered: False
     nfeatures-base: 16
     depth: 2
+    half-kernel-height: 3
     padding: 0
     batchnorm: True
     static-principal-direction: False   # True / False / 'normalized'
@@ -58,6 +59,7 @@ hyper-parameters:
 
 data-augmentation:
     rotation: True
+    elastic: True
     crop-size: 758
     elastic-transform:
         alpha: 10

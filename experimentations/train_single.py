@@ -1,4 +1,6 @@
 import os
+import os.path as P
+from json import load
 import argparse
 import orion.client
 import orion.storage
@@ -40,27 +42,27 @@ def run_experiment(cfg_path, env=None):
         try:
             orion_exp = get_experiment(orion_exp_name)
         except NoConfigurationError:
-            n_trial = 0
+            n_trials = 0
         else:
-            n_trial = len(orion_exp.fetch_trials())
-            if n_trial == cfg.orion.experiment.max_trials:
+            n_trials = len(orion_exp.fetch_trials())
+            if n_trials == cfg.orion.experiment.max_trials:
                 return False
     else:
-        n_trial = 0
+        n_trials = 0
 
     # --- Set Env Variable ---
-    os.environ['TRIAL_ID'] = str(n_trial)
+    os.environ['TRIAL_ID'] = str(n_trials)
     for k, v in env.items():
         os.environ[k] = str(v)
 
     # --- Launch Orion ---
-    print(f'Running {orion_exp_name} ({cfg_path}): trial {n_trial}')
+    print(f'Running {orion_exp_name} ({cfg_path}): trial {n_trials}')
     tmp_path = cfg['script-arguments']['tmp-dir']
-    if not os.path.exists(tmp_path):
+    if not P.exists(tmp_path):
         os.makedirs(tmp_path)
     with NamedTemporaryFile('w+', dir=tmp_path, suffix='.yaml') as orion_cfg:
         cfg.orion.to_yaml(orion_cfg)
-        orion_cfg_filepath = os.path.join(tmp_path, orion_cfg.name)
+        orion_cfg_filepath = P.join(tmp_path, orion_cfg.name)
 
         orion_opt = " "
         exp_opt = " "
@@ -69,14 +71,26 @@ def run_experiment(cfg_path, env=None):
             exp_opt += "--exp-max-trials 1 "
         print(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}"{exp_opt}'
                   f'python3 run_train.py --config "{cfg_path}"')
-        r = os.system(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}"{exp_opt}'
+        os.system(f'orion{orion_opt}hunt -c "{orion_cfg_filepath}" -n "{orion_exp_name}"{exp_opt}'
                       f'python3 run_train.py --config "{cfg_path}"')
-        print(f'r_code={r}')
-        print('')
-        print('-'*30)
-        print('')
 
-    return 10 <= r <=20
+        if not bool(env.get('TRIAL_DEBUG', False)):
+            tmp_json = P.join(tmp_path, f'{orion_exp_name}-{n_trials}.json')
+            try:
+                with open(tmp_json, 'r') as f:
+                    json = load(f)
+                    r = json.get('rcode', -1)
+                print(f'r_code={r}')
+                os.remove(tmp_json)
+            except OSError:
+                r = -1
+            print('')
+            print('-'*30)
+            print('')
+
+            return 10 <= r <= 20
+        else:
+            return 0
 
 
 if __name__ == '__main__':

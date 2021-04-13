@@ -82,7 +82,6 @@ class BinaryClassifierNet(pl.LightningModule):
         if prefix and not prefix.endswith('-'):
             prefix += '-'
         for k, v in metrics.items():
-            # print(prefix+k, v.cpu().item())
             self.log(prefix + k, v.cpu().item())
 
     def validation_step(self, batch, batch_idx):

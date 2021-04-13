@@ -29,7 +29,7 @@ def train_multiple(path=None, debug=False, gpus=None, env=None):
 
     ended = False
     while not ended:
-        cfgs = sorted(_ for _ in os.listdir(path) if _.endswith('.yaml'))
+        cfgs = sorted(_ for _ in os.listdir(path) if _.endswith('.yaml') if _[0] != "!")
         ended = True
         for cfg in cfgs:
             if run_experiment(os.path.join(path, cfg), env):

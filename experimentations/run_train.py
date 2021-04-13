@@ -5,7 +5,9 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from orion.client import report_objective
 from pytorch_lightning.utilities.cloud_io import load as pl_load
-import sys
+import os
+import os.path as P
+from json import dump
 
 from src.datasets import load_dataset
 from src.trainer import BinaryClassifierNet, ExportValidation
@@ -75,14 +77,14 @@ def run_train(**opt):
     for metric_name, checkpoint in modelCheckpoints.items():
         metric_value = float(checkpoint.best_model_score.cpu().numpy())
         mlflow.log_metric('best-' + metric_name, metric_value)
-        if metric_name == cfg.training['optimize']:
-            report_objective(-metric_value)
+        if metric_name == reported_metric:
+            reported_value = -metric_value
             state_dict = pl_load(checkpoint.best_model_path)['state_dict']
             net.load_state_dict(state_dict)
 
     net.eval()
     
-    if cfg.training['dataset-file'].startswith('av'):
+    if 'av' in cfg.training['dataset-file']:
         cmap = {(0, 0): 'blue', (1, 1): 'red', (1, 0): 'cyan', (0, 1): 'pink', 'default': 'lightgray'}
     else:
         cmap = {(0, 0): 'black', (1, 1): 'white', (1, 0): 'orange', (0, 1): 'greenyellow', 'default': 'lightgray'}
@@ -94,15 +96,18 @@ def run_train(**opt):
     tester.test(net, testD)
     
     # --- LOG ---
+    report_objective(reported_value)
     mlflow.log_artifacts(tmp.name)
     mlflow.end_run()
     tmp.cleanup()
-    sys.exit(r_code)
+
+    with open(P.join(cfg['script-arguments']['tmp-dir'], f'{cfg.trial.name}-{cfg.trial.id}.json'), 'w') as f:
+        json = {'rcode': r_code}
+        dump(json, f)
 
 
 def parse_arguments(opt=None):
     import argparse
-    import os
     from src.config import parse_config, AttributeDict
 
     # --- PARSE ARGS & ENVIRONNEMENTS VARIABLES ---
