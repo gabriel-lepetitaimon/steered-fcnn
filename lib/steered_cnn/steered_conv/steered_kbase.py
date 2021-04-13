@@ -11,14 +11,14 @@ from typing import Union, Dict, List
 
 
 class SteerableKernelBase(KernelBase):
-    def __init__(self, base: 'list(np.array) [K,n,m]', n_kernel_by_k: 'dict {k -> n_k}'):
+    def __init__(self, base: 'list(np.array) [K,n,m]', n_kernel_by_k: 'dict {k -> n_k}', autonormalize=True):
         """
 
         Args:
             base: kernels are assumed to be sorted by ascending k
             n_kernel_by_k:
         """
-        super(SteerableKernelBase, self).__init__(base)
+        super(SteerableKernelBase, self).__init__(base, autonormalize=autonormalize)
 
         # Sorting n_filter_by_k and removing invalid values
         self.n_filter_by_k = OrderedDict()
@@ -102,7 +102,7 @@ class SteerableKernelBase(KernelBase):
         return w
 
     @staticmethod
-    def create_from_rk(kr: Union[int, Dict[int, List[int]]], std=.5, size=None, max_k=None):
+    def create_from_rk(kr: Union[int, Dict[int, List[int]]], std=.5, size=None, max_k=None, autonormalize=True):
         """
 
 
@@ -117,6 +117,7 @@ class SteerableKernelBase(KernelBase):
             std: The standard deviation of the gaussian distribution which weights the kernels radially.
             size:
             max_k:
+            autonormalize:
 
         Returns: A SteerableKernelBase parametrized by the corresponding kernels.
 
@@ -165,7 +166,7 @@ class SteerableKernelBase(KernelBase):
         K = np.stack(kernels_real + kernels_imag)
         # K /= np.sqrt((K**2).sum((1, 2)).mean())
 
-        B = SteerableKernelBase(K, n_kernel_by_k=n_kernel_by_k)
+        B = SteerableKernelBase(K, n_kernel_by_k=n_kernel_by_k, autonormalize=autonormalize)
         B.kernels_label = labels_real + labels_imag
         B.kernels_info = info_real + info_imag
         return B

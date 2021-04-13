@@ -6,10 +6,19 @@ from ..utils import clip_pad_center, compute_padding
 
 
 class KernelBase:
-    def __init__(self, base: 'np.array [n_k,h,w]'):
+    def __init__(self, base: 'torch.Tensor [n_k,h,w]', autonormalize=True):
         if isinstance(base, np.ndarray):
             base = torch.from_numpy(base).to(dtype=torch.float)
+        if autonormalize:
+            base = KernelBase.normalize_base(base)
         self.base = base
+
+    @staticmethod
+    def normalize_base(base: 'torch.Tensor [n_k,h,w]'):
+        b = torch.empty_like(base)
+        for i in range(base.shape[0]):
+            b[i] = base[i]/torch.linalg.norm(base[i], 'fro')
+        return b
 
     @staticmethod
     def cardinal_base(size=3):
