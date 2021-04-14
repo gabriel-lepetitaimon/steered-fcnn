@@ -92,7 +92,7 @@ class SteerableKernelBase(KernelBase):
         import math
         gain = calculate_gain(nonlinearity, nonlinearity_param)
         w = torch.empty((n_out, n_in, self.K))
-        std = gain*math.sqrt(1/(n_in*self.K))
+        std = gain*math.sqrt(1/(n_in*(self.K_equi+self.K_steer)))
         nn.init.normal_(w, std=std)
 
         # std_ortho = gain*math.sqrt(1 / (n_in))
