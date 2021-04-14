@@ -205,51 +205,34 @@ class SteerableKernelBase(KernelBase):
             return: (b, n_out, ~h, ~w)
 
         """
+
+        return self.composite_kernels_conv2d(input=input, weight=weight, alpha=alpha, **conv_opts)
+
+    def _prepare_conv(self, input, weight, alpha, stride, padding, dilation):
+        """
+        Prepare module for the convolution operation.
+        Returns alpha, conv_opts, b, n_in, n_out, h, w, K
+        """
         if self.device != input.device:
             self.to(input.device)
+
         padding = compute_padding(padding, self.base.shape)
-        conv_opts = dict(padding=padding, dilation=dilation, stride=stride)
         b, n_in, h, w = input.shape
         n_out, n_in_w, K = weight.shape
         assert n_in == n_in_w, 'Incoherent number of input neurons between the provided input and weight:\n' \
                                f'input.shape={input.shape} (n_in={n_in}), weight.shape={weight.shape} (n_in={n_in_w}).'
+        conv_opts = dict(padding=padding, dilation=dilation, stride=stride)
         h, w = compute_conv_outputs_dim(input.shape, weight.shape, **conv_opts)
 
-        # If alpha=0 then the SteerableKernelBase behave like a simple KernelBase.
-        if alpha is None:
-            return super(SteerableKernelBase, self).composite_kernels_conv2d(input, weight, **conv_opts)
-        elif isinstance(alpha, (int, float)):
-            alpha = torch.Tensor([alpha])
-            alpha = torch.stack((torch.cos(alpha), torch.sin(alpha)))[:, None, None, None]
+        if alpha is not None:
+            if isinstance(alpha, (int, float)):
+                alpha = torch.Tensor([alpha])
+                alpha = torch.stack((torch.cos(alpha), torch.sin(alpha)))[:, None, None, None]
+            alpha = clip_pad_center(alpha, (b, n_out, h, w), broadcastable=True)
 
-        # Otherwise if α != 0:
-        # f = X⊛K_equi + Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
+        return alpha, conv_opts, b, n_in, n_out, h, w, K
 
-        # computing f = X ⊛ K_equi ...
-        if self._n_k0:
-            f = F.conv2d(input, self.composite_equi_kernels(weight), **conv_opts)
-        else:
-            f = torch.zeros((b, n_out, h, w),
-                            device=self.base.device, dtype=self.base.dtype)
-
-        alpha = clip_pad_center(alpha, f.shape, broadcastable=True)
-
-        # finally: f += Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
-        for k in self.k_values:
-            if k == 0:
-                continue
-            if alpha.dim() == 5:
-                if k == 1:
-                    cos_sin_kalpha = alpha
-                else:
-                    cos_sin_kalpha = cos_sin_ka(alpha, cos_sin_kalpha)
-            else:
-                cos_sin_kalpha = alpha[:, k-1]
-            f.addcmul_(cos_sin_kalpha[0], F.conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts))
-            f.addcmul_(cos_sin_kalpha[1], F.conv2d(input, self.composite_steerable_kernels_imag(weight, k=k), **conv_opts))
-
-        return f
-
+    # --- Composite Kernels ---
     def composite_equi_kernels(self, weight: torch.Tensor) -> torch.Tensor:
         """
         Compute the sum of all kernels for a the polar harmonic k=0,
@@ -324,6 +307,79 @@ class SteerableKernelBase(KernelBase):
 
         return KernelBase.composite_kernels(w_real, psi_imag) - KernelBase.composite_kernels(w_imag, psi_real)
 
+    def composite_kernels_conv2d(self, input: torch.Tensor, weight: torch.Tensor, alpha: Union[int, float, torch.Tensor] = None,
+                                 stride=1, padding='same', dilation=1):
+        alpha, conv_opts, b, n_in, n_out, h, w, K = self._prepare_conv(input, weight, alpha, stride, padding, dilation)
+        if alpha is None:
+            return super(SteerableKernelBase, self).composite_kernels_conv2d(input, weight, **conv_opts)
+
+        # f = X⊛K_equi + Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
+        # computing f = X ⊛ K_equi ...
+        if self._n_k0:
+            f = F.conv2d(input, self.composite_equi_kernels(weight), **conv_opts)
+        else:
+            f = torch.zeros((b, n_out, h, w),
+                            device=self.base.device, dtype=self.base.dtype)
+
+        # then: f += Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
+        for k in self.k_values:
+            if k == 0:
+                continue
+            if alpha.dim() == 5:
+                if k == 1:
+                    cos_sin_kalpha = alpha
+                else:
+                    cos_sin_kalpha = cos_sin_ka(alpha, cos_sin_kalpha)
+            else:
+                cos_sin_kalpha = alpha[:, k-1]
+            f.addcmul_(cos_sin_kalpha[0], F.conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts))
+            f.addcmul_(cos_sin_kalpha[1], F.conv2d(input, self.composite_steerable_kernels_imag(weight, k=k), **conv_opts))
+
+        return f
+
+    # --- Preconvolve Kernels ---
+    @staticmethod
+    def _preconvolved_KW(xbase, weight, idx):
+        K = torch.flatten(xbase[..., idx], start_dim=-2)
+        W = torch.flatten(weight[idx], start_dim=1).transpose(0, 1)
+        return K, W
+
+    def preconvolved_base_conv2d(self, input: torch.Tensor, weight: torch.Tensor, alpha: Union[int, float, torch.Tensor] = None,
+                                 stride=1, padding='same', dilation=1):
+        alpha, conv_opts, b, n_in, n_out, h, w, K = self._prepare_conv(input, weight, alpha, stride, padding, dilation)
+        if alpha is None:
+            return super(SteerableKernelBase, self).preconvolved_base_conv2d(input, weight, **conv_opts)
+        alpha = alpha.permute(0, 2, 3, 1)
+
+        xbase = KernelBase.preconvolve_base(input, self.base, **conv_opts)
+        # f = X⊛K_equi + Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
+        # computing f = X ⊛ K_equi ...
+        if self._n_k0:
+            K, W = self._preconvolved_KW(xbase, weight, self.idx_equi())
+            f = torch.matmul(K, W)  # K:[b,h,w,n_in*k] x W:[n_in*k, n_out] -> [b,h,w,n_out]
+        else:
+            f = torch.zeros((b, h, w, n_out),
+                            device=self.base.device, dtype=self.base.dtype)
+
+        # then: f += Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
+        for k in self.k_values:
+            if k == 0:
+                continue
+            if alpha.dim() == 5:
+                if k == 1:
+                    cos_sin_kalpha = alpha
+                else:
+                    cos_sin_kalpha = cos_sin_ka(alpha, cos_sin_kalpha)
+            else:
+                cos_sin_kalpha = alpha[:, k-1]
+            K, W = self._preconvolved_KW(xbase, weight, self.idx_real(k=k))
+            f.addcmul_(cos_sin_kalpha[0], torch.matmul(K, W))
+            K, W = self._preconvolved_KW(xbase, weight, self.idx_imag(k=k))
+            f.addcmul_(cos_sin_kalpha[1], torch.matmul(K, W))
+
+        return f.permute(0, 3, 1, 2)    # [b,n_out,h,w]
+
+    # --- Analyse Weights ---
     def format_weights(self, weights, mean=True):
         from pandas import DataFrame
         import numpy as np

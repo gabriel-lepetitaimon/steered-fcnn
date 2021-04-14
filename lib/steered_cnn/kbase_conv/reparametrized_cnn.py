@@ -6,12 +6,26 @@ from ..utils import clip_pad_center, compute_padding
 
 
 class KernelBase:
-    def __init__(self, base: 'torch.Tensor [n_k,h,w]', autonormalize=True):
+    def __init__(self, base: 'torch.Tensor [n_k,h,w]', autonormalize=True, epsilon=1e-5):
         if isinstance(base, np.ndarray):
             base = torch.from_numpy(base).to(dtype=torch.float)
         if autonormalize:
             base = KernelBase.normalize_base(base)
         self.base = base
+
+        self.r = []
+        n_k, h, w = base.shape
+        c = (min(h, w)+1)/2
+        normed_base = torch.abs(base)
+        normed_base /= torch.amax(base, dim=(1, 2), keepdim=True)
+        for b in normed_base:
+            for r in torch.arange(c % 1, c, 1):
+                i0, i1 = int(c-r-1), int(c+r)
+                if torch.max(b - clip_pad_center(b[i0:i1, i0:i1], b.shape)) < epsilon:
+                    self.r += [r]
+                    break
+            else:
+                self.r += [c]
 
     @staticmethod
     def normalize_base(base: 'torch.Tensor [n_k,h,w]'):
@@ -127,7 +141,14 @@ class KernelBase:
         base = base.reshape(n_k, 1, n, m)
         K = F.conv2d(input, base, stride=stride, padding=pad, dilation=dilation)
         h, w = K.shape[-2:]     # h and w after padding, K.shape: [b*n_in, n_k, ~h, ~w]
-        return K.reshape(b, n_in, n_k, h, w)
+        return K.reshape(b, n_in, n_k, h, w).permute(0, 3, 4, 1, 2).reshape(b, h, w, n_in, n_k)
+
+    @staticmethod
+    def multiply_preconvolved_base_weigth(preconvolved_base, weight):
+        K = torch.flatten(preconvolved_base, start_dim=-2)
+        W = torch.flatten(weight, start_dim=1).transpose(0, 1)
+        f = torch.matmul(K, W)  # K:[b,h,w,n_in*k] x W:[n_in*k, n_out] -> [b,h,w,n_out]
+        return f.permute(0, 3, 1, 2)    # [b,n_out,h,w]
 
     def preconvolved_base_conv2d(self, input: 'torch.Tensor [b,i,w,h]', weight: 'np.array [n_out, n_in, k]',
                                  stride=1, padding='same', dilation=1):
@@ -140,7 +161,4 @@ class KernelBase:
         assert k == k_w, f"The provided weights have an incorrect number of kernels:\\ " +\
                          f"weight.shape[2]=={k_w}, but should be {k}."
 
-        K = bases.permute(0, 3, 4, 1, 2).reshape(b, h, w, n_in*k)
-        W = weight.reshape(n_out, n_in*k).transpose(0, 1)
-        f = torch.matmul(K, W)  # K:[b,h,w,n_in*k] x W:[n_in*k, n_out] -> [b,h,w,n_out]
-        return f.permute(0, 3, 1, 2)    # [b,n_out,h,w]
+        return KernelBase.multiply_preconvolved_base_weigth(bases, weight)
