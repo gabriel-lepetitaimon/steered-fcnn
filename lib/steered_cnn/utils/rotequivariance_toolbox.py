@@ -15,9 +15,12 @@ def polar_space(size, center=None):
     return rho, phi
 
 
-def spectral_power(arr: 'θ.hw', plot=False, split=False, sort=True):
+def spectral_power(arr: 'θ.hw', plot=False, split=False, sort=True, mask=None):
     from scipy.fft import fft
     import matplotlib.pyplot as plt
+
+    if mask is not None:
+        arr = arr[..., mask != 0]
 
     spe = fft(arr, axis=0)
     spe = abs(spe) ** 2
@@ -55,7 +58,7 @@ def spectral_power(arr: 'θ.hw', plot=False, split=False, sort=True):
                 plot.bar(x + w / 2 - W / 2 + i * w, y, width=w, bottom=0.001, zorder=10)
         else:
             y = spe[:N] / spe[:N].sum()
-            x = np.arange(len(y))
+            x = np.arange(N)
             plot.bar(x, y, width=.8, bottom=0.001, zorder=10, color='gray')
 
         plot.spines['top'].set_visible(False)
@@ -63,8 +66,7 @@ def spectral_power(arr: 'θ.hw', plot=False, split=False, sort=True):
         plot.spines['left'].set_visible(False)
 
         plot.set_xticks(np.arange(0, N, 1))
-        xlabels = ['Equivariant', '$2\pi$', '$\pi$'][:min(3, N)]
-        xlabels += ['$\dfrac{2\pi}{%i}$' % k for k in range(3, N)]
+        xlabels = ['Equivariant'] + [f'${repr_pi_fraction(2,k)}$' for k in range(1, N)]
         plot.set_xticklabels(xlabels)
 
         plot.set_ylabel('Polar Spectral Power Density')
@@ -103,34 +105,64 @@ def rotate(arr, angles=DEFAULT_ROT_ANGLE):
     return arr.transpose((0, 3, 1, 2)).reshape((len(angles) + 1,) + shape)
 
 
-def unrotate(arr: 'θ.hw', angles=DEFAULT_ROT_ANGLE) -> 'θ.hw':
+def unrotate(arr: 'θ.hw', angles=None) -> 'θ.hw':
     from skimage.transform import rotate as imrotate
+    if angles is None:
+        angles = np.linspace(0, 360, arr.shape[0], endpoint=False)[1:]
+    elif isinstance(angles, int):
+        angles = np.linspace(0, 360, angles)[1:]
 
     shape = arr.shape
-    if isinstance(angles, int):
-        angles = np.linspace(0, 360, angles)[1:]
     arr = arr.reshape((arr.shape[0], -1) + arr.shape[-2:]).transpose((0, 2, 3, 1))
     arr = np.stack([arr[0]] +
                    [imrotate(ar, ang) for ar, ang in zip(arr[1:], angles)])
     return arr.transpose((0, 3, 1, 2)).reshape(shape)
 
 
-def field_unrotate(arrs, angles=DEFAULT_ROT_ANGLE, reproject=True):
-    y,x = arrs
-    y = unrotate(y, angles)
-    x = unrotate(x, angles)
+def rotate_vect(arr_xy, angles=DEFAULT_ROT_ANGLE, reproject=True):
+    if isinstance(angles, int):
+        angles = np.linspace(0, 360, angles, endpoint=False)[1:]
+
+    x,y = arr_xy
+    x = rotate(x, angles)
+    y = rotate(y, angles)
 
     z = x+1j*y
+    angle_offset = np.concatenate([[0], angles])
+    while angle_offset.ndim < z.ndim:
+        angle_offset = np.expand_dims(angle_offset, -1)
+    theta = (np.angle(z, deg=True) + angle_offset)
+    r = np.abs(z)
+    if reproject:
+        theta *= np.pi/180
+        x = r * np.cos(theta)
+        y = r * np.sin(theta)
+        return x, y
+    else:
+        return theta, r
+
+
+def unrotate_vect(arr_xy, angles=None, reproject=True):
+    if angles is None:
+        angles = np.linspace(0, 360, arr_xy.shape[1], endpoint=False)[1:]
+    elif isinstance(angles, int):
+        angles = np.linspace(0, 360, angles)[1:]
+
+    x, y = arr_xy
+    x = unrotate(x, angles)
+    y = unrotate(y, angles)
+
+    z = x + 1j * y
     angle_offset = np.concatenate([[0], angles])
     while angle_offset.ndim < z.ndim:
         angle_offset = np.expand_dims(angle_offset, -1)
     theta = (np.angle(z, deg=True) - angle_offset)
     r = np.abs(z)
     if reproject:
-        theta *= np.pi/180
-        y = r*np.sin(theta)
-        x = r*np.cos(theta)
-        return y, x
+        theta *= np.pi / 180
+        x = r * np.cos(theta)
+        y = r * np.sin(theta)
+        return x, y
     else:
         return theta, r
 
