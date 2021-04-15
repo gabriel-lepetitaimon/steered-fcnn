@@ -1,6 +1,7 @@
 import os.path as P
 import h5py
 from torch.utils.data import Dataset, DataLoader
+import numpy as np
 
 from ..config import default_config
 from .data_augment import DataAugment
@@ -44,9 +45,29 @@ class TrainDataset(Dataset):
         self.y = DATA.get(f'{dataset}/av')
         self.mask = DATA.get(f'{dataset}/mask')
         data_fields = dict(images='x', labels='y,mask')
+
         if steered:
-            self.cos_sin_alpha = DATA.get(f'{dataset}/principal-angle')
-            data_fields['fields'] = 'alpha'
+            if steered is True:
+                steered = 'vec-norm'
+            if steered == 'vec':
+                self.steer = DATA.get(f'{dataset}/principal-vec-norm')
+                data_fields['fields'] = 'alpha'
+            elif steered == 'vec-norm':
+                self.steer = DATA.get(f'{dataset}/principal-vec')
+                data_fields['fields'] = 'alpha'
+            elif steered == 'angle':
+                data_fields['angles'] = 'alpha'
+                self.steer = DATA.get(f'{dataset}/principal-angle')
+            elif steered == 'all':
+                self.angle = DATA.get(f'{dataset}/principal-angle')
+                self.vec = DATA.get(f'{dataset}/principal-vec-norm')  # Through sigmoid
+                self.vec_norm = DATA.get(f'{dataset}/principal-vec')
+                data_fields['angles'] = 'angle'
+                data_fields['fields'] = 'vec,vec_norm'
+            else:
+                raise ValueError(
+                    'steered should be one of "vec", "vec-norm", "angle" or "all".'
+                    f'(Provided: "{steered}")')
         
         DA = DataAugment().flip()
         if data_augmentation_cfg['rotation']:
@@ -56,10 +77,10 @@ class TrainDataset(Dataset):
                                   sigma=data_augmentation_cfg['elastic-transform']['sigma'],
                                   alpha_affine=data_augmentation_cfg['elastic-transform']['alpha-affine']
                                   )
-        
+
         self.geo_aug = DA.compile(**data_fields, to_torch=True)
-        self.factor = factor
         self.steered = steered
+        self.factor = factor
         self._data_length = len(self.x)
 
     def __len__(self):
@@ -69,8 +90,19 @@ class TrainDataset(Dataset):
         i = i % self._data_length
         x = self.x[i].transpose(1, 2, 0)
         if self.steered:
-            cos_sin_alpha = self.cos_sin_alpha[i].transpose(1, 2, 0)
-            return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], alpha=cos_sin_alpha)
+            if isinstance(self.steered, str):
+                alpha = self.steer[i]
+                if self.steered != 'angle':
+                    alpha = alpha.transpose(1, 2, 0)
+                    if self.steered == 'vec-norm':
+                        alpha /= np.linalg.norm(alpha, axis=0) + 1e8
+                return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], alpha=alpha)
+            else:
+                angle = self.angle[i]
+                vec = self.vec[i].transpose(1, 2, 0)
+                vec_norm = self.vec_norm[i].transpose(1, 2, 0)
+                vec_norm /= np.linalg.norm(vec_norm, axis=0) + 1e8
+                return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], angle=angle, vec=vec, vec_norm=vec_norm)
         else:
             return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i])
 
@@ -84,10 +116,30 @@ class TestDataset(Dataset):
         self.y = DATA.get(f'{dataset}/av')
         self.mask = DATA.get(f'{dataset}/mask')
         data_fields = dict(images='x', labels='y,mask')
-        
+
         if steered:
-            self.cos_sin_alpha = DATA.get(f'{dataset}/principal-angle')
-            data_fields['fields'] = 'alpha'
+            if steered is True:
+                steered = 'vec-norm'
+            if steered == 'vec':
+                self.steer = DATA.get(f'{dataset}/principal-vec-norm')
+                data_fields['fields'] = 'alpha'
+            elif steered == 'vec-norm':
+                self.steer = DATA.get(f'{dataset}/principal-vec')
+                data_fields['fields'] = 'alpha'
+            elif steered == 'angle':
+                data_fields['angles'] = 'alpha'
+                self.steer = DATA.get(f'{dataset}/principal-angle')
+            elif steered == 'all':
+                self.angle = DATA.get(f'{dataset}/principal-angle')
+                self.vec = DATA.get(f'{dataset}/principal-vec-norm')  # Through sigmoid
+                self.vec_norm = DATA.get(f'{dataset}/principal-vec')
+                data_fields['angles'] = 'angle'
+                data_fields['fields'] = 'vec,vec_norm'
+            else:
+                raise ValueError(
+                    'steered should be one of "vec", "vec-norm", "angle" or "all".'
+                    f'(Provided: "{steered}")')
+
             
         self.geo_aug = DataAugment().compile(**data_fields, to_torch=True)
         
@@ -100,7 +152,18 @@ class TestDataset(Dataset):
     def __getitem__(self, i):
         x = self.x[i].transpose(1, 2, 0)
         if self.steered:
-            cos_sin_alpha = self.cos_sin_alpha[i].transpose(1, 2, 0)
-            return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], alpha=cos_sin_alpha)
+            if isinstance(self.steered, str):
+                alpha = self.steer[i]
+                if self.steered != 'angle':
+                    alpha = alpha.transpose(1, 2, 0)
+                    if self.steered == 'vec-norm':
+                        alpha /= np.linalg.norm(alpha, axis=0) + 1e8
+                return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], alpha=alpha)
+            else:
+                angle = self.angle[i]
+                vec = self.vec[i].transpose(1, 2, 0)
+                vec_norm = self.vec_norm[i].transpose(1, 2, 0)
+                vec_norm /= np.linalg.norm(vec_norm, axis=0) + 1e8
+                return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], angle=angle, vec=vec, vec_norm=vec_norm)
         else:
             return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i])
