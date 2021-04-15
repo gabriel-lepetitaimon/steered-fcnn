@@ -329,8 +329,9 @@ class SteerableKernelBase(KernelBase):
             if alpha.dim() == 5:
                 if k == 1:
                     cos_sin_kalpha = alpha
+                    alpha_norm = torch.linalg.norm(alpha, dim=0)+1e-8
                 else:
-                    cos_sin_kalpha = cos_sin_ka(alpha, cos_sin_kalpha)
+                    cos_sin_kalpha = cos_sin_ka(alpha, cos_sin_kalpha) / alpha_norm
             else:
                 cos_sin_kalpha = alpha[:, k-1]
             f.addcmul_(cos_sin_kalpha[0], F.conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts))
@@ -376,7 +377,7 @@ class SteerableKernelBase(KernelBase):
             if alpha.dim() == 5:
                 if k == 1:
                     cos_sin_kalpha = alpha
-                    alpha_norm = torch.linalg.norm(alpha, dim=0)
+                    alpha_norm = torch.linalg.norm(alpha, dim=0)+1e-8
                 else:
                     cos_sin_kalpha = cos_sin_ka(alpha, cos_sin_kalpha) / alpha_norm
             else:

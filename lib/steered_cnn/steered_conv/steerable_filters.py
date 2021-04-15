@@ -116,7 +116,7 @@ def cos_sin_ka_stack(cos_alpha, sin_alpha, k):
     """
     import torch
     cos_sin_alpha = torch.stack([cos_alpha, sin_alpha])
-    norm = torch.linalg.norm(cos_sin_alpha, dim=0)
+    norm = torch.linalg.norm(cos_sin_alpha, dim=0)+1e-8
     cos_sin_km1_alpha = cos_sin_alpha
     r = [cos_sin_alpha]
     for i in range(2, k+1):
