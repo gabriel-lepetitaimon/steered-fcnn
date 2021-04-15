@@ -61,12 +61,24 @@ class KernelBase:
                 base.append(np.stack(kernels))
         return KernelBase(base)
 
-    def create_weights(self, n_in, n_out):
-        R = len(self.base)
-        K = sum([self.base[r].shape[0] for r in range(R)])
+    def create_weights(self, n_in, n_out, nonlinearity=' relu', nonlinearity_param=None, dist='normal'):
+        from torch.nn.init import calculate_gain
+        import math
+
+        K = self.base.shape[0]
         w = torch.empty((n_out, n_in, K))
-        b = np.sqrt(3/(n_in*K))
-        nn.init.uniform_(w, -b, b)
+
+        gain = calculate_gain(nonlinearity, nonlinearity_param)
+        std = gain * math.sqrt(1 / (n_in * K))
+        if dist == 'normal':
+            nn.init.normal_(w, std=std)
+        elif dist == 'uniform':
+            bound = std * math.sqrt(3)
+            nn.init.uniform_(w, -bound, bound)
+        else:
+            raise NotImplementedError(f'Unsupported distribution for the random initialization of weights: "{dist}". \n'
+                                      f'(Supported distribution are "normal" or "uniform"')
+
         return w
 
     def approximate_weights(self, kernels: 'torch.Tensor [n_out, n_in, h, w]',  info=None, bias=False, ridge_alpha=.1):
@@ -111,6 +123,25 @@ class KernelBase:
         self.base = self.base.to(*args, **kwargs)
         return self
 
+    def _prepare_conv(self, input, weight, stride, padding, dilation):
+        from ..utils import compute_conv_outputs_dim, compute_padding
+        if self.device != input.device:
+            self.to(input.device)
+        padding = compute_padding(padding, self.base.shape)
+
+        b, n_in, h, w = input.shape
+        n_out, n_in_w, k_w = weight.shape
+        k, n, m = self.base.shape
+        assert n_in == n_in_w, 'Incoherent number of input neurons between the provided input and weight:\n' \
+                               f'input.shape={input.shape} (n_in={n_in}), weight.shape={weight.shape} (n_in={n_in_w}).'
+        assert k == k_w, f"The provided weights have an incorrect number of kernels:\n " + \
+                         f"weight.shape={weight.shape} (k={k_w}), but should be {k}."
+        conv_opts = dict(padding=padding, dilation=dilation, stride=stride)
+        h, w = compute_conv_outputs_dim(input.shape, self.base.shape, **conv_opts)
+
+        return conv_opts, (b, n_in, n_out, k, h, w)
+
+
     # --- Composite Kernels ---
     @staticmethod
     def composite_kernels(weight: 'torch.Tensor [n_out, n_in, n_k]', base: 'torch.Tensor [n_k, n, m]'):
@@ -153,12 +184,12 @@ class KernelBase:
     def preconvolved_base_conv2d(self, input: 'torch.Tensor [b,i,w,h]', weight: 'np.array [n_out, n_in, k]',
                                  stride=1, padding='same', dilation=1):
         bases = KernelBase.preconvolve_base(input, self.base, stride=stride, padding=padding, dilation=dilation)
-        b, n_in, k, h, w = bases.shape
+        b, h, w, n_in, k = bases.shape
         n_out, n_in_w, k_w = weight.shape
 
-        assert n_in == n_in_w, f"The provided inputs and weights have different number of input neuron:\\ " +\
+        assert n_in == n_in_w, f"The provided inputs and weights have different number of input neuron:\n " +\
                                f"x.shape[1]=={n_in}, weigth.shape[1]=={n_in_w}."
-        assert k == k_w, f"The provided weights have an incorrect number of kernels:\\ " +\
+        assert k == k_w, f"The provided weights have an incorrect number of kernels:\n " +\
                          f"weight.shape[2]=={k_w}, but should be {k}."
 
         return KernelBase.multiply_preconvolved_base_weigth(bases, weight)

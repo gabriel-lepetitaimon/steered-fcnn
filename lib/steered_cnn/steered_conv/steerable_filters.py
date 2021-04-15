@@ -25,14 +25,14 @@ def radial_steerable_filter(size, k, r, std=.5):
     return f
 
 
-def plot_filter(F, axis=True, spd=False, plot=None, colorbar=False):
+def plot_filter(F, axis=True, spd=False, plot=None, colorbar=False, vmax=None):
     from ..utils.rotequivariance_toolbox import polar_spectral_power
     import torch
     import matplotlib.pyplot as plt
     if isinstance(F, torch.Tensor):
         F = F.detach().cpu().numpy()
     h, w = F.shape
-    v = max(F.max(), -F.min())
+    v = max(F.max(), -F.min()) if vmax is None else vmax
 
     if spd is True:
         spd = 16
@@ -70,7 +70,7 @@ def plot_filter(F, axis=True, spd=False, plot=None, colorbar=False):
     ax_filt.grid(which='minor', color='w', linestyle='-', linewidth=2)
 
     if colorbar:
-        plt.colorbar(im)
+        plt.colorbar(im,ax=ax_filt)
 
     # --- PLOT SPD ---
     if spd:
@@ -92,10 +92,11 @@ def cos_sin_ka(cos_sin_a, cos_sin_km1_a):
     Returns: A tensor cosk_sink of shape [2, n1, n2, ...], where cosk_sink[0]=cos((k+1)α) and cosk_sink[1]=sin((k+1)α).
     """
     import torch
-    return torch.stack((
+    cos_sin_k = torch.stack((
         cos_sin_km1_a[0] * cos_sin_a[0] - cos_sin_km1_a[1] * cos_sin_a[1],
         cos_sin_km1_a[0] * cos_sin_a[1] + cos_sin_km1_a[1] * cos_sin_a[0]
     ))
+    return cos_sin_k
 
 
 def cos_sin_ka_stack(cos_alpha, sin_alpha, k):
@@ -115,9 +116,10 @@ def cos_sin_ka_stack(cos_alpha, sin_alpha, k):
     """
     import torch
     cos_sin_alpha = torch.stack([cos_alpha, sin_alpha])
+    norm = torch.linalg.norm(cos_sin_alpha, dim=0)
     cos_sin_km1_alpha = cos_sin_alpha
     r = [cos_sin_alpha]
     for i in range(2, k+1):
-        cos_sin_km1_alpha = cos_sin_ka(cos_sin_alpha, cos_sin_km1_alpha)
+        cos_sin_km1_alpha = cos_sin_ka(cos_sin_alpha, cos_sin_km1_alpha) / norm
         r += [cos_sin_km1_alpha]
     return torch.stack(r, dim=1)

@@ -3,14 +3,17 @@ from torch import nn
 import math
 
 from .steered_kbase import SteerableKernelBase
+from .ortho_kbase import OrthoKernelBase
 
 
-_DEFAULT_STEERABLE_BASE = SteerableKernelBase.create_from_rk(4, max_k=5)
+DEFAULT_STEERABLE_BASE = SteerableKernelBase.from_steerable(4, max_k=5)
+DEFAULT_ATTENTION_BASE = OrthoKernelBase.from_steerable(4)
 
 
 class SteeredConv2d(nn.Module):
-    def __init__(self, n_in, n_out=None, steerable_base: SteerableKernelBase = None,
-                 stride=1, padding='same', dilation=1, groups=1, bias=True,
+    def __init__(self, n_in, n_out=None, stride=1, padding='same', dilation=1, groups=1, bias=True,
+                 steerable_base: SteerableKernelBase = DEFAULT_STEERABLE_BASE,
+                 attention_base: SteerableKernelBase = None,
                  nonlinearity='relu', nonlinearity_param=None):
         """
         :param n_in:
@@ -30,14 +33,17 @@ class SteeredConv2d(nn.Module):
         self.padding = padding
         self.dilation = dilation
         self.groups = groups
-        if steerable_base is None:
-            steerable_base = _DEFAULT_STEERABLE_BASE
-        elif isinstance(steerable_base, (int, dict)):
-            steerable_base = SteerableKernelBase.create_from_rk(steerable_base)
-        self.base = steerable_base
+        if isinstance(steerable_base, (int, dict)):
+            steerable_base = SteerableKernelBase.from_steerable(steerable_base)
+        self.steerable_base = steerable_base
+        if attention_base is True:
+            attention_base = DEFAULT_ATTENTION_BASE
+        if isinstance(attention_base, (int, dict)):
+            attention_base = SteerableKernelBase.from_steerable(attention_base)
+        self.attention_base = attention_base
 
         # Weight
-        self.weights = nn.Parameter(self.base.create_weights(n_in, n_out, nonlinearity, nonlinearity_param),
+        self.weights = nn.Parameter(self.steerable_base.create_weights(n_in, n_out, nonlinearity, nonlinearity_param),
                                     requires_grad=True)
         self.bias = None
         if bias:
@@ -45,9 +51,17 @@ class SteeredConv2d(nn.Module):
             b = 1*math.sqrt(1/n_out)
             nn.init.uniform_(self.bias, -b, b)
 
+        if self.attention_base is not None:
+            self.attention_weigths = nn.Parameter(self.attention_base.create_weights(n_in, n_out, nonlinearity=None),
+                                                  requires_grad=True)
+
     def forward(self, x, alpha=None):
-        out = self.base.conv2d(x, self.weights, alpha=alpha,
-                               stride=self.stride, padding=self.padding, dilation=self.dilation)
+        if alpha is None:
+            alpha = self.attention_base.ortho_conv2d(x, self.attention_weigths,
+                                                     stride=self.stride, padding=self.padding)
+
+        out = self.steerable_base.conv2d(x, self.weights, alpha=alpha,
+                                         stride=self.stride, padding=self.padding, dilation=self.dilation)
 
         # Bias
         if self.bias is not None:

@@ -68,12 +68,10 @@ def compute_conv_outputs_dim(input_shape, weight_shape, padding=0, stride=1, dil
 
     if not isinstance(padding, tuple):
         padding = compute_padding(padding, weight_shape)
-
     if isinstance(stride, int):
         stride = stride, stride
-
     if isinstance(dilation, int):
         dilation = dilation, dilation
-    h = (h+2*padding[0]-dilation[0]*(n-1)-1)/stride[0] + 1
-    w = (w+2*padding[1]-dilation[1]*(m-1)-1)/stride[1] + 1
+    h = int((h+2*padding[0]-dilation[0]*(n-1)-1)/stride[0] + 1)
+    w = int((w+2*padding[1]-dilation[1]*(m-1)-1)/stride[1] + 1)
     return h, w

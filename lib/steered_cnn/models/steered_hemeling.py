@@ -17,9 +17,9 @@ class SteeredHemelingNet(nn.Module):
         self.static_principal_direction = static_principal_direction
 
         if base is None:
-            base = SteerableKernelBase.create_from_rk(4, max_k=5)
+            base = SteerableKernelBase.from_steerable(4, max_k=5)
         elif isinstance(base, (int, dict)):
-            base = SteerableKernelBase.create_from_rk(base)
+            base = SteerableKernelBase.from_steerable(base)
         self.base = base
 
         # --- MODEL ---
