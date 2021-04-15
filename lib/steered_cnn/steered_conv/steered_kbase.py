@@ -188,6 +188,7 @@ class SteerableKernelBase(KernelBase):
                     To enhance the efficiency of the steering computation, α should not be provided as an angle but as a
                     vertical and horizontal projection: cos(α) and sin(α).
                     Hence this parameter can either be:
+                        - A 4D tensor where  alpha=α
                         - A 5D tensor where  alpha[0]=cos(α) and alpha[1]=sin(α)
                         - A 6D tensor where  alpha[0,k-1]=cos(kα) and alpha[1,k-1]=sin(kα) for k=1:k_max
                     The last 4 dimensions allow to specify a different alpha for each output pixels [n, n_out, h, w].
@@ -204,7 +205,7 @@ class SteerableKernelBase(KernelBase):
         Shape:
             input: (b, n_in, h, w)
             weight: (n_out, n_in, K)
-            alpha: (2, [k_max], b, n_out, ~h, ~w)     (The last four dimensions are broadcastable
+            alpha: ([2, [k_max]], b, n_out, ~h, ~w)     (The last four dimensions are broadcastable
                                                        by replacing b, n_out, h or w by 1)
             return: (b, n_out, ~h, ~w)
 
@@ -222,7 +223,7 @@ class SteerableKernelBase(KernelBase):
                                                stride=stride, padding=padding, dilation=dilation)
 
         if alpha is not None:
-            h, w = shapes[-2:]
+            b, n_in, n_out, k, h, w = shapes
             if isinstance(alpha, (int, float)):
                 if alpha == 0:
                     return None, conv_opts, shapes
@@ -231,6 +232,34 @@ class SteerableKernelBase(KernelBase):
                     alpha = torch.stack((torch.cos(alpha), torch.sin(alpha)))[:, None, None, None]
             alpha = clip_pad_center(alpha, (h, w), broadcastable=True)
 
+            assert 4 <= alpha.dim() <= 6, f'Invalid number of dimensions for alpha: alpha.shape={alpha.shape}.\n' \
+                                          'alpha shape should be like ([2, [k_max]], b, n_out, h, w)'
+            if alpha.dim() == 4:
+                b_a, n_out_a, h_a, w_a = alpha.shape
+                alpha = torch.stack((torch.cos(alpha), torch.sin(alpha)))
+            elif alpha.dim() == 5:
+                cossin, b_a, n_out_a, h_a, w_a = alpha.shape
+                assert cossin == 2, f'Invalid first dimensions for alpha: alpha.shape[0]={cossin} but should be 2.\n' \
+                                    f'(if alpha is a 5D matrix its shape should be: (2, b, n_out, h, w),' \
+                                    f' with alpha[0]=cos(α) and alpha[1]=sin(α)\n' \
+                                    f'alpha.shape={alpha.shape})'
+            else:
+                cossin, k_max_a, b_a, n_out_a, h_a, w_a = alpha.shape
+                assert cossin == 2, f'Invalid first dimensions for alpha: alpha.shape[0]={cossin} but should be 2.\n' \
+                                    f'(if alpha is a 5D matrix its shape should be: (2, b, n_out, h, w),' \
+                                    f' with alpha[0]=cos(α) and alpha[1]=sin(α)\n' \
+                                    f'alpha.shape={alpha.shape})'
+                assert k_max_a == self.k_max, f'Invalid k dimension for alpha: alpha.shape[1]={k_max_a} but should be equal to k_max={self.k_max}.\n' \
+                                            f'(alpha.shape={alpha.shape})'
+            assert b_a == 1 or b == b_a, f'Invalid batch size for alpha: alpha.shape[{alpha.dim()-4}]={b_a} but should be {b} (or  1 for broadcast)\n' \
+                                         f'(alpha.shape={alpha.shape}, input.shape={input.shape}'
+            assert n_out_a == 1 or n_out == n_out_a, f'Invalid number of output features for alpha: ' \
+                                                     f'alpha.shape[{alpha.dim() - 3}]={n_out_a} but should be {n_out} (or  1 for broadcast)\n' \
+                                                     f'(alpha.shape={alpha.shape}, input.shape={input.shape}'
+            assert h_a == 1 or h_a == h, f'Invalid height for alpha: alpha.shape[{alpha.dim()-2}]={h_a} but should be {h} (or  1 for broadcast)\n' \
+                                         f'(alpha.shape={alpha.shape}, input.shape={input.shape}'
+            assert w_a == 1 or w_a == w, f'Invalid width for alpha: alpha.shape[{alpha.dim() - 1}]={w_a} but should be {w} (or  1 for broadcast)\n' \
+                                         f'(alpha.shape={alpha.shape}, input.shape={input.shape}'
         return alpha, conv_opts, shapes
 
     # --- Composite Kernels ---
