@@ -16,7 +16,7 @@ def polar_space(size, center=None):
 
 
 def spectral_power(arr: 'θ.hw', plot=False, split=False, sort=True):
-    from scipy import fft
+    from scipy.fft import fft
     import matplotlib.pyplot as plt
 
     spe = fft(arr, axis=0)
@@ -142,6 +142,30 @@ def simplify_angle(angles, mod=1, deg=True):
     a_idx = np.argmin(np.abs(angles), axis=0)
     angles = np.take_along_axis(angles, np.expand_dims(a_idx, axis=0), axis=0).squeeze(0)
     return angles
+
+
+def repr_pi_fraction(num, den):
+    if den == 0:
+        raise ZeroDivisionError
+    if num == 0:
+        return "0"
+
+    gcd = np.gcd(num, den)
+    sign = "" if num*den>0 else "-"
+    num = abs(num)//gcd
+    den = abs(den)//gcd
+
+    if den > 1:
+        if num > 1:
+            return sign + "\\dfrac{%i\\pi}{%i}" % (num, den)
+        else:
+            return sign + "\\dfrac{\\pi}{%i}" % den
+    else:
+        if num > 1:
+            return sign + "%s\\pi" % num
+        else:
+            return sign + "\\pi"
+
 
 
 #####################################################################################

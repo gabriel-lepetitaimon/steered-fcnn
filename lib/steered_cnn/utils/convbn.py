@@ -52,7 +52,7 @@ def compute_padding(padding, shape):
     if padding == 'same' or padding == 'auto':
         hW, wW = shape[-2:]
         padding = (hW//2, wW//2)
-    elif padding == 'true':
+    elif padding == 'true' or padding == 'valid':
         padding = (0, 0)
     elif padding == 'full':
         hW, wW = shape[-2:]
