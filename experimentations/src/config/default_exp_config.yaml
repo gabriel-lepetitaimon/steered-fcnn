@@ -9,8 +9,9 @@ model:
     nfeatures-base: 16
     depth: 2
     half-kernel-height: 3
-    padding: 0
+    padding: 'same'
     batchnorm: True
+    upsample: 'conv'
     static-principal-direction: False   # True / False / 'normalized'
 
 

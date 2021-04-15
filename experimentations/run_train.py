@@ -153,6 +153,7 @@ def setup_model(model_cfg, old=False):
                                    padding=model_cfg['padding'],
                                    depth=model_cfg['depth'],
                                    batchnorm=model_cfg['batchnorm'],
+                                   upsample=model_cfg['upsample'],
                                    static_principal_direction=model_cfg['static-principal-direction'])
     else:
         if old:

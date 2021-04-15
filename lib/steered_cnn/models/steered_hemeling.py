@@ -9,12 +9,13 @@ from ..steered_conv.steerable_filters import cos_sin_ka_stack
 class SteeredHemelingNet(nn.Module):
 
     def __init__(self, n_in, n_out=1, nfeatures_base=6, depth=2, base=None,
-                 p_dropout=0, padding='same', batchnorm=True,
+                 p_dropout=0, padding='same', batchnorm=True, upsample='conv',
                  static_principal_direction=False):
         super().__init__()
         self.n_in = n_in
         self.n_out = n_out
         self.static_principal_direction = static_principal_direction
+        self.upsample = upsample
 
         if base is None:
             base = SteerableKernelBase.from_steerable(4, max_k=5)
@@ -60,25 +61,37 @@ class SteeredHemelingNet(nn.Module):
                for _ in range(depth - 1)])
 
         # Up
-        self.upsample1 = nn.ConvTranspose2d(n5, n4, kernel_size=(2, 2), stride=(2, 2))
+        if upsample == 'nearest':
+            self.upsample1 = nn.Sequential(nn.Conv2d(n5, n4, kernel_size=(1, 1)), nn.Upsample(scale_factor=2))
+        else:
+            self.upsample1 = nn.ConvTranspose2d(n5, n4, kernel_size=(2, 2), stride=(2, 2))
         self.conv6 = nn.ModuleList(
             [SteeredConvBN(2 * n4, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
             + [SteeredConvBN(n4, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
                for _ in range(depth - 1)])
 
-        self.upsample2 = nn.ConvTranspose2d(n4, n3, kernel_size=(2, 2), stride=(2, 2))
+        if upsample == 'nearest':
+            self.upsample2 = nn.Sequential(nn.Conv2d(n4, n3, kernel_size=(1, 1)), nn.Upsample(scale_factor=2))
+        else:
+            self.upsample2 = nn.ConvTranspose2d(n4, n3, kernel_size=(2, 2), stride=(2, 2))
         self.conv7 = nn.ModuleList(
             [SteeredConvBN(2 * n3, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
             + [SteeredConvBN(n3, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
                for _ in range(depth - 1)])
 
-        self.upsample3 = nn.ConvTranspose2d(n3, n2, kernel_size=(2, 2), stride=(2, 2))
+        if upsample == 'nearest':
+            self.upsample3 = nn.Sequential(nn.Conv2d(n3, n2, kernel_size=(1, 1)), nn.Upsample(scale_factor=2))
+        else:
+            self.upsample3 = nn.ConvTranspose2d(n3, n2, kernel_size=(2, 2), stride=(2, 2))
         self.conv8 = nn.ModuleList(
             [SteeredConvBN(2 * n2, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
             + [SteeredConvBN(n2, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
                for _ in range(depth - 1)])
 
-        self.upsample4 = nn.ConvTranspose2d(n2, n1, kernel_size=(2, 2), stride=(2, 2))
+        if upsample == 'nearest':
+            self.upsample4 = nn.Sequential(nn.Conv2d(n2, n1, kernel_size=(1, 1)), nn.Upsample(scale_factor=2))
+        else:
+            self.upsample4 = nn.ConvTranspose2d(n2, n1, kernel_size=(2, 2), stride=(2, 2))
         self.conv9 = nn.ModuleList(
             [SteeredConvBN(2 * n1, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
             + [SteeredConvBN(n1, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
@@ -125,17 +138,24 @@ class SteeredHemelingNet(nn.Module):
 
                 _, k_max, b, h, w = cos_sin_kalpha.shape
 
-                alpha1 = cos_sin_kalpha.reshape((2 * k_max, b, h, w))
-                alpha2 = F.avg_pool2d(alpha1, 2)
-                alpha3 = F.avg_pool2d(alpha2, 2)
-                alpha4 = F.avg_pool2d(alpha3, 2)
-                alpha5 = F.avg_pool2d(alpha4, 2)
+                if h != 1 and w != 1:
+                    alpha1 = cos_sin_kalpha.reshape((2 * k_max, b, h, w))
+                    alpha2 = F.avg_pool2d(alpha1, 2)
+                    alpha3 = F.avg_pool2d(alpha2, 2)
+                    alpha4 = F.avg_pool2d(alpha3, 2)
+                    alpha5 = F.avg_pool2d(alpha4, 2)
 
-                alpha1 = alpha1.reshape(2, k_max, b, 1, *alpha1.shape[-2:])
-                alpha2 = alpha2.reshape(2, k_max, b, 1, *alpha2.shape[-2:])
-                alpha3 = alpha3.reshape(2, k_max, b, 1, *alpha3.shape[-2:])
-                alpha4 = alpha4.reshape(2, k_max, b, 1, *alpha4.shape[-2:])
-                alpha5 = alpha5.reshape(2, k_max, b, 1, *alpha5.shape[-2:])
+                    alpha1 = alpha1.reshape(2, k_max, b, 1, *alpha1.shape[-2:])
+                    alpha2 = alpha2.reshape(2, k_max, b, 1, *alpha2.shape[-2:])
+                    alpha3 = alpha3.reshape(2, k_max, b, 1, *alpha3.shape[-2:])
+                    alpha4 = alpha4.reshape(2, k_max, b, 1, *alpha4.shape[-2:])
+                    alpha5 = alpha5.reshape(2, k_max, b, 1, *alpha5.shape[-2:])
+                else:
+                    alpha1 = cos_sin_kalpha.reshape((2, k_max, b, 1, 1, 1))
+                    alpha2 = alpha1
+                    alpha3 = alpha1
+                    alpha4 = alpha1
+                    alpha5 = alpha1
 
         # Down
         x1 = reduce(lambda X, conv: conv(X, alpha=alpha1), self.conv1, x)
