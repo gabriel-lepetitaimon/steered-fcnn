@@ -111,10 +111,11 @@ class OrthoKernelBase(KernelBase):
         """
         conv_opts, _ = self._prepare_conv(input, weight, stride=stride, padding=padding, dilation=dilation)
 
-        W = KernelBase.composite_kernels(weight[..., self.idx_vertical], self.base_vertical)
+        W = KernelBase.composite_kernels(weight, self.base)
         out_ver = F.conv2d(input, W, **conv_opts)
 
-        W = KernelBase.composite_kernels(weight[..., self.idx_horizontal], self.base_horizontal)
+        W = KernelBase.composite_kernels(weight[..., self.idx_vertical], self.base_horizontal)
+        W -= KernelBase.composite_kernels(weight[..., self.idx_horizontal], self.base_vertical)
         out_hor = F.conv2d(input, W, **conv_opts)
 
         return torch.stack((out_ver, out_hor))
