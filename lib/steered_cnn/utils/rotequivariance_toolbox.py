@@ -1,16 +1,25 @@
 import numpy as np
 
 
-def polar_space(size, center=None):
+def cartesian_space(size, center=None):
     if not isinstance(size, tuple):
         size = (size, size)
     if center is None:
         center = tuple(_ / 2 for _ in size)
 
-    y = np.linspace(-center[0], size[0] - center[0], size[0])
-    x = np.linspace(-center[1], size[1] - center[1], size[1])
-    y, x = np.meshgrid(y, x)
-    rho = np.sqrt(x ** 2 + y ** 2)
+    x = np.linspace(-center[0], size[0] - center[0], size[0])
+    y = np.linspace(-center[1], size[1] - center[1], size[1])
+    x, y = np.meshgrid(x, y)
+    return x, y
+
+
+def r_space(size, center=None):
+    return np.linalg.norm(cartesian_space(size, center=center), axis=0)
+
+
+def polar_space(size, center=None):
+    x, y = cartesian_space(size, center=center)
+    rho = np.linalg.norm((x, y))
     phi = np.arctan2(y, x)
     return rho, phi
 
@@ -19,7 +28,12 @@ def spectral_power(arr: 'θ.hw', plot=False, split=False, sort=True, mask=None):
     from scipy.fft import fft
     import matplotlib.pyplot as plt
 
+    if mask == 'disk':
+        r = min(arr.shape[-2:])
+        mask = (r_space(arr.shape[-2:])*2) <= r
     if mask is not None:
+        if mask.dtype != np.bool:
+            mask = mask > 0
         arr = arr[..., mask != 0]
 
     spe = fft(arr, axis=0)
@@ -44,7 +58,7 @@ def spectral_power(arr: 'θ.hw', plot=False, split=False, sort=True, mask=None):
             w = W / spe.shape[1]
 
             spe = spe[:N]
-            if split == 'normed':
+            if split == '   normed':
                 spe = spe / spe.sum(axis=tuple(_ for _ in range(spe.ndim) if _ != 1))[None, :]
             else:
                 spe = spe / spe.sum(axis=-1).mean(axis=tuple(_ for _ in range(spe.ndim)
@@ -83,9 +97,20 @@ def spectral_power(arr: 'θ.hw', plot=False, split=False, sort=True, mask=None):
     return spe
 
 
-def polar_spectral_power(arr: '.hw', theta=8, plot=False, split=False):
-    arr = rotate(arr, theta)
-    return spectral_power(arr, plot=plot, split=split)
+def polar_spectral_power(arr: '.hw', theta=8, plot=False, split=False, mask=None):
+    if mask == 'auto':
+        pad = 'auto'
+        mask = None
+    elif mask == 'disk':
+        r = min(arr.shape[-2:])
+        mask = (r_space(arr.shape[-2:]) * 2) <= r
+        pad = 0
+    elif isinstance(mask, np.ndarray):
+        pad = int(np.max(mask*np.ceil(r_space(mask.shape[-2:]))))
+    else:
+        pad = 0
+    arr = rotate(arr, theta, pad=pad)
+    return spectral_power(arr, plot=plot, split=split, mask=mask)
 
 
 #####################################################################################
@@ -94,8 +119,14 @@ def polar_spectral_power(arr: '.hw', theta=8, plot=False, split=False):
 DEFAULT_ROT_ANGLE = np.arange(10, 360, 10)
 
 
-def rotate(arr, angles=DEFAULT_ROT_ANGLE):
+def rotate(arr, angles=DEFAULT_ROT_ANGLE, pad=0):
     from skimage.transform import rotate as imrotate
+    import math
+    if pad == 'auto':
+        pad = math.ceil(max(arr.shape[-2:])/math.sqrt(2))
+    if isinstance(pad, int):
+        pad = ((0, 0),)*(arr.ndim-2) + ((pad, pad),)*2
+        arr = np.pad(arr, pad)
 
     shape = arr.shape
     if isinstance(angles, int):
@@ -105,8 +136,15 @@ def rotate(arr, angles=DEFAULT_ROT_ANGLE):
     return arr.transpose((0, 3, 1, 2)).reshape((len(angles) + 1,) + shape)
 
 
-def unrotate(arr: 'θ.hw', angles=None) -> 'θ.hw':
+def unrotate(arr: 'θ.hw', angles=None, pad=0) -> 'θ.hw':
     from skimage.transform import rotate as imrotate
+    import math
+    if pad == 'auto':
+        pad = math.ceil(max(arr.shape[-2:]) / math.sqrt(2))
+    if isinstance(pad, int):
+        pad = ((0, 0),) * (arr.ndim - 2) + ((pad, pad),) * 2
+        arr = np.pad(arr, pad)
+
     if angles is None:
         angles = np.linspace(0, 360, arr.shape[0], endpoint=False)[1:]
     elif isinstance(angles, int):
@@ -198,6 +236,41 @@ def repr_pi_fraction(num, den):
         else:
             return sign + "\\pi"
 
+
+def clip_pad_center(array, shape, pad_mode='constant', broadcastable=False, **kwargs):
+    s = array.shape
+    h, w = shape[-2:]
+
+    if s[-2] == 1 and broadcastable:
+        y0 = 0
+        y1 = 0
+        h = 1
+        yodd = 0
+    else:
+        y0 = (s[-2]-h)//2
+        y1 = 0
+        yodd = (h-s[-2]) % 2
+        if y0 < 0:
+            y1 = -y0
+            y0 = 0
+
+    if s[-1] == 1 and broadcastable:
+        x0 = 0
+        x1 = 0
+        w = 1
+        xodd = 0
+    else:
+        x0 = (s[-1]-w)//2
+        x1 = 0
+        xodd = (w-s[-1]) % 2
+        if x0 < 0:
+            x1 = -x0
+            x0 = 0
+
+    tensor = array[..., y0:y0+h, x0:x0+w]
+    if x1 or y1:
+        tensor = np.pad(tensor, (y1-yodd, y1, x1-xodd, x1), mode=pad_mode, **kwargs)
+    return tensor
 
 
 #####################################################################################
