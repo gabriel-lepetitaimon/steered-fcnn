@@ -7,10 +7,10 @@ def cartesian_space(size, center=None):
     if center is None:
         center = tuple(_ / 2 for _ in size)
 
-    x = np.linspace(-center[0], size[0] - center[0], size[0])
-    y = np.linspace(-center[1], size[1] - center[1], size[1])
+    x = np.linspace(-center[0], size[0] - center[0], size[0], dtype=np.float32)
+    y = np.linspace(-center[1], size[1] - center[1], size[1], dtype=np.float32)
     x, y = np.meshgrid(x, y)
-    return x, y
+    return y, x
 
 
 def r_space(size, center=None):
@@ -19,13 +19,13 @@ def r_space(size, center=None):
 
 def polar_space(size, center=None):
     x, y = cartesian_space(size, center=center)
-    rho = np.linalg.norm((x, y))
+    rho = np.linalg.norm((x, y), axis=0)
     phi = np.arctan2(y, x)
     return rho, phi
 
 
 def spectral_power(arr: 'θ.hw', plot=False, split=False, sort=True, mask=None):
-    from scipy.fft import fft
+    from scipy.fftpack import fft
     import matplotlib.pyplot as plt
 
     if mask == 'disk':
