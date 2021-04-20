@@ -51,10 +51,10 @@ class TrainDataset(Dataset):
                 steered = 'vec-norm'
             if steered == 'vec':
                 self.steer = DATA.get(f'{dataset}/principal-vec-norm')
-                data_fields['fields'] = 'alpha'
+                data_fields['vectors'] = 'alpha'
             elif steered == 'vec-norm':
                 self.steer = DATA.get(f'{dataset}/principal-vec')
-                data_fields['fields'] = 'alpha'
+                data_fields['vectors'] = 'alpha'
             elif steered == 'angle':
                 data_fields['angles'] = 'alpha'
                 self.steer = DATA.get(f'{dataset}/principal-angle')
@@ -63,7 +63,7 @@ class TrainDataset(Dataset):
                 self.vec = DATA.get(f'{dataset}/principal-vec-norm')  # Through sigmoid
                 self.vec_norm = DATA.get(f'{dataset}/principal-vec')
                 data_fields['angles'] = 'angle'
-                data_fields['fields'] = 'vec,vec_norm'
+                data_fields['vectors'] = 'vec,vec_norm'
             else:
                 raise ValueError(
                     'steered should be one of "vec", "vec-norm", "angle" or "all".'
@@ -79,6 +79,7 @@ class TrainDataset(Dataset):
                                   )
 
         self.geo_aug = DA.compile(**data_fields, to_torch=True)
+        self.DA = DA
         self.steered = steered
         self.factor = factor
         self._data_length = len(self.x)
@@ -90,7 +91,7 @@ class TrainDataset(Dataset):
         i = i % self._data_length
         x = self.x[i].transpose(1, 2, 0)
         if self.steered:
-            if isinstance(self.steered, str):
+            if isinstance(self.steered, str) and self.steered != 'all':
                 alpha = self.steer[i]
                 if self.steered != 'angle':
                     alpha = alpha.transpose(1, 2, 0)
@@ -122,10 +123,10 @@ class TestDataset(Dataset):
                 steered = 'vec-norm'
             if steered == 'vec':
                 self.steer = DATA.get(f'{dataset}/principal-vec-norm')
-                data_fields['fields'] = 'alpha'
+                data_fields['vectors'] = 'alpha'
             elif steered == 'vec-norm':
                 self.steer = DATA.get(f'{dataset}/principal-vec')
-                data_fields['fields'] = 'alpha'
+                data_fields['vectors'] = 'alpha'
             elif steered == 'angle':
                 data_fields['angles'] = 'alpha'
                 self.steer = DATA.get(f'{dataset}/principal-angle')
@@ -134,7 +135,7 @@ class TestDataset(Dataset):
                 self.vec = DATA.get(f'{dataset}/principal-vec-norm')  # Through sigmoid
                 self.vec_norm = DATA.get(f'{dataset}/principal-vec')
                 data_fields['angles'] = 'angle'
-                data_fields['fields'] = 'vec,vec_norm'
+                data_fields['vectors'] = 'vec,vec_norm'
             else:
                 raise ValueError(
                     'steered should be one of "vec", "vec-norm", "angle" or "all".'
@@ -152,7 +153,7 @@ class TestDataset(Dataset):
     def __getitem__(self, i):
         x = self.x[i].transpose(1, 2, 0)
         if self.steered:
-            if isinstance(self.steered, str):
+            if isinstance(self.steered, str) and self.steered != 'all':
                 alpha = self.steer[i]
                 if self.steered != 'angle':
                     alpha = alpha.transpose(1, 2, 0)

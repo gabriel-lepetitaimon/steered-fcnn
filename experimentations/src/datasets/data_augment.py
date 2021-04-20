@@ -27,15 +27,15 @@ class DataAugment:
     def __init__(self, rng=None):
         self._augment_stack = []
 
-    def compile(self, images='', labels='', angles='', fields='', to_torch=False):
+    def compile(self, images='', labels='', angles='', vectors='', to_torch=False):
         if isinstance(images, str):
             images = [_.strip() for _ in images.split(',') if _.strip()]
         if isinstance(labels, str):
             labels = [_.strip() for _ in labels.split(',') if _.strip()]
         if isinstance(angles, str):
             angles = [_.strip() for _ in angles.split(',') if _.strip()]
-        if isinstance(fields, str):
-            fields = [_.strip() for _ in fields.split(',') if _.strip()]
+        if isinstance(vectors, str):
+            vectors = [_.strip() for _ in vectors.split(',') if _.strip()]
 
         images_f = None
         labels_f = None
@@ -51,9 +51,9 @@ class DataAugment:
         if angles:
             angles_f = self.compile_stack(rng_states=rng_states_def,
                                           except_type={'color'}, value_type='angle')
-        if fields:
+        if vectors:
             fields_f = self.compile_stack(rng_states=rng_states_def,
-                                          except_type={'color'}, value_type='field')
+                                          except_type={'color'}, value_type='vec')
 
         def augment(rng=np.random.RandomState(1234), **kwargs):
             rng_states = [[s(rng) for s in states.values()] for states in rng_states_def]
@@ -70,7 +70,7 @@ class DataAugment:
             for angle in angles:
                 d[angle] = angles_f(kwargs[angle], rng_states)
 
-            for field in fields:
+            for field in vectors:
                 d[field] = fields_f(kwargs[field], rng_states)
 
             if to_torch:
@@ -167,7 +167,7 @@ class DataAugment:
         if value_type == 'angle':
             def post_flip(X, h, v):
                 return [np.pi-x for x in X]
-        elif value_type == 'field':
+        elif value_type == 'vec':
             def post_flip(X, h, v):
                 x, y = X
                 return x*(-1 if v else 1), y*(-1 if h else 1)
@@ -194,7 +194,7 @@ class DataAugment:
         if value_type == 'angle':
             def post_rot90(X, k):
                 return [x+k*np.pi/2 for x in X]
-        elif value_type == 'field':
+        elif value_type == 'vec':
             def post_rot90(X, k):
                 k %= 4
                 u, v = X
@@ -222,7 +222,7 @@ class DataAugment:
         if value_type == 'angle':
             def pre_rot(X, phi):
                 return [x+(phi*np.pi/180) for x in X]
-        elif value_type == 'field':
+        elif value_type == 'vec':
             def pre_rot(X, phi):
                 u, v = X
                 phi = phi*np.pi/180
