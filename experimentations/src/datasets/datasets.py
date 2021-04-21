@@ -96,13 +96,18 @@ class TrainDataset(Dataset):
                 if self.steered != 'angle':
                     alpha = alpha.transpose(1, 2, 0)
                     if self.steered == 'vec-norm':
-                        alpha /= np.linalg.norm(alpha, axis=0) + 1e8
+                        alpha = alpha / (np.linalg.norm(alpha, axis=2, keepdims=True) + 1e-8)
+                #else:
+                    #alpha = np.stack([np.cos(alpha), np.sin(alpha)], axis=2)
+                    #vec = self.vec[i]
+                    #d = np.linalg.norm(vec, axis=0)[:,:,None]
+                    #alpha = d*alpha
                 return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], alpha=alpha)
             else:
                 angle = self.angle[i]
                 vec = self.vec[i].transpose(1, 2, 0)
                 vec_norm = self.vec_norm[i].transpose(1, 2, 0)
-                vec_norm /= np.linalg.norm(vec_norm, axis=0) + 1e8
+                vec_norm = vec_norm / (np.linalg.norm(vec_norm, axis=2, keepdims=True) + 1e-8)
                 return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], angle=angle, vec=vec, vec_norm=vec_norm)
         else:
             return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i])
@@ -158,13 +163,13 @@ class TestDataset(Dataset):
                 if self.steered != 'angle':
                     alpha = alpha.transpose(1, 2, 0)
                     if self.steered == 'vec-norm':
-                        alpha /= np.linalg.norm(alpha, axis=0) + 1e8
+                         alpha = alpha / (np.linalg.norm(alpha, axis=2, keepdims=True) + 1e-8)
                 return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], alpha=alpha)
             else:
                 angle = self.angle[i]
                 vec = self.vec[i].transpose(1, 2, 0)
                 vec_norm = self.vec_norm[i].transpose(1, 2, 0)
-                vec_norm /= np.linalg.norm(vec_norm, axis=0) + 1e8
+                vec_norm = vec_norm / (np.linalg.norm(vec_norm, axis=2, keepdims=True) + 1e-8)
                 return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], angle=angle, vec=vec, vec_norm=vec_norm)
         else:
             return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i])

@@ -170,7 +170,7 @@ class DataAugment:
         elif value_type == 'vec':
             def post_flip(X, h, v):
                 x, y = X
-                return x*(-1 if v else 1), y*(-1 if h else 1)
+                return -x if v else x, -y if h else y
 
         def augment(x, h, v):
             if h:
