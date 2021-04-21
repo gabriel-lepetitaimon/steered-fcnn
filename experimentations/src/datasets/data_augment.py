@@ -166,7 +166,13 @@ class DataAugment:
         post_flip = None
         if value_type == 'angle':
             def post_flip(X, h, v):
-                return [np.pi-x for x in X]
+                if h:
+                    X = [-x for x in X]
+                if v:
+                    X = [np.pi-x for x in X]
+                if v or h:
+                    X = [x%(2*np.pi) for x in X]
+                return X
         elif value_type == 'vec':
             def post_flip(X, h, v):
                 x, y = X

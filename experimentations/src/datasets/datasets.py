@@ -63,7 +63,7 @@ class TrainDataset(Dataset):
                 self.vec = DATA.get(f'{dataset}/principal-vec-norm')  # Through sigmoid
                 self.vec_norm = DATA.get(f'{dataset}/principal-vec')
                 data_fields['angles'] = 'angle'
-                data_fields['vectors'] = 'vec,vec_norm'
+                data_fields['vectors'] = 'vec,vec_norm,angle_xy'
             else:
                 raise ValueError(
                     'steered should be one of "vec", "vec-norm", "angle" or "all".'
@@ -108,7 +108,8 @@ class TrainDataset(Dataset):
                 vec = self.vec[i].transpose(1, 2, 0)
                 vec_norm = self.vec_norm[i].transpose(1, 2, 0)
                 vec_norm = vec_norm / (np.linalg.norm(vec_norm, axis=2, keepdims=True) + 1e-8)
-                return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], angle=angle, vec=vec, vec_norm=vec_norm)
+                angle_xy = np.stack([np.cos(angle), np.sin(angle)], axis=2)
+                return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], angle=angle, vec=vec, vec_norm=vec_norm, angle_xy=angle_xy)
         else:
             return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i])
 
