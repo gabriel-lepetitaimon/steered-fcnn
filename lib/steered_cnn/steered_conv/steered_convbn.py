@@ -24,8 +24,8 @@ class SteeredConvBN(nn.Module):
 
         self.bn_relu = nn.Sequential(*bn_relu)
 
-    def forward(self, x, alpha=None):
-        x = self.conv(x, alpha=alpha)
+    def forward(self, x, alpha=None, rho=None):
+        x = self.conv(x, alpha=alpha, rho=rho)
         return self.bn_relu(x)
 
     @property

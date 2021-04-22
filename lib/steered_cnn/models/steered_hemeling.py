@@ -1,9 +1,9 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from ..utils import cat_crop
+from ..utils import cat_crop, pyramid_pool2d
 from ..steered_conv import SteeredConvBN, SteerableKernelBase
-from ..steered_conv.steerable_filters import cos_sin_ka_stack
+from ..steered_conv.steerable_filters import cos_sin_ka_stack, normalize_vector
 
 
 class SteeredHemelingNet(nn.Module):
@@ -128,67 +128,52 @@ class SteeredHemelingNet(nn.Module):
             with torch.no_grad():
                 k_max = self.base.k_max
 
+                rho = None
                 if alpha.dim() == 3:
                     cos_sin_kalpha = cos_sin_ka_stack(torch.cos(alpha), torch.sin(alpha), k=k_max)
                 elif alpha.dim() == 4 and alpha.shape[1] == 2:
+                    alpha, rho = normalize_vector(alpha)
                     cos_sin_kalpha = cos_sin_ka_stack(alpha[:, 0], alpha[:, 1], k=k_max)
                 else:
                     raise ValueError(f'alpha shape should be either [b, h, w] or [b, 2, h, w] '
                                      f'but provided tensor shape is {alpha.shape}.')
 
-                _, k_max, b, h, w = cos_sin_kalpha.shape
-
-                if h != 1 and w != 1:
-                    alpha1 = cos_sin_kalpha.reshape((2 * k_max, b, h, w))
-                    alpha2 = F.avg_pool2d(alpha1, 2)
-                    alpha3 = F.avg_pool2d(alpha2, 2)
-                    alpha4 = F.avg_pool2d(alpha3, 2)
-                    alpha5 = F.avg_pool2d(alpha4, 2)
-
-                    alpha1 = alpha1.reshape(2, k_max, b, 1, *alpha1.shape[-2:])
-                    alpha2 = alpha2.reshape(2, k_max, b, 1, *alpha2.shape[-2:])
-                    alpha3 = alpha3.reshape(2, k_max, b, 1, *alpha3.shape[-2:])
-                    alpha4 = alpha4.reshape(2, k_max, b, 1, *alpha4.shape[-2:])
-                    alpha5 = alpha5.reshape(2, k_max, b, 1, *alpha5.shape[-2:])
-                else:
-                    alpha1 = cos_sin_kalpha.reshape((2, k_max, b, 1, 1, 1))
-                    alpha2 = alpha1
-                    alpha3 = alpha1
-                    alpha4 = alpha1
-                    alpha5 = alpha1
+                N = 5
+                alpha_pyramid = pyramid_pool2d(cos_sin_kalpha, n=N)
+                rho_pyramid = [None]*N if rho is None else pyramid_pool2d(rho, n=N)
 
         # Down
-        x1 = reduce(lambda X, conv: conv(X, alpha=alpha1), self.conv1, x)
+        x1 = reduce(lambda X, conv: conv(X, alpha=alpha_pyramid[0], rho=rho_pyramid[0]), self.conv1, x)
 
         x2 = self.pool1(x1)
-        x2 = reduce(lambda X, conv: conv(X, alpha=alpha2), self.conv2, x2)
+        x2 = reduce(lambda X, conv: conv(X, alpha=alpha_pyramid[1], rho=rho_pyramid[1]), self.conv2, x2)
 
         x3 = self.pool2(x2)
-        x3 = reduce(lambda X, conv: conv(X, alpha=alpha3), self.conv3, x3)
+        x3 = reduce(lambda X, conv: conv(X, alpha=alpha_pyramid[2], rho=rho_pyramid[2]), self.conv3, x3)
 
         x4 = self.pool3(x3)
-        x4 = reduce(lambda X, conv: conv(X, alpha=alpha4), self.conv4, x4)
+        x4 = reduce(lambda X, conv: conv(X, alpha=alpha_pyramid[3], rho=rho_pyramid[3]), self.conv4, x4)
 
         x5 = self.pool4(x4)
-        x5 = reduce(lambda X, conv: conv(X, alpha=alpha5), self.conv5, x5)
+        x5 = reduce(lambda X, conv: conv(X, alpha=alpha_pyramid[4], rho=rho_pyramid[4]), self.conv5, x5)
         x5 = self.dropout(x5)
 
         # Up
         x4 = cat_crop(x4, self.upsample1(x5))
         del x5
-        x4 = reduce(lambda X, conv: conv(X, alpha=alpha4), self.conv6, x4)
+        x4 = reduce(lambda X, conv: conv(X, alpha=alpha_pyramid[3], rho=rho_pyramid[3]), self.conv6, x4)
 
         x3 = cat_crop(x3, self.upsample2(x4))
         del x4
-        x3 = reduce(lambda X, conv: conv(X, alpha=alpha3), self.conv7, x3)
+        x3 = reduce(lambda X, conv: conv(X, alpha=alpha_pyramid[2], rho=rho_pyramid[2]), self.conv7, x3)
 
         x2 = cat_crop(x2, self.upsample3(x3))
         del x3
-        x2 = reduce(lambda X, conv: conv(X, alpha=alpha2), self.conv8, x2)
+        x2 = reduce(lambda X, conv: conv(X, alpha=alpha_pyramid[1], rho=rho_pyramid[1]), self.conv8, x2)
 
         x1 = cat_crop(x1, self.upsample4(x2))
         del x2
-        x1 = reduce(lambda X, conv: conv(X, alpha=alpha1), self.conv9, x1)
+        x1 = reduce(lambda X, conv: conv(X, alpha=alpha_pyramid[0], rho=rho_pyramid[0]), self.conv9, x1)
 
         # End
         return self.final_conv(x1)

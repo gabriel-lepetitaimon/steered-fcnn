@@ -75,3 +75,23 @@ def compute_conv_outputs_dim(input_shape, weight_shape, padding=0, stride=1, dil
     h = int((h+2*padding[0]-dilation[0]*(n-1)-1)/stride[0] + 1)
     w = int((w+2*padding[1]-dilation[1]*(m-1)-1)/stride[1] + 1)
     return h, w
+
+
+def pyramid_pool2d(input_tensor, n):
+    import torch.nn.functional as F
+    s = input_tensor.shape
+    h, w = s[-2:]
+
+    if h != 1 and w != 1:
+        if len(s) > 4:
+            t = input_tensor.reshape(torch.prod(s[:-2]), h, w)
+        else:
+            t = input_tensor
+        pyramid = [input_tensor]
+        for _ in range(n):
+            t = F.avg_pool2d(t, 2)
+            pyramid += [t.reshape(s[:-2]+(h, w))]
+    else:
+        return [input_tensor] * n
+
+    return pyramid

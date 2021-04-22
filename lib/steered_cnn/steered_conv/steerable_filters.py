@@ -1,3 +1,5 @@
+from typing import Union, Tuple
+import torch
 import numpy as np
 
 
@@ -26,7 +28,6 @@ def radial_steerable_filter(size, k, r, std=.5):
 
 def plot_filter(F, axis=True, spd=False, plot=None, colorbar=False, vmax=None):
     from ..utils.rotequivariance_toolbox import polar_spectral_power
-    import torch
     import matplotlib.pyplot as plt
     if isinstance(F, torch.Tensor):
         F = F.detach().cpu().numpy()
@@ -90,7 +91,6 @@ def cos_sin_ka(cos_sin_a, cos_sin_km1_a):
 
     Returns: A tensor cosk_sink of shape [2, n1, n2, ...], where cosk_sink[0]=cos((k+1)α) and cosk_sink[1]=sin((k+1)α).
     """
-    import torch
     cos_sin_k = torch.stack((
         cos_sin_km1_a[0] * cos_sin_a[0] - cos_sin_km1_a[1] * cos_sin_a[1],
         cos_sin_km1_a[0] * cos_sin_a[1] + cos_sin_km1_a[1] * cos_sin_a[0]
@@ -113,17 +113,28 @@ def cos_sin_ka_stack(cos_alpha, sin_alpha, k):
                 cos_sin_ka[0] = [cos(α), cos(2α), ..., cos(kα)]
                 cos_sin_ka[1] = [sin(α), sin(2α), ..., sin(kα)]
     """
-    import torch
     cos_sin_alpha = torch.stack([cos_alpha, sin_alpha])
-    norm = torch.linalg.norm(cos_sin_alpha, dim=0)+1e-8
     cos_sin_km1_alpha = cos_sin_alpha
     r = [cos_sin_alpha]
     for i in range(2, k+1):
-        cos_sin_km1_alpha = cos_sin_ka(cos_sin_alpha, cos_sin_km1_alpha) / norm
+        cos_sin_km1_alpha = cos_sin_ka(cos_sin_alpha, cos_sin_km1_alpha)
         r += [cos_sin_km1_alpha]
     return torch.stack(r, dim=1)
 
 
-def true_cos_sin_ka_stack(alpha, K):
-    import torch
-    return torch.stack([torch.stack((torch.cos(k*alpha), torch.sin(k*alpha))) for k in K], dim=1)
+def normalize_vector(vector: Union[Tuple[torch.Tensor], torch.Tensor], epsilon: int = 1e-8):
+    """
+    Normalize a vector field to unitary norm.
+    Args:
+        vector:
+        epsilon:
+
+    Shape:
+        vector: [2, ...]
+
+    Returns: The vector of unitary norm,
+             the norm maxtrix.
+
+    """
+    d = torch.dist(vector[0], vector[1])
+    return vector / (d+epsilon), d

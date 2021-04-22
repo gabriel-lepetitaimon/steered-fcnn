@@ -55,12 +55,12 @@ class SteeredConv2d(nn.Module):
             self.attention_weigths = nn.Parameter(self.attention_base.create_weights(n_in, n_out, nonlinearity=None),
                                                   requires_grad=True)
 
-    def forward(self, x, alpha=None):
+    def forward(self, x, alpha=None, rho=None):
         if alpha is None:
             alpha = self.attention_base.ortho_conv2d(x, self.attention_weigths,
                                                      stride=self.stride, padding=self.padding)
 
-        out = self.steerable_base.conv2d(x, self.weights, alpha=alpha,
+        out = self.steerable_base.conv2d(x, self.weights, alpha=alpha, rho=rho,
                                          stride=self.stride, padding=self.padding, dilation=self.dilation)
 
         # Bias

@@ -3,7 +3,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from ..kbase_conv import KernelBase
-from .steerable_filters import max_steerable_harmonics, radial_steerable_filter, cos_sin_ka
+from .steerable_filters import max_steerable_harmonics, radial_steerable_filter, cos_sin_ka, normalize_vector
 from ..utils import clip_pad_center
 
 from collections import OrderedDict
@@ -175,7 +175,8 @@ class SteerableKernelBase(KernelBase):
         B.kernels_info = info_real + info_imag
         return B
 
-    def conv2d(self, input: torch.Tensor, weight: torch.Tensor, alpha: Union[int, float, torch.Tensor] = None,
+    def conv2d(self, input: torch.Tensor, weight: torch.Tensor,
+               alpha: Union[int, float, torch.Tensor] = None, rho: Union[int, float, torch.Tensor] = 1,
                stride=1, padding='same', dilation=1) -> torch.Tensor:
         """
         Compute the convolution of `input` and this base's kernels steered by the angle `alpha`
@@ -194,6 +195,15 @@ class SteerableKernelBase(KernelBase):
                     The last 4 dimensions allow to specify a different alpha for each output pixels [n, n_out, h, w].
                     (If any of these dimensions has a length of 1, alpha will be broadcasted along.)
                     Default: None
+            rho:    The norm of the attention vector multiplying the outputs features.
+                    This parameter can be:
+                        - A number: especially if rho=1 it is ignored.
+                        - A 3D tensor: (b, h, w)
+                        - A 4D tensor: (b, n_out, h, w)
+                        - A 5D tensor: (k_max, b, n_out, h, w)
+                        - None: The value of rho is derived from the norm of alpha.
+                    (If any of these dimensions has a length of 1, alpha will be broadcasted along.)
+                    Default: 1
             stride: The stride of the convolving kernel. Can be a single number or a tuple (sH, sW).
                     Default: 1
             padding:  Implicit paddings on both sides of the input. Can be a single number, a tuple (padH, padW) or
@@ -206,30 +216,34 @@ class SteerableKernelBase(KernelBase):
             input: (b, n_in, h, w)
             weight: (n_out, n_in, K)
             alpha: ([2, [k_max]], b, n_out, ~h, ~w)     (The last four dimensions are broadcastable
-                                                       by replacing b, n_out, h or w by 1)
+                                                         by replacing b, n_out, h or w by 1)
+            rho: ([k_max], b, [n_out], ~h, ~w)          (b, h and w are broadcastable)
+
             return: (b, n_out, ~h, ~w)
 
         """
-        conv_opts = dict(input=input, weight=weight, alpha=alpha, stride=stride, padding=padding, dilation=dilation)
+        conv_opts = dict(input=input, weight=weight, alpha=alpha, rho=rho,
+                         stride=stride, padding=padding, dilation=dilation)
         return self.composite_kernels_conv2d(**conv_opts)
         # return self.preconvolved_base_conv2d(**conv_opts)
 
-    def _prepare_steered_conv(self, input, weight, alpha, stride, padding, dilation):
+    def _prepare_steered_conv(self, input, weight, alpha, rho, stride, padding, dilation):
         """
         Prepare module for the convolution operation.
         Returns alpha, conv_opts, (b, n_in, n_out, k, h, w)
         """
         conv_opts, shapes = self._prepare_conv(input=input, weight=weight,
                                                stride=stride, padding=padding, dilation=dilation)
+        b, n_in, n_out, k, h, w = shapes
+        if isinstance(alpha, (int, float)):
+            if alpha == 0:
+                alpha = None
+            else:
+                alpha = torch.Tensor([alpha]).to(device=input.device)
+                alpha = torch.stack((torch.cos(alpha), torch.sin(alpha)))[:, None, None, None]
 
+        # --- ALPHA ---
         if alpha is not None:
-            b, n_in, n_out, k, h, w = shapes
-            if isinstance(alpha, (int, float)):
-                if alpha == 0:
-                    return None, conv_opts, shapes
-                else:
-                    alpha = torch.Tensor([alpha]).to(device=input.device)
-                    alpha = torch.stack((torch.cos(alpha), torch.sin(alpha)))[:, None, None, None]
             alpha = clip_pad_center(alpha, (h, w), broadcastable=True)
 
             assert 4 <= alpha.dim() <= 6, f'Invalid number of dimensions for alpha: alpha.shape={alpha.shape}.\n' \
@@ -246,7 +260,7 @@ class SteerableKernelBase(KernelBase):
             else:
                 cossin, k_max_a, b_a, n_out_a, h_a, w_a = alpha.shape
                 assert cossin == 2, f'Invalid first dimensions for alpha: alpha.shape[0]={cossin} but should be 2.\n' \
-                                    f'(if alpha is a 5D matrix its shape should be: (2, b, n_out, h, w),' \
+                                    f'(if alpha is a 6D matrix its shape should be: (2, k_max, b, n_out, h, w),' \
                                     f' with alpha[0]=cos(α) and alpha[1]=sin(α)\n' \
                                     f'alpha.shape={alpha.shape})'
                 assert k_max_a == self.k_max, f'Invalid k dimension for alpha: alpha.shape[1]={k_max_a} but should be equal to k_max={self.k_max}.\n' \
@@ -260,7 +274,43 @@ class SteerableKernelBase(KernelBase):
                                          f'(alpha.shape={alpha.shape}, input.shape={input.shape}'
             assert w_a == 1 or w_a == w, f'Invalid width for alpha: alpha.shape[{alpha.dim() - 1}]={w_a} but should be {w} (or  1 for broadcast)\n' \
                                          f'(alpha.shape={alpha.shape}, input.shape={input.shape}'
-        return alpha, conv_opts, shapes
+
+        # --- RHO ---
+        if rho is None:
+            alpha, rho = normalize_vector(alpha)
+        elif isinstance(rho, (int, float)):
+            if rho == 1:
+                rho = None
+            else:
+                rho = torch.Tensor([alpha]).to(device=input.device)[:, None, None]
+        if rho is not None:
+            rho = clip_pad_center(rho, (h, w), broadcastable=True)
+
+            assert 3 <= rho.dim() <= 5, f'Invalid number of dimensions for rho: rho.shape={rho.shape}.\n' \
+                                          'rho shape should be like ([k_max], b, [n_out], h, w)'
+            if rho.dim() == 3:
+                b_r, h_r, w_r = rho.shape
+                n_out_r = 1
+                rho = rho[:, None, :, :]
+            elif rho.dim() == 4:
+                b_r, n_out_r, h_r, w_r = rho.shape
+                assert b_r == 1 or b == b_r, f'Invalid batch size for rho: rho.shape[0]={b_r} but should be {b} (or  1 for broadcast)\n' \
+                                             f'(rho.shape={rho.shape}, input.shape={input.shape}'
+            else:
+                k_max_r, b_r, n_out_r, h_r, w_r = rho.shape
+                assert k_max_r == self.k_max, f'Invalid k dimension for rho: rho.shape[0]={k_max_r} but should be equal to k_max={self.k_max}.\n' \
+                                              f'(rho.shape={rho.shape})'
+                assert b_r == 1 or b == b_r, f'Invalid batch size for rho: rho.shape[2]={b_r} but should be {b} (or  1 for broadcast)\n' \
+                                             f'(rho.shape={rho.shape}, input.shape={input.shape}'
+            assert n_out_r == 1 or n_out == n_out_r, f'Invalid number of output features for rho: ' \
+                                                     f'rho.shape[{rho.dim() - 3}]={n_out_r} but should be {n_out} (or  1 for broadcast)\n' \
+                                                     f'(rho.shape={rho.shape}, input.shape={input.shape}'
+            assert h_r == 1 or h_r == h, f'Invalid height for rho: rho.shape[{rho.dim()-2}]={h_r} but should be {h} (or  1 for broadcast)\n' \
+                                         f'(rho.shape={rho.shape}, input.shape={input.shape}'
+            assert w_r == 1 or w_r == w, f'Invalid width for rho: rho.shape[{rho.dim() - 1}]={w_r} but should be {w} (or  1 for broadcast)\n' \
+                                         f'(rho.shape={rho.shape}, input.shape={input.shape}'
+
+        return alpha, rho, conv_opts, shapes
 
     # --- Composite Kernels ---
     def composite_equi_kernels(self, weight: torch.Tensor) -> torch.Tensor:
@@ -337,16 +387,24 @@ class SteerableKernelBase(KernelBase):
 
         return KernelBase.composite_kernels(w_real, psi_imag) - KernelBase.composite_kernels(w_imag, psi_real)
 
-    def composite_kernels_conv2d(self, input: torch.Tensor, weight: torch.Tensor, alpha: Union[int, float, torch.Tensor] = None,
+    def composite_kernels_conv2d(self, input: torch.Tensor, weight: torch.Tensor,
+                                 alpha: Union[int, float, torch.Tensor] = None,
+                                 rho: Union[int, float, torch.Tensor] = None,
                                  stride=1, padding='same', dilation=1):
-        alpha, conv_opts, (b, n_in, n_out, K, h, w) = self._prepare_steered_conv(input, weight, alpha, stride, padding, dilation)
+        alpha, rho, conv_opts, (b, n_in, n_out, K, h, w) = self._prepare_steered_conv(input, weight, alpha, rho,
+                                                                                      stride, padding, dilation)
         if alpha is None:
             return super(SteerableKernelBase, self).composite_kernels_conv2d(input, weight, **conv_opts)
+        rho_k = rho is not None and rho.dim() == 5
+        rho_fout = rho is not None and rho.dim() == 4
 
         # f = X⊛K_equi + Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
         # computing f = X ⊛ K_equi ...
         if self._n_k0:
             f = F.conv2d(input, self.composite_equi_kernels(weight), **conv_opts)
+            if rho_k:
+                f *= rho[0]
+
         else:
             f = torch.zeros((b, n_out, h, w),
                             device=self.base.device, dtype=self.base.dtype)
@@ -358,14 +416,20 @@ class SteerableKernelBase(KernelBase):
             if alpha.dim() == 5:
                 if k == 1:
                     cos_sin_kalpha = alpha
-                    alpha_norm = torch.linalg.norm(alpha, dim=0)+1e-8
                 else:
-                    cos_sin_kalpha = cos_sin_ka(alpha, cos_sin_kalpha) / alpha_norm
+                    cos_sin_kalpha = cos_sin_ka(alpha, cos_sin_kalpha)
             else:
                 cos_sin_kalpha = alpha[:, k-1]
-            f.addcmul_(cos_sin_kalpha[0], F.conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts))
-            f.addcmul_(cos_sin_kalpha[1], F.conv2d(input, self.composite_steerable_kernels_imag(weight, k=k), **conv_opts))
+            if rho_k:
+                f_k = cos_sin_kalpha[0] * F.conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts)
+                f_k.addcmul_(cos_sin_kalpha[1], F.conv2d(input, self.composite_steerable_kernels_imag(weight, k=k), **conv_opts))
+                f.addcmul_(rho[k], f_k)
+            else:
+                f.addcmul_(cos_sin_kalpha[0], F.conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts))
+                f.addcmul_(cos_sin_kalpha[1], F.conv2d(input, self.composite_steerable_kernels_imag(weight, k=k), **conv_opts))
 
+        if rho_fout:
+            f *= rho
         return f
 
     # --- Preconvolve Kernels ---
@@ -377,17 +441,24 @@ class SteerableKernelBase(KernelBase):
         W = torch.flatten(weight[..., idx_w], start_dim=-2).transpose(0, 1)
         return K, W
 
-    def preconvolved_base_conv2d(self, input: torch.Tensor, weight: torch.Tensor, alpha: Union[int, float, torch.Tensor] = None,
+    def preconvolved_base_conv2d(self, input: torch.Tensor, weight: torch.Tensor,
+                                 alpha: Union[int, float, torch.Tensor] = None,
+                                 rho: Union[int, float, torch.Tensor] = None,
                                  stride=1, padding='same', dilation=1):
-        alpha, conv_opts, (b, n_in, n_out, K, h, w) = self._prepare_steered_conv(input, weight, alpha, stride, padding, dilation)
+        alpha, rho, conv_opts, (b, n_in, n_out, K, h, w) = self._prepare_steered_conv(input, weight, alpha, rho,
+                                                                                      stride, padding, dilation)
         if alpha is None:
             return super(SteerableKernelBase, self).preconvolved_base_conv2d(input, weight, **conv_opts)
+        rho_k = rho is not None and rho.dim() == 5
+        rho_fout = rho is not None and rho.dim() == 4
 
         # alpha shape: (2, [k_max], b, n_out, ~h, ~w)
         if alpha.dim() == 5:
             alpha = alpha.permute(0, 1, 3, 4, 2)    # (2, b, ~h, ~w, n_out)
         else:   #alpha.dim() == 6
             alpha = alpha.permute(0, 1, 2, 4, 5, 3)       # (2, k_max, b, ~h, ~w, n_out)
+        if rho_k:
+            rho = rho.permute(0, 1, 3, 4, 2)     # (k_max, b, ~h, ~w, n_out)
 
         xbase = KernelBase.preconvolve_base(input, self.base, **conv_opts)
         # f = X⊛K_equi + Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
@@ -395,6 +466,8 @@ class SteerableKernelBase(KernelBase):
         if self._n_k0:
             K, W = self._preconvolved_KW(xbase, weight, self.idx_equi())
             f = torch.matmul(K, W)  # K:[b,h,w,n_in*k] x W:[n_in*k, n_out] -> [b,h,w,n_out]
+            if rho_k:
+                f *= rho[0]
         else:
             f = torch.zeros((b, h, w, n_out),
                             device=self.base.device, dtype=self.base.dtype)
@@ -413,10 +486,18 @@ class SteerableKernelBase(KernelBase):
                 cos_sin_kalpha = alpha[:, k-1]
             KR, WR = self._preconvolved_KW(xbase, weight, self.idx_real(k=k))
             KI, WI = self._preconvolved_KW(xbase, weight, self.idx_imag(k=k))
-            f.addcmul_(cos_sin_kalpha[0], torch.matmul(KR, WR) + torch.matmul(KI, WI))
-            f.addcmul_(cos_sin_kalpha[1], torch.matmul(KI, WR) - torch.matmul(KR, WI))
+            if rho_k:
+                f_k = cos_sin_kalpha[0] * (torch.matmul(KR, WR) + torch.matmul(KI, WI))
+                f_k.addcmul_(cos_sin_kalpha[1], torch.matmul(KI, WR) - torch.matmul(KR, WI))
+                f.addcmul_(rho[k], f_k)
+            else:
+                f.addcmul_(cos_sin_kalpha[0], (torch.matmul(KR, WR) + torch.matmul(KI, WI)))
+                f.addcmul_(cos_sin_kalpha[1], torch.matmul(KI, WR) - torch.matmul(KR, WI))
 
-        return f.permute(0, 3, 1, 2)    # [b,n_out,h,w]
+        f = f.permute(0, 3, 1, 2)    # [b,n_out,h,w]
+        if rho_fout:
+            f *= rho
+        return f
 
     # --- Analyse Weights ---
     def format_weights(self, weights, mean=True):
