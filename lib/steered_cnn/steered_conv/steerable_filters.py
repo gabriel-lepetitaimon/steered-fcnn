@@ -120,21 +120,3 @@ def cos_sin_ka_stack(cos_alpha, sin_alpha, k):
         cos_sin_km1_alpha = cos_sin_ka(cos_sin_alpha, cos_sin_km1_alpha)
         r += [cos_sin_km1_alpha]
     return torch.stack(r, dim=1)
-
-
-def normalize_vector(vector: Union[Tuple[torch.Tensor], torch.Tensor], epsilon: int = 1e-8):
-    """
-    Normalize a vector field to unitary norm.
-    Args:
-        vector:
-        epsilon:
-
-    Shape:
-        vector: [2, ...]
-
-    Returns: The vector of unitary norm,
-             the norm maxtrix.
-
-    """
-    d = torch.dist(vector[0], vector[1])
-    return vector / (d+epsilon), d

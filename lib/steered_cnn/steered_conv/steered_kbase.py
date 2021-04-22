@@ -3,8 +3,8 @@ from torch import nn
 import torch.nn.functional as F
 
 from ..kbase_conv import KernelBase
-from .steerable_filters import max_steerable_harmonics, radial_steerable_filter, cos_sin_ka, normalize_vector
-from ..utils import clip_pad_center
+from .steerable_filters import max_steerable_harmonics, radial_steerable_filter, cos_sin_ka
+from ..utils import clip_pad_center, normalize_vector
 
 from collections import OrderedDict
 from typing import Union, Dict, List

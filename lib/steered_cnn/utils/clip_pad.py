@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+from typing import Union, Tuple
 
 
 def clip_pad_center(tensor, shape, pad_mode='constant', pad_value=0, broadcastable=False):
@@ -87,3 +88,40 @@ def pad_tensors(t1, t2, pad_mode='constant', pad_value=0):
 
 def cat_crop(x1, x2):
     return torch.cat(clip_tensors(x1, x2), 1)
+
+
+def normalize_vector(vector: Union[Tuple[torch.Tensor], torch.Tensor], epsilon: int = 1e-8):
+    """
+    Normalize a vector field to unitary norm.
+    Args:
+        vector:
+        epsilon:
+
+    Shape:
+        vector: [2, ...]
+
+    Returns: The vector of unitary norm,
+             the norm maxtrix.
+
+    """
+    d = torch_norm2d(vector)
+    return vector / (d+epsilon), d
+
+
+_norm2d = [None]
+def torch_norm2d(xy):
+    if _norm2d[0] is None:
+        import torch
+        def linalg_norm(xy):
+            return torch.linalg.norm(xy, dim=0)
+        def legacy_norm(xy):
+            return torch.norm(xy, dim=0)
+        try:
+            d = linalg_norm(xy)
+            _norm2d[0] = linalg_norm
+        except AttributeError:
+            d = legacy_norm(xy)
+            _norm2d[0] = legacy_norm
+        return d
+    else:
+        return _norm2d[0](xy)

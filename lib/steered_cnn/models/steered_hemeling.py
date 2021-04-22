@@ -1,9 +1,9 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from ..utils import cat_crop, pyramid_pool2d
+from ..utils import cat_crop, pyramid_pool2d, normalize_vector
 from ..steered_conv import SteeredConvBN, SteerableKernelBase
-from ..steered_conv.steerable_filters import cos_sin_ka_stack, normalize_vector
+from ..steered_conv.steerable_filters import cos_sin_ka_stack
 
 
 class SteeredHemelingNet(nn.Module):
@@ -128,19 +128,21 @@ class SteeredHemelingNet(nn.Module):
             with torch.no_grad():
                 k_max = self.base.k_max
 
-                rho = None
+                rho = 1
                 if alpha.dim() == 3:
                     cos_sin_kalpha = cos_sin_ka_stack(torch.cos(alpha), torch.sin(alpha), k=k_max)
                 elif alpha.dim() == 4 and alpha.shape[1] == 2:
+                    alpha = alpha.transpose(0,1)
                     alpha, rho = normalize_vector(alpha)
-                    cos_sin_kalpha = cos_sin_ka_stack(alpha[:, 0], alpha[:, 1], k=k_max)
+                    cos_sin_kalpha = cos_sin_ka_stack(alpha[0], alpha[1], k=k_max)
                 else:
                     raise ValueError(f'alpha shape should be either [b, h, w] or [b, 2, h, w] '
                                      f'but provided tensor shape is {alpha.shape}.')
-
+                cos_sin_kalpha = cos_sin_kalpha.unsqueeze(3)
+                
                 N = 5
                 alpha_pyramid = pyramid_pool2d(cos_sin_kalpha, n=N)
-                rho_pyramid = [None]*N if rho is None else pyramid_pool2d(rho, n=N)
+                rho_pyramid = [rho]*N if not isinstance(rho, torch.Tensor) else pyramid_pool2d(rho, n=N)
 
         # Down
         x1 = reduce(lambda X, conv: conv(X, alpha=alpha_pyramid[0], rho=rho_pyramid[0]), self.conv1, x)

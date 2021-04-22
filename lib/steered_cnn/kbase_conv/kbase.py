@@ -31,7 +31,7 @@ class KernelBase:
     def normalize_base(base: 'torch.Tensor [n_k,h,w]'):
         b = torch.empty_like(base)
         for i in range(base.shape[0]):
-            b[i] = base[i]/torch.linalg.norm(base[i], 'fro')
+            b[i] = base[i]/(torch.sqrt(torch.square(base[i]).sum())+1e-8)
         return b
 
     @staticmethod
