@@ -78,11 +78,11 @@ class HemelingNet(nn.Module):
         # End
         self.final_conv = nn.Conv2d(n1, 1, kernel_size=(1, 1))
 
-        self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else lambda x: x
+        self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else identity
 
     def forward(self, x, **kwargs):
         from functools import reduce
-
+        
         # Down
         x1 = reduce(lambda X, conv: conv(X), self.conv1, x)
 
@@ -126,3 +126,7 @@ class HemelingNet(nn.Module):
     @p_dropout.setter
     def p_dropout(self, p):
         self.dropout.p = p
+
+        
+def identity(x):
+    return x
