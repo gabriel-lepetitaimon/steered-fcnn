@@ -17,7 +17,7 @@ class KernelBase:
         n_k, h, w = base.shape
         c = (min(h, w)+1)/2
         normed_base = torch.abs(base)
-        normed_base /= torch.max(base, dim=(1, 2), keepdim=True)
+        normed_base /= torch.amax(base, dim=(1, 2), keepdim=True)
         for b in normed_base:
             for r in torch.arange(c % 1, c, 1):
                 i0, i1 = int(c-r-1), int(c+r)
