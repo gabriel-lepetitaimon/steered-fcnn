@@ -40,6 +40,8 @@ class SteeredConv2d(nn.Module):
         self.steerable_base = steerable_base
         if attention_base is True:
             attention_base = DEFAULT_ATTENTION_BASE
+        elif attention_base is False:
+            attention_base = None
         elif isinstance(attention_base, (int, dict)):
             attention_base = SteerableKernelBase.from_steerable(attention_base)
         self.attention_base = attention_base
