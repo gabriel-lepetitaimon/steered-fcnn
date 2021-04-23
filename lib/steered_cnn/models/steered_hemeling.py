@@ -8,7 +8,7 @@ from ..steered_conv.steerable_filters import cos_sin_ka_stack
 
 class SteeredHemelingNet(nn.Module):
 
-    def __init__(self, n_in, n_out=1, nfeatures_base=6, depth=2, base=None,
+    def __init__(self, n_in, n_out=1, nfeatures_base=6, depth=2, base=None, attention=None,
                  p_dropout=0, padding='same', batchnorm=True, upsample='conv',
                  static_principal_direction=False):
         super().__init__()
@@ -16,12 +16,6 @@ class SteeredHemelingNet(nn.Module):
         self.n_out = n_out
         self.static_principal_direction = static_principal_direction
         self.upsample = upsample
-
-        if base is None:
-            base = SteerableKernelBase.from_steerable(4, max_k=5)
-        elif isinstance(base, (int, dict)):
-            base = SteerableKernelBase.from_steerable(base)
-        self.base = base
 
         # --- MODEL ---
         n1 = nfeatures_base
@@ -32,32 +26,32 @@ class SteeredHemelingNet(nn.Module):
 
         # Down
         self.conv1 = nn.ModuleList(
-            [SteeredConvBN(n_in, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n1, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
+            [SteeredConvBN(n_in, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)]
+            + [SteeredConvBN(n1, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)
                for _ in range(depth - 1)])
         self.pool1 = nn.MaxPool2d(2)
 
         self.conv2 = nn.ModuleList(
-            [SteeredConvBN(n1, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n2, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
+            [SteeredConvBN(n1, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)]
+            + [SteeredConvBN(n2, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)
                for _ in range(depth - 1)])
         self.pool2 = nn.MaxPool2d(2)
 
         self.conv3 = nn.ModuleList(
-            [SteeredConvBN(n2, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n3, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
+            [SteeredConvBN(n2, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)]
+            + [SteeredConvBN(n3, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)
                for _ in range(depth - 1)])
         self.pool3 = nn.MaxPool2d(2)
 
         self.conv4 = nn.ModuleList(
-            [SteeredConvBN(n3, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n4, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
+            [SteeredConvBN(n3, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)]
+            + [SteeredConvBN(n4, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)
                for _ in range(depth - 1)])
         self.pool4 = nn.MaxPool2d(2)
 
         self.conv5 = nn.ModuleList(
-            [SteeredConvBN(n4, n5, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n5, n5, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
+            [SteeredConvBN(n4, n5, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)]
+            + [SteeredConvBN(n5, n5, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)
                for _ in range(depth - 1)])
 
         # Up
@@ -66,8 +60,8 @@ class SteeredHemelingNet(nn.Module):
         else:
             self.upsample1 = nn.ConvTranspose2d(n5, n4, kernel_size=(2, 2), stride=(2, 2))
         self.conv6 = nn.ModuleList(
-            [SteeredConvBN(2 * n4, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n4, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
+            [SteeredConvBN(2 * n4, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)]
+            + [SteeredConvBN(n4, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)
                for _ in range(depth - 1)])
 
         if upsample == 'nearest':
@@ -75,8 +69,8 @@ class SteeredHemelingNet(nn.Module):
         else:
             self.upsample2 = nn.ConvTranspose2d(n4, n3, kernel_size=(2, 2), stride=(2, 2))
         self.conv7 = nn.ModuleList(
-            [SteeredConvBN(2 * n3, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n3, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
+            [SteeredConvBN(2 * n3, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)]
+            + [SteeredConvBN(n3, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)
                for _ in range(depth - 1)])
 
         if upsample == 'nearest':
@@ -84,8 +78,8 @@ class SteeredHemelingNet(nn.Module):
         else:
             self.upsample3 = nn.ConvTranspose2d(n3, n2, kernel_size=(2, 2), stride=(2, 2))
         self.conv8 = nn.ModuleList(
-            [SteeredConvBN(2 * n2, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n2, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
+            [SteeredConvBN(2 * n2, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)]
+            + [SteeredConvBN(n2, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)
                for _ in range(depth - 1)])
 
         if upsample == 'nearest':
@@ -93,14 +87,22 @@ class SteeredHemelingNet(nn.Module):
         else:
             self.upsample4 = nn.ConvTranspose2d(n2, n1, kernel_size=(2, 2), stride=(2, 2))
         self.conv9 = nn.ModuleList(
-            [SteeredConvBN(2 * n1, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n1, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
+            [SteeredConvBN(2 * n1, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)]
+            + [SteeredConvBN(n1, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base, attention_base=attention)
                for _ in range(depth - 1)])
 
         # End
         self.final_conv = nn.Conv2d(n1, 1, kernel_size=(1, 1))
 
         self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else identity
+
+    @property
+    def attention(self):
+        return self.conv1[0].conv.attention_base
+
+    @property
+    def base(self):
+        return self.conv1[0].conv.steerable_base
 
     def forward(self, x, alpha=None, **kwargs):
         """

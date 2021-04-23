@@ -33,12 +33,14 @@ class SteeredConv2d(nn.Module):
         self.padding = padding
         self.dilation = dilation
         self.groups = groups
-        if isinstance(steerable_base, (int, dict)):
+        if steerable_base is None:
+            steerable_base = DEFAULT_STEERABLE_BASE
+        elif isinstance(steerable_base, (int, dict)):
             steerable_base = SteerableKernelBase.from_steerable(steerable_base)
         self.steerable_base = steerable_base
         if attention_base is True:
             attention_base = DEFAULT_ATTENTION_BASE
-        if isinstance(attention_base, (int, dict)):
+        elif isinstance(attention_base, (int, dict)):
             attention_base = SteerableKernelBase.from_steerable(attention_base)
         self.attention_base = attention_base
 

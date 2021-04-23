@@ -154,6 +154,7 @@ def setup_model(model_cfg, old=False):
                                    depth=model_cfg['depth'],
                                    batchnorm=model_cfg['batchnorm'],
                                    upsample=model_cfg['upsample'],
+                                   attention=model_cfg['steered'] == 'attention',
                                    static_principal_direction=model_cfg['static-principal-direction'])
     else:
         if old:

@@ -14,7 +14,7 @@ def load_dataset(cfg=None, data_path=DEFAULT_DATA_PATH):
     if cfg is None:
         cfg = default_config()
     batch_size = cfg['hyper-parameters']['batch-size']
-    steered = cfg.model.steered
+    steered = False if cfg.model.steered == 'attention' else cfg.model.steered
     train_dataset = cfg.training['training-dataset']
     dataset_file = P.join(data_path, cfg.training['dataset-file'])
     trainD = DataLoader(TrainDataset('train/'+train_dataset, file=dataset_file,

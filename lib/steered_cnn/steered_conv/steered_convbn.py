@@ -3,7 +3,7 @@ from .steered_conv import SteeredConv2d
 
 
 class SteeredConvBN(nn.Module):
-    def __init__(self, n_in, n_out=None, steerable_base=None,
+    def __init__(self, n_in, n_out=None, steerable_base=None, attention_base=None,
                  stride=1, padding='same', dilation=1, groups=1, bn=False, relu=True):
         super().__init__()
 
@@ -12,7 +12,7 @@ class SteeredConvBN(nn.Module):
             n_out = n_in
         self.n_out = n_out
         self.conv = SteeredConv2d(n_in, n_out, steerable_base=steerable_base, stride=stride, groups=groups,
-                                  padding=padding, bias=not bn, dilation=dilation,
+                                  padding=padding, bias=not bn, dilation=dilation, attention_base=attention_base,
                                   nonlinearity='relu')
         bn_relu = []
         if bn:
