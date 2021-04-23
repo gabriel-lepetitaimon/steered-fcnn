@@ -35,6 +35,7 @@ training:
 hyper-parameters:
     lr: 1.e-2
     batch-size: 8
+    accumulate-gradient-batch: 1
     drop-out: 0
     loss: 'dice'
     optimizer:

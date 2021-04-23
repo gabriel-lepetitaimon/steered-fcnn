@@ -60,6 +60,7 @@ def run_train(**opt):
     trainer = pl.Trainer(gpus=args.gpus, callbacks=callbacks,
                          max_epochs=int(np.ceil(max_epoch / val_n_epoch) * val_n_epoch),
                          check_val_every_n_epoch=val_n_epoch,
+                         accumulate_grad_batches=cfg['hyper-parameters']['accumulate-gradient-batch'],
                          progress_bar_refresh_rate=1 if args.debug else 0,
                          **trainer_kwargs)
     net.log(cfg.training['optimize'], 0)
