@@ -124,8 +124,14 @@ class SteeredHemelingNet(nn.Module):
 
         """
         from functools import reduce
+
+        N = 5
         if alpha is None:
-            raise NotImplementedError()
+            if self.attention is None:
+                raise NotImplementedError()
+            else:
+                alpha_pyramid = [None]*N
+                rho_pyramid = [None]*N
         else:
             with torch.no_grad():
                 k_max = self.base.k_max
@@ -141,8 +147,7 @@ class SteeredHemelingNet(nn.Module):
                     raise ValueError(f'alpha shape should be either [b, h, w] or [b, 2, h, w] '
                                      f'but provided tensor shape is {alpha.shape}.')
                 cos_sin_kalpha = cos_sin_kalpha.unsqueeze(3)
-                
-                N = 5
+
                 alpha_pyramid = pyramid_pool2d(cos_sin_kalpha, n=N)
                 rho_pyramid = [rho]*N if not isinstance(rho, torch.Tensor) else pyramid_pool2d(rho, n=N)
 
