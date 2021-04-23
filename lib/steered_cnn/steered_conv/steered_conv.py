@@ -54,7 +54,7 @@ class SteeredConv2d(nn.Module):
             nn.init.uniform_(self.bias, -b, b)
 
         if self.attention_base is not None:
-            self.attention_weigths = nn.Parameter(self.attention_base.create_weights(n_in, n_out, nonlinearity=None),
+            self.attention_weigths = nn.Parameter(self.attention_base.create_weights(n_in, n_out, nonlinearity='linear'),
                                                   requires_grad=True)
 
     def forward(self, x, alpha=None, rho=None):
