@@ -140,7 +140,7 @@ class SteeredHemelingNet(nn.Module):
                 if alpha.dim() == 3:
                     cos_sin_kalpha = cos_sin_ka_stack(torch.cos(alpha), torch.sin(alpha), k=k_max)
                 elif alpha.dim() == 4 and alpha.shape[1] == 2:
-                    alpha = alpha.transpose(0,1)
+                    alpha = alpha.transpose(0, 1)
                     alpha, rho = normalize_vector(alpha)
                     cos_sin_kalpha = cos_sin_ka_stack(alpha[0], alpha[1], k=k_max)
                 else:

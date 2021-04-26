@@ -1,37 +1,48 @@
 import torch
 from torch import nn
 from ...utils import cat_crop
+from ...utils.convbn import ConvBN
 
 
-class SteeredHemelingNet(nn.Module):
+class UNet(nn.Module):
 
-    def __init__(self, n_in, n_out=1, nfeatures_base=6, depth=2, base=None,
-                 p_dropout=0, padding='same', batchnorm=True, upsample='conv',
-                 static_principal_direction=False):
+    def __init__(self, n_in, n_out=1, nfeatures_base=6, depth=2, nscale=5, padding='same',
+                 p_dropout=0, batchnorm=True, downsample='maxpool', upsample='conv'):
         super().__init__()
         self.n_in = n_in
         self.n_out = n_out
-        self.static_principal_direction = static_principal_direction
+        self.nfeatures_base = nfeatures_base
+        self.depth = depth
+        self.nscale = nscale
+        self.p_dropout = p_dropout
+        self.padding = padding
+        self.batchnorm = batchnorm
+        self.downsample = downsample
         self.upsample = upsample
 
-
-        # --- MODEL ---
-        n1 = nfeatures_base
-        n2 = nfeatures_base * 2
-        n3 = nfeatures_base * 4
-        n4 = nfeatures_base * 8
-        n5 = nfeatures_base * 16
-
         # Down
+        self.down_conv = []
+        nf_prev = nfeatures_base
+        for i in range(nscale):
+            nf_prev = n_in if i == 0 else (nfeatures_base * (2**(i-1)))
+            nf_scale = nfeatures_base * (2**i)
+            conv_stack = [self.setup_convbn(nf_prev if _ == 0 else nf_scale, nf_scale) for _ in range(depth-1)]
+            if downsample == 'stride':
+                conv_stack[-1].stride = 2
+            self.down_conv_stacks += [conv_stack]
+
+        for i in reversed(range(nscale)):
+            nf_ = nfeatures_base * (2**(nscale-1))
+
         self.conv1 = nn.ModuleList(
-            [SteeredConvBN(n_in, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n1, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
+            [ConvBN(n_in, n1, relu=True, bn=batchnorm, padding=padding)]
+            + [ConvBN(n1, n1, relu=True, bn=batchnorm, padding=padding)
                for _ in range(depth - 1)])
         self.pool1 = nn.MaxPool2d(2)
 
         self.conv2 = nn.ModuleList(
-            [SteeredConvBN(n1, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n2, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
+            [ConvBN(n1, n2, relu=True, bn=batchnorm, padding=padding)]
+            + [ConvBN(n2, n2, relu=True, bn=batchnorm, padding=padding)
                for _ in range(depth - 1)])
         self.pool2 = nn.MaxPool2d(2)
 
@@ -93,6 +104,9 @@ class SteeredHemelingNet(nn.Module):
         self.final_conv = nn.Conv2d(n1, 1, kernel_size=(1, 1))
 
         self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else identity
+
+    def setup_convbn(self, n_in, n_out):
+        return ConvBN(n_in, n_out, relu=True, bn=self.batchnorm, padding=self.padding)
 
     def forward(self, x, alpha=None, **kwargs):
         """
