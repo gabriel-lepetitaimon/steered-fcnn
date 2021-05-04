@@ -2,111 +2,66 @@ import torch
 from torch import nn
 from ...utils import cat_crop
 from ...utils.convbn import ConvBN
+from .model import Model
 
 
-class UNet(nn.Module):
-
+class UNet(Model):
     def __init__(self, n_in, n_out=1, nfeatures_base=6, depth=2, nscale=5, padding='same',
-                 p_dropout=0, batchnorm=True, downsample='maxpool', upsample='conv'):
-        super().__init__()
-        self.n_in = n_in
-        self.n_out = n_out
-        self.nfeatures_base = nfeatures_base
-        self.depth = depth
-        self.nscale = nscale
-        self.p_dropout = p_dropout
-        self.padding = padding
-        self.batchnorm = batchnorm
-        self.downsample = downsample
-        self.upsample = upsample
+                 p_dropout=0, batchnorm=True, downsample='maxpooling', upsample='conv'):
+        """
+
+        :param n_in:
+        :param n_out:
+        :param nfeatures_base:
+        :param depth:
+        :param nscale:
+        :param padding:
+        :param p_dropout:
+        :param batchnorm:
+        :param downsample:
+            - maxpooling: Maxpooling Layer.
+            - averagepooling: Average Pooling.
+            - conv: Stride on the last convolution.
+        :param upsample:
+            - conv: "Deconvolution with stride"
+            - bilinear: "Bilinear upsampling"
+            - nearest: "Nearest upsampling"
+        """
+        super().__init__(n_in=n_in, n_out=n_out, nfeatures_base=nfeatures_base, depth=depth, nscale=nscale,
+                         padding=padding, p_dropout=p_dropout, batchnorm=batchnorm,
+                         downsample=downsample, upsample=upsample)
 
         # Down
         self.down_conv = []
-        nf_prev = nfeatures_base
         for i in range(nscale):
             nf_prev = n_in if i == 0 else (nfeatures_base * (2**(i-1)))
             nf_scale = nfeatures_base * (2**i)
-            conv_stack = [self.setup_convbn(nf_prev if _ == 0 else nf_scale, nf_scale) for _ in range(depth-1)]
-            if downsample == 'stride':
+            conv_stack = [self.setup_convbn(nf_prev if _ == 0 else nf_scale, nf_scale) for _ in range(depth)]
+            if downsample == 'conv':
                 conv_stack[-1].stride = 2
-            self.down_conv_stacks += [conv_stack]
+            self.down_conv += [conv_stack]
 
+        self.up_conv = []
         for i in reversed(range(nscale)):
-            nf_ = nfeatures_base * (2**(nscale-1))
-
-        self.conv1 = nn.ModuleList(
-            [ConvBN(n_in, n1, relu=True, bn=batchnorm, padding=padding)]
-            + [ConvBN(n1, n1, relu=True, bn=batchnorm, padding=padding)
-               for _ in range(depth - 1)])
-        self.pool1 = nn.MaxPool2d(2)
-
-        self.conv2 = nn.ModuleList(
-            [ConvBN(n1, n2, relu=True, bn=batchnorm, padding=padding)]
-            + [ConvBN(n2, n2, relu=True, bn=batchnorm, padding=padding)
-               for _ in range(depth - 1)])
-        self.pool2 = nn.MaxPool2d(2)
-
-        self.conv3 = nn.ModuleList(
-            [SteeredConvBN(n2, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n3, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
-               for _ in range(depth - 1)])
-        self.pool3 = nn.MaxPool2d(2)
-
-        self.conv4 = nn.ModuleList(
-            [SteeredConvBN(n3, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n4, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
-               for _ in range(depth - 1)])
-        self.pool4 = nn.MaxPool2d(2)
-
-        self.conv5 = nn.ModuleList(
-            [SteeredConvBN(n4, n5, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n5, n5, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
-               for _ in range(depth - 1)])
-
-        # Up
-        if upsample == 'nearest':
-            self.upsample1 = nn.Sequential(nn.Conv2d(n5, n4, kernel_size=(1, 1)), nn.Upsample(scale_factor=2))
-        else:
-            self.upsample1 = nn.ConvTranspose2d(n5, n4, kernel_size=(2, 2), stride=(2, 2))
-        self.conv6 = nn.ModuleList(
-            [SteeredConvBN(2 * n4, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n4, n4, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
-               for _ in range(depth - 1)])
-
-        if upsample == 'nearest':
-            self.upsample2 = nn.Sequential(nn.Conv2d(n4, n3, kernel_size=(1, 1)), nn.Upsample(scale_factor=2))
-        else:
-            self.upsample2 = nn.ConvTranspose2d(n4, n3, kernel_size=(2, 2), stride=(2, 2))
-        self.conv7 = nn.ModuleList(
-            [SteeredConvBN(2 * n3, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n3, n3, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
-               for _ in range(depth - 1)])
-
-        if upsample == 'nearest':
-            self.upsample3 = nn.Sequential(nn.Conv2d(n3, n2, kernel_size=(1, 1)), nn.Upsample(scale_factor=2))
-        else:
-            self.upsample3 = nn.ConvTranspose2d(n3, n2, kernel_size=(2, 2), stride=(2, 2))
-        self.conv8 = nn.ModuleList(
-            [SteeredConvBN(2 * n2, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n2, n2, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
-               for _ in range(depth - 1)])
-
-        if upsample == 'nearest':
-            self.upsample4 = nn.Sequential(nn.Conv2d(n2, n1, kernel_size=(1, 1)), nn.Upsample(scale_factor=2))
-        else:
-            self.upsample4 = nn.ConvTranspose2d(n2, n1, kernel_size=(2, 2), stride=(2, 2))
-        self.conv9 = nn.ModuleList(
-            [SteeredConvBN(2 * n1, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base)]
-            + [SteeredConvBN(n1, n1, relu=True, bn=batchnorm, padding=padding, steerable_base=base)
-               for _ in range(depth - 1)])
+            nf_scale = nfeatures_base * (2**i)
+            nf_next = nfeatures_base * (2**(i-1))
+            conv_stack = [self.setup_convbn(nf_scale, nf_scale) for _ in range(depth-1)]
+            if upsample == 'conv':
+                conv_stack += [self.setup_convtranspose(nf_scale, nf_next)]
+            else:
+                conv_stack += [self.setup_convstack(nf_scale, nf_next)]
+            self.up_conv += [conv_stack]
 
         # End
-        self.final_conv = nn.Conv2d(n1, 1, kernel_size=(1, 1))
+        self.final_conv = nn.Conv2d(nfeatures_base, n_out, kernel_size=(1, 1))
 
         self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else identity
 
     def setup_convbn(self, n_in, n_out):
         return ConvBN(n_in, n_out, relu=True, bn=self.batchnorm, padding=self.padding)
+
+    def setup_convtranspose(self, n_in, n_out):
+        return torch.nn.ConvTranspose2d(n_in, n_out, kernel_size=(2, 2), stride=(2, 2))
 
     def forward(self, x, alpha=None, **kwargs):
         """
@@ -128,28 +83,9 @@ class UNet(nn.Module):
 
         """
         from functools import reduce
-        if alpha is None:
-            raise NotImplementedError()
-        else:
-            with torch.no_grad():
-                k_max = self.base.k_max
 
-                rho = 1
-                if alpha.dim() == 3:
-                    cos_sin_kalpha = cos_sin_ka_stack(torch.cos(alpha), torch.sin(alpha), k=k_max)
-                elif alpha.dim() == 4 and alpha.shape[1] == 2:
-                    alpha = alpha.transpose(0,1)
-                    alpha, rho = normalize_vector(alpha)
-                    cos_sin_kalpha = cos_sin_ka_stack(alpha[0], alpha[1], k=k_max)
-                else:
-                    raise ValueError(f'alpha shape should be either [b, h, w] or [b, 2, h, w] '
-                                     f'but provided tensor shape is {alpha.shape}.')
-                cos_sin_kalpha = cos_sin_kalpha.unsqueeze(3)
-
-                N = 5
-                alpha_pyramid = pyramid_pool2d(cos_sin_kalpha, n=N)
-                rho_pyramid = [rho]*N if not isinstance(rho, torch.Tensor) else pyramid_pool2d(rho, n=N)
-
+        xscale = []
+        for conv_stack in  
         # Down
         x1 = reduce(lambda X, conv: conv(X, alpha=alpha_pyramid[0], rho=rho_pyramid[0]), self.conv1, x)
 

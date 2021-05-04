@@ -3,9 +3,10 @@ from torch import nn
 
 
 class Model(nn.Module):
-    def __init__(self, hyperparameters=None):
+    def __init__(self, **hyperparameters):
         super(Model, self).__init__()
-        if hyperparameters is None:
-            hyperparameters = {}
-
         self.hyperparameters = hyperparameters
+
+    def __getattribute__(self, item):
+        if item in self.hyperparameters:
+            return self.hyperparameters[item]
