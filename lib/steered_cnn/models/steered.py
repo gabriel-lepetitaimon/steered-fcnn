@@ -1,13 +1,72 @@
 import torch
 from torch import nn
-import torch.nn.functional as F
 from ..utils import cat_crop, pyramid_pool2d, normalize_vector
 from ..steered_conv import SteeredConvBN, SteerableKernelBase
 from ..steered_conv.steerable_filters import cos_sin_ka_stack
+from .backbones import UNet
+
+
+class SteeredUNet(UNet):
+    def __init__(self, n_in, n_out, nfeatures_base=6, kernel=3, depth=2, nscale=5, padding='same',
+                 p_dropout=0, batchnorm=True, downsampling='maxpooling', upsampling='conv',
+                 base=None, attention=None):
+        super(SteeredUNet, self).__init__(n_in, n_out, nfeatures_base=nfeatures_base, kernel=kernel, depth=depth,
+                                          nscale=nscale, padding=padding, p_dropout=p_dropout, batchnorm=batchnorm,
+                                          downsampling=downsampling, upsampling=upsampling)
+        self.base = base
+        self.attention = attention
+
+    def setup_convbn(self, n_in, n_out):
+        return SteeredConvBN(self.kernel, n_in, n_out, steerable_base=self.base, attention_base=self.attention,
+                             relu=True, bn=self.batchnorm, padding=self.padding)
+
+    def setup_convtranspose(self, n_in, n_out):
+        raise NotImplementedError()
+
+    def forward(self, x, alpha=None, rho=None):
+        N = 5
+        if alpha is None:
+            if self.attention is None:
+                raise ValueError('If no attention base is specified, a steering angle alpha should be provided.')
+            else:
+                alpha_pyramid = [None]*N
+                rho_pyramid = [None]*N
+        else:
+            with torch.no_grad():
+                k_max = self.base.k_max
+
+                rho = 1
+                if alpha.dim() == 3:
+                    cos_sin_kalpha = cos_sin_ka_stack(torch.cos(alpha), torch.sin(alpha), k=k_max)
+                elif alpha.dim() == 4 and alpha.shape[1] == 2:
+                    alpha = alpha.transpose(0, 1)
+                    alpha, rho = normalize_vector(alpha)
+                    cos_sin_kalpha = cos_sin_ka_stack(alpha[0], alpha[1], k=k_max)
+                else:
+                    raise ValueError(f'alpha shape should be either [b, h, w] or [b, 2, h, w] '
+                                     f'but provided tensor shape is {alpha.shape}.')
+                cos_sin_kalpha = cos_sin_kalpha.unsqueeze(3)
+
+                alpha_pyramid = pyramid_pool2d(cos_sin_kalpha, n=N)
+                rho_pyramid = [rho]*N if not isinstance(rho, torch.Tensor) else pyramid_pool2d(rho, n=N)
+
+        xscale = []
+        for i, conv_stack in enumerate(self.down_conv[:-1]):
+            x = self.reduce_stack(conv_stack, x, alpha=alpha_pyramid[i], rho=rho_pyramid[i])
+            xscale += [self.dropout(x)]
+            x = self.downsample(x)
+
+        x = self.reduce_stack(self.down_conv[-1], x, alpha=alpha_pyramid[-1], rho=rho_pyramid[-1])
+        x = self.dropout(x)
+
+        for i, conv_stack in enumerate(self.up_conv):
+            x = cat_crop(xscale.pop(), self.upsample(x, alpha=alpha_pyramid[-i], rho=rho_pyramid[-i]))
+            x = self.reduce_stack(conv_stack, x)
+
+        return self.final_conv(x)
 
 
 class SteeredHemelingNet(nn.Module):
-
     def __init__(self, n_in, n_out=1, nfeatures_base=6, depth=2, base=None, attention=None,
                  p_dropout=0, padding='same', batchnorm=True, upsample='conv',
                  static_principal_direction=False):

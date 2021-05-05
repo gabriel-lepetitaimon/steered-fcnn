@@ -4,6 +4,7 @@ import math
 
 from .steered_kbase import SteerableKernelBase
 from .ortho_kbase import OrthoKernelBase
+from ..utils.clip_pad import normalize_vector
 
 
 DEFAULT_STEERABLE_BASE = SteerableKernelBase.from_steerable(4, max_k=5)
@@ -14,6 +15,7 @@ class SteeredConv2d(nn.Module):
     def __init__(self, n_in, n_out=None, stride=1, padding='same', dilation=1, groups=1, bias=True,
                  steerable_base: SteerableKernelBase = DEFAULT_STEERABLE_BASE,
                  attention_base: SteerableKernelBase = None,
+                 attention_mode='feature', normalize_attention=None,
                  nonlinearity='relu', nonlinearity_param=None):
         """
         :param n_in:
@@ -56,13 +58,22 @@ class SteeredConv2d(nn.Module):
             nn.init.uniform_(self.bias, -b, b)
 
         if self.attention_base is not None:
-            self.attention_weigths = nn.Parameter(self.attention_base.create_weights(n_in, n_out, nonlinearity='linear'),
+            self.attention_mode = attention_mode
+            self.normalize_attention = normalize_attention
+            n_att_out = n_out if attention_mode == 'feature' else 1
+            self.attention_weigths = nn.Parameter(self.attention_base.create_weights(n_in, n_att_out,
+                                                                                     nonlinearity='linear'),
                                                   requires_grad=True)
 
     def forward(self, x, alpha=None, rho=None):
         if alpha is None:
             alpha = self.attention_base.ortho_conv2d(x, self.attention_weigths,
                                                      stride=self.stride, padding=self.padding)
+            alpha, rho = normalize_vector(alpha)
+            if self.normalize_attention == 'tanh':
+                rho = torch.tanh(rho)
+            elif self.normalize_attention is True:
+                rho = 1
 
         out = self.steerable_base.conv2d(x, self.weights, alpha=alpha, rho=rho,
                                          stride=self.stride, padding=self.padding, dilation=self.dilation)
