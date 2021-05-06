@@ -7,7 +7,7 @@ from .model import Model
 
 class UNet(Model):
     def __init__(self, n_in, n_out=1, nfeatures_base=64, kernel=3, depth=2, nscale=5, padding='same',
-                 p_dropout=0, batchnorm=True, downsampling='maxpooling', upsampling='conv'):
+                 p_dropout=0, batchnorm=True, downsampling='maxpooling', upsampling='conv', **kwargs):
         """
         :param n_in:
         :param n_out:
@@ -28,7 +28,7 @@ class UNet(Model):
         """
         super().__init__(n_in=n_in, n_out=n_out, nfeatures_base=nfeatures_base, depth=depth, nscale=nscale,
                          kernel=kernel, padding=padding, p_dropout=p_dropout, batchnorm=batchnorm,
-                         downsampling=downsampling, upsampling=upsampling)
+                         downsampling=downsampling, upsampling=upsampling, **kwargs)
 
         # Down
         self.down_conv = []
@@ -40,6 +40,8 @@ class UNet(Model):
             if downsampling == 'conv':
                 conv_stack[-1].stride = 2
             self.down_conv += [conv_stack]
+            for j, mod in enumerate(conv_stack):
+                self.add_module(f'downconv{i}-{j}', mod)
 
         self.up_conv = []
         for i in reversed(range(nscale-1)):
@@ -51,6 +53,8 @@ class UNet(Model):
             else:
                 conv_stack += [self.setup_convstack(nf_scale, nf_next)]
             self.up_conv += [conv_stack]
+            for j, mod in enumerate(conv_stack):
+                self.add_module(f'upconv{i}-{j}', mod)
 
         # End
         self.final_conv = nn.Conv2d(nfeatures_base, n_out, kernel_size=(1, 1))

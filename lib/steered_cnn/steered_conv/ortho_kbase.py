@@ -24,6 +24,8 @@ class OrthoKernelBase(KernelBase):
 
         super(OrthoKernelBase, self).__init__(base, autonormalize=autonormalize)
         self.K = base.shape[0] // 2
+        self.kernels_label = None
+        self.kernels_info = None
 
     @property
     def idx_vertical(self):
@@ -60,7 +62,7 @@ class OrthoKernelBase(KernelBase):
         return w
 
     @staticmethod
-    def from_steerable(R: int, std=.5, size=None, autonormalize=True):
+    def from_steerable(R: int, std=.5, size=None, autonormalize=True, oversample=100):
         """
 
 
@@ -75,6 +77,7 @@ class OrthoKernelBase(KernelBase):
             std: The standard deviation of the gaussian distribution which weights the kernels radially.
             size:
             autonormalize:
+            oversample:
 
         Returns: A SteerableKernelBase parametrized by the corresponding kernels.
 
@@ -82,9 +85,12 @@ class OrthoKernelBase(KernelBase):
         if size is None:
             size = int(np.ceil(2 * (R + std)))
             size += int(1 - (size % 2))
-        kernels = [np.real(radial_steerable_filter(size=size, k=1, r=r, std=std))
-                   for r in range(1, R+1)]
-        return OrthoKernelBase(np.stack(kernels), autonormalize=autonormalize)
+        R = range(1,R+1)
+        kernels = [np.real(radial_steerable_filter(size=size, k=1, r=r, std=std, oversampling=oversample)) for r in R]
+        base = OrthoKernelBase(np.stack(kernels), autonormalize=autonormalize)
+        base.kernels_label = [f'r{r}R' for r in R] + [f'r{r}I' for r in R]
+        base.kernels_info = [{'r': r, 'type': 'R'} for r in R] + [{'r': r, 'type': 'I'} for r in R]
+        return base
 
     def ortho_conv2d(self, input: torch.Tensor, weight: torch.Tensor,
                stride=1, padding='same', dilation=1) -> torch.Tensor:

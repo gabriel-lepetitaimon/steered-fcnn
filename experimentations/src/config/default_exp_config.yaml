@@ -5,14 +5,23 @@ experiment:
     tags: {}
 
 model:
+    backbone: 'unet'
     steered: False
-    nfeatures-base: 16
+        # normalized: True
+        # attention_mode: 'shared'
+        # attention_base: False
+        # base:
+
+    n_in: 6
+    n_out: 1
+    nfeatures_base: 16
+    nscale: 5
     depth: 2
-    half-kernel-height: 3
+    kernel: 5
     padding: 'same'
-    batchnorm: True
+    downsample: 'maxpooling'
     upsample: 'conv'
-    static-principal-direction: False   # True / False / 'normalized'
+    batchnorm: True
 
 
 training:

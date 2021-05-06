@@ -106,7 +106,8 @@ class SteerableKernelBase(KernelBase):
         return w
 
     @staticmethod
-    def from_steerable(kr: Union[int, Dict[int, List[int]]], std=.5, size=None, max_k=None, autonormalize=True):
+    def from_steerable(kr: Union[int, Dict[int, List[int]]], std=.5, size=None, oversample=16,
+                       max_k=None, autonormalize=True):
         """
 
 
@@ -120,6 +121,7 @@ class SteerableKernelBase(KernelBase):
                       before the apparition of aliasing artefact
             std: The standard deviation of the gaussian distribution which weights the kernels radially.
             size:
+            oversample:
             max_k:
             autonormalize:
 
@@ -157,7 +159,7 @@ class SteerableKernelBase(KernelBase):
                 else:
                     n_kernel_by_k[k] = 1
 
-                psi = radial_steerable_filter(size, k, r, std=std)
+                psi = radial_steerable_filter(size, k, r, std=std, oversampling=oversample)
 
                 labels_real += [f'k{k}r{r}'+('r' if k > 0 else '')]
                 info_real += [{'k': k, 'r': r, 'type': 'R'}]

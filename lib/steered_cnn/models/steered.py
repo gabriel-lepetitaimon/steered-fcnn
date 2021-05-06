@@ -9,15 +9,17 @@ from .backbones import UNet
 class SteeredUNet(UNet):
     def __init__(self, n_in, n_out, nfeatures_base=6, kernel=3, depth=2, nscale=5, padding='same',
                  p_dropout=0, batchnorm=True, downsampling='maxpooling', upsampling='conv',
-                 base=None, attention=None):
+                 base=None, attention_base=None, attention_mode='shared', normalize_steer=False):
         super(SteeredUNet, self).__init__(n_in, n_out, nfeatures_base=nfeatures_base, kernel=kernel, depth=depth,
                                           nscale=nscale, padding=padding, p_dropout=p_dropout, batchnorm=batchnorm,
-                                          downsampling=downsampling, upsampling=upsampling)
+                                          downsampling=downsampling, upsampling=upsampling,
+                                          attention_mode=attention_mode, normalize_steer=normalize_steer)
         self.base = base
-        self.attention = attention
+        self.attention_base = attention_base
 
     def setup_convbn(self, n_in, n_out):
         return SteeredConvBN(self.kernel, n_in, n_out, steerable_base=self.base, attention_base=self.attention,
+                             attention_mode=self.attention_mode, normalize_steer_vec=self.normalize_steer,
                              relu=True, bn=self.batchnorm, padding=self.padding)
 
     def setup_convtranspose(self, n_in, n_out):
@@ -41,6 +43,10 @@ class SteeredUNet(UNet):
                 elif alpha.dim() == 4 and alpha.shape[1] == 2:
                     alpha = alpha.transpose(0, 1)
                     alpha, rho = normalize_vector(alpha)
+                    if self.normalize_steer is True:
+                        rho = 1
+                    elif self.normalize_steer == 'tanh':
+                        rho = torch.tanh(rho)
                     cos_sin_kalpha = cos_sin_ka_stack(alpha[0], alpha[1], k=k_max)
                 else:
                     raise ValueError(f'alpha shape should be either [b, h, w] or [b, 2, h, w] '
