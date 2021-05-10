@@ -51,7 +51,7 @@ class UNet(Model):
             if upsampling == 'conv':
                 conv_stack += [self.setup_convtranspose(nf_scale, nf_next)]
             else:
-                conv_stack += [self.setup_convstack(nf_scale, nf_next)]
+                conv_stack += [self.setup_convbn(nf_scale, nf_next)]
             self.up_conv += [conv_stack]
             for j, mod in enumerate(conv_stack):
                 self.add_module(f'upconv{i}-{j}', mod)

@@ -10,15 +10,16 @@ class SteeredUNet(UNet):
     def __init__(self, n_in, n_out, nfeatures_base=6, kernel=3, depth=2, nscale=5, padding='same',
                  p_dropout=0, batchnorm=True, downsampling='maxpooling', upsampling='conv',
                  base=None, attention_base=None, attention_mode='shared', normalize_steer=False):
+        self.base = base
+        self.attention_base = attention_base
+
         super(SteeredUNet, self).__init__(n_in, n_out, nfeatures_base=nfeatures_base, kernel=kernel, depth=depth,
                                           nscale=nscale, padding=padding, p_dropout=p_dropout, batchnorm=batchnorm,
                                           downsampling=downsampling, upsampling=upsampling,
                                           attention_mode=attention_mode, normalize_steer=normalize_steer)
-        self.base = base
-        self.attention_base = attention_base
 
     def setup_convbn(self, n_in, n_out):
-        return SteeredConvBN(self.kernel, n_in, n_out, steerable_base=self.base, attention_base=self.attention,
+        return SteeredConvBN(self.kernel, n_in, n_out, steerable_base=self.base, attention_base=self.attention_base,
                              attention_mode=self.attention_mode, normalize_steer_vec=self.normalize_steer,
                              relu=True, bn=self.batchnorm, padding=self.padding)
 
@@ -28,7 +29,7 @@ class SteeredUNet(UNet):
     def forward(self, x, alpha=None, rho=None):
         N = 5
         if alpha is None:
-            if self.attention is None:
+            if self.attention_base is None:
                 raise ValueError('If no attention base is specified, a steering angle alpha should be provided.')
             else:
                 alpha_pyramid = [None]*N
@@ -66,8 +67,8 @@ class SteeredUNet(UNet):
         x = self.dropout(x)
 
         for i, conv_stack in enumerate(self.up_conv):
-            x = cat_crop(xscale.pop(), self.upsample(x, alpha=alpha_pyramid[-i], rho=rho_pyramid[-i]))
-            x = self.reduce_stack(conv_stack, x)
+            x = cat_crop(xscale.pop(), self.upsample(x))
+            x = self.reduce_stack(conv_stack, x, alpha=alpha_pyramid[-i], rho=rho_pyramid[-i])
 
         return self.final_conv(x)
 

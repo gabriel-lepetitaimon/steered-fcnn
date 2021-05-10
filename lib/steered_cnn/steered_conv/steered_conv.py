@@ -12,7 +12,7 @@ DEFAULT_ATTENTION_BASE = OrthoKernelBase.from_steerable(4)
 
 
 class SteeredConv2d(nn.Module):
-    def __init__(self, n_in, n_out=None, stride=1, padding='same', dilation=1, groups=1, bias=True,
+    def __init__(self, kernel, n_in, n_out=None, stride=1, padding='same', dilation=1, groups=1, bias=True,
                  steerable_base: SteerableKernelBase = DEFAULT_STEERABLE_BASE,
                  attention_base: SteerableKernelBase = None,
                  attention_mode='feature', normalize_steer_vec=None,

@@ -7,6 +7,7 @@ experiment:
 model:
     backbone: 'unet'
     steered: False
+        # steering: 'angle'
         # normalized: True
         # attention_mode: 'shared'
         # attention_base: False
@@ -18,9 +19,9 @@ model:
     nscale: 5
     depth: 2
     kernel: 5
-    padding: 'same'
-    downsample: 'maxpooling'
-    upsample: 'conv'
+    padding: 'auto'
+    downsampling: 'maxpooling'
+    upsampling: 'conv'
     batchnorm: True
 
 

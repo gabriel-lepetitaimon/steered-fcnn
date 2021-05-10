@@ -76,10 +76,16 @@ class AttributeDict(OrderedDict):
             raise ValueError('Invalid AttributeDict key: %s.' % repr(key))
         if '.' in key:
             keys = key.split('.')
-            it = self
-            for k in keys[:-1]:
-                it = it[k]
-            it[keys[-1]] = value
+            r = self
+            for i, k in enumerate(keys[:-1]):
+                try:
+                    r = r[k]
+                except (KeyError, IndexError, TypeError):
+                    raise IndexError(f'Invalid key: {".".join(keys[:i])}.') from None
+            try:
+                r[keys[-1]] = value
+            except (KeyError, IndexError, TypeError):
+                raise IndexError(f'Invalid key: {keys}.') from None
         super(AttributeDict, self).__setitem__(key, value)
 
     def __getitem__(self, item):
@@ -89,13 +95,16 @@ class AttributeDict(OrderedDict):
                 raise IndexError('Index %i out of range (AttributeDict length: %s)' % (item, len(k)))
             return super(AttributeDict, self).__getitem__(list(self.keys())[item])
         elif isinstance(item, str):
-            if '.' in item:
+            if '.' not in item:
                 return super(AttributeDict, self).__getitem__(item)
             else:
                 item = item.split('.')
                 r = self
-                for it in item:
-                    r = r[it]
+                for i, it in enumerate(item):
+                    try:
+                        r = r[it]
+                    except (KeyError, IndexError, TypeError):
+                        raise IndexError(f'Invalid item: {".".join(item[:i])}.') from None
                 return r
         else:
             return super(AttributeDict, self).__getitem__(str(item))
@@ -157,8 +166,7 @@ class AttributeDict(OrderedDict):
         return r
 
     def check(self, path, value=True, missing=None):
-        if '.' in path:
-            path = path.split('.')
+        path = path.split('.')
 
         miss = False
         item = self
@@ -177,3 +185,23 @@ class AttributeDict(OrderedDict):
         if isinstance(value, bool) or value is None:
             return item is value
         return item == value
+
+    def get(self, path, default='raise'):
+        path = path.split('.')
+
+        miss = False
+        item = self
+        for i, p in enumerate(path):
+            try:
+                item = item[p]
+            except (KeyError, IndexError, TypeError):
+                miss = True
+                path = '.'.join(path[:i])
+                break
+
+        if miss:
+            if default is 'raise':
+                raise AttributeError(f'Missing attribute {path}.')
+            return default
+
+        return item
