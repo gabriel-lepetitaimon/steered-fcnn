@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from ..utils import cat_crop, pyramid_pool2d, normalize_vector
-from ..steered_conv import SteeredConvBN, SteerableKernelBase
+from ..steered_conv import SteeredConvBN, DEFAULT_STEERABLE_BASE
 from ..steered_conv.steerable_filters import cos_sin_ka_stack
 from .backbones import UNet
 
@@ -9,7 +9,7 @@ from .backbones import UNet
 class SteeredUNet(UNet):
     def __init__(self, n_in, n_out, nfeatures_base=6, kernel=3, depth=2, nscale=5, padding='same',
                  p_dropout=0, batchnorm=True, downsampling='maxpooling', upsampling='conv',
-                 base=None, attention_base=None, attention_mode='shared', normalize_steer=False):
+                 base=DEFAULT_STEERABLE_BASE, attention_base=None, attention_mode='shared', normalize_steer=False):
         self.base = base
         self.attention_base = attention_base
 
