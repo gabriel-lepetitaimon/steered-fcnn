@@ -4,37 +4,39 @@ from typing import Union, Tuple
 
 
 def clip_pad_center(tensor, shape, pad_mode='constant', pad_value=0, broadcastable=False):
-    s = tensor.shape
+    H, W = tensor.shape[-2:]
     h, w = shape[-2:]
-    if s[-2] == 1 and broadcastable:
+    if H == 1 and broadcastable:
         y0 = 0
         y1 = 0
         h = 1
         yodd = 0
     else:
-        y0 = (s[-2]-h)//2
+        y0 = (H-h)//2
         y1 = 0
-        yodd = (h-s[-2]) % 2
+        yodd = 0
         if y0 < 0:
             y1 = -y0
             y0 = 0
+            yodd = (h-H) % 2
 
-    if s[-1] == 1 and broadcastable:
+    if W == 1 and broadcastable:
         x0 = 0
         x1 = 0
         w = 1
         xodd = 0
     else:
-        x0 = (s[-1]-w)//2
+        x0 = (W-w)//2
         x1 = 0
-        xodd = (w-s[-1]) % 2
+        xodd = 0
         if x0 < 0:
             x1 = -x0
             x0 = 0
+            xodd = (w-W) % 2
 
     tensor = tensor[..., y0:y0+h, x0:x0+w]
     if x1 or y1:
-        tensor = F.pad(tensor, (y1-yodd, y1, x1-xodd, x1), mode=pad_mode, value=pad_value)
+        tensor = F.pad(tensor, (x1-xodd, x1, y1-yodd, y1), mode=pad_mode, value=pad_value)
     return tensor
 
 

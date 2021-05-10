@@ -99,11 +99,6 @@ class TrainDataset(Dataset):
                     alpha = alpha.transpose(1, 2, 0)
                     if self.steered == 'vec-norm':
                         alpha = alpha / (np.linalg.norm(alpha, axis=2, keepdims=True) + 1e-8)
-                #else:
-                    #alpha = np.stack([np.cos(alpha), np.sin(alpha)], axis=2)
-                    #vec = self.vec[i]
-                    #d = np.linalg.norm(vec, axis=0)[:,:,None]
-                    #alpha = d*alpha
                 return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], alpha=alpha)
             else:
                 angle = self.angle[i]
@@ -149,7 +144,6 @@ class TestDataset(Dataset):
                     'steered should be one of "vec", "vec-norm", "angle" or "all".'
                     f'(Provided: "{steered}")')
 
-            
         self.geo_aug = DataAugment().compile(**data_fields, to_torch=True)
         
         self.steered = steered

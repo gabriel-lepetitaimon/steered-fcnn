@@ -75,12 +75,10 @@ class SteeredUNet(UNet):
 
 class SteeredHemelingNet(nn.Module):
     def __init__(self, n_in, n_out=1, nfeatures_base=6, depth=2, base=None, attention=None,
-                 p_dropout=0, padding='same', batchnorm=True, upsample='conv',
-                 static_principal_direction=False):
+                 p_dropout=0, padding='same', batchnorm=True, upsample='conv'):
         super().__init__()
         self.n_in = n_in
         self.n_out = n_out
-        self.static_principal_direction = static_principal_direction
         self.upsample = upsample
 
         # --- MODEL ---
