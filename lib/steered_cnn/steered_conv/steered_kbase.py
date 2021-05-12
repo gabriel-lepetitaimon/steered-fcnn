@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -91,18 +92,22 @@ class SteerableKernelBase(KernelBase):
         from torch.nn.init import calculate_gain
         import math
 
-        w = torch.empty((n_out, n_in, self.K))
+        w_equi = torch.empty((n_out, n_in, self.K_equi))
+        w_steer = torch.empty((n_out, n_in, self.K_steer*2))
 
         gain = calculate_gain(nonlinearity, nonlinearity_param)
         std = gain*math.sqrt(1/(n_in*(self.K_equi+self.K_steer)))
         if dist == 'normal':
-            nn.init.normal_(w, std=std)
+            nn.init.normal_(w_equi, std=std)
+            nn.init.normal_(w_steer, std=std/math.sqrt(2))
         elif dist == 'uniform':
             bound = std * math.sqrt(3)
-            nn.init.uniform_(w, -bound, bound)
+            nn.init.uniform_(w_equi, -bound, bound)
+            nn.init.uniform_(w_steer, -bound/math.sqrt(2), bound/math.sqrt(2))
         else:
             raise NotImplementedError(f'Unsupported distribution for the random initialization of weights: "{dist}". \n'
                                       f'(Supported distribution are "normal" or "uniform"')
+        w = torch.cat((w_equi,w_steer), dim=2).contiguous()
         return w
 
     @staticmethod
@@ -520,21 +525,67 @@ class SteerableKernelBase(KernelBase):
                 data['weights_std'] = weights.std(axis=tuple(range(len(s))))
         return DataFrame(data=data)
 
-    def weights_dist(self, weights, Q=3):
+    def complex_kernels_couple(self):
+        infos = list(self.kernels_info)
+        couples = []
+        couples_info = []
+        while sum(_ is not None for _ in infos) >= 2:
+            info1 = infos.pop(-1)
+            if info1 is None:
+                continue
+            i1 = len(infos)
+            for i2, info2 in enumerate(infos):
+                if i2 is None:
+                    continue
+                if info1['r'] == info2['r'] and info1['k'] == info2['k']:
+                    infos[i2] = None
+                    couples += [(i2, i1)]
+                    break
+            else:
+                couples += [(i1, None)]
+            couples_info += [{'r_name': info1['r'], 'k':info1['k'], 'r': info1['r'],
+                              'name': f'k={info1["k"]} r={info1["r"]}'}]
+        return tuple(reversed(couples)), tuple(reversed(couples_info))
+
+    def flatten_weights(self, weights, complex_norm=False):
+        import numpy as np
+        if complex_norm:
+            complex_couples, w_infos = self.complex_kernels_couple()
+        else:
+            w_infos = [{'r_name': f'r={_["r"]} {("R" if _["type"]=="R" else "I") if _["k"]>0 else ""}',
+                        'name': f'k={_["k"]} r={_["r"]} {("R" if _["type"]=="R" else "I") if _["k"]>0 else ""}',
+                        'k': _['k'], 'r': _['r']} for _ in self.kernels_info]
+            complex_couples = None
+
+        def flatten_weight(w):
+            if isinstance(w, torch.Tensor):
+                w = w.detach().cpu().numpy()
+            w = w.reshape(-1, w.shape[-1])
+            if complex_norm:
+                l = []
+                for w1, w2 in complex_couples:
+                    if w2 is None:
+                        l += [np.abs(w[:, w1])]
+                    else:
+                        l += [np.abs(w[:, w1]+1j*w[:, w2])]
+                w = np.stack(l, axis=1)
+            return w
+        if isinstance(weights, (list, tuple)):
+            return np.concatenate(tuple(flatten_weight(_) for _ in weights), axis=0), w_infos
+        else:
+            return flatten_weight(weights), w_infos
+
+    def weights_dist(self, weights, Q=3, complex_norm=False):
         import numpy as np
 
-        if isinstance(weights, torch.Tensor):
-            weights = weights.detach().cpu().numpy()
-        weights = weights.reshape((np.prod(weights.shape[:-1]), weights.shape[-1]))
-        data = dict(r=[_['r'] for _ in self.kernels_info],
-                    k=[_['k'] for _ in self.kernels_info],
-                    type=[_['type'] for _ in self.kernels_info],
-                    name=[f'r={_["r"]}, k={_["k"]}, {"Real" if _["type"]=="R" else "Imag"}' for _ in self.kernels_info])
+        weights, infos = self.flatten_weights(weights, complex_norm=complex_norm)
+        data = {k: [_[k] for _ in infos] for k, v in infos[0].items()}
         if isinstance(Q, int):
-            Q = [i/(Q+1) for i in range(Q)]
+            Q = [(i+1)/(Q+1) for i in range(Q)]
         q = np.array(Q)*100
         q = q/2
         q = np.concatenate([50-q[::-1], [50], 50+q]).flatten()
+
         perc = np.percentile(weights, q, axis=0)
         data['median'] = perc[len(Q)]
 
@@ -543,5 +594,104 @@ class SteerableKernelBase(KernelBase):
             data[f'-q{i}'] = perc[i]
         return data
 
-    def plot_weights(self, weights):
-        pass
+    def plot_weights_dist(self, weights, Q=5, complex_norm=True):
+        import pandas as pd
+        import altair as alt
+        N = len(weights) if isinstance(weights, dict) else 1
+        def plot_dist(weights, offset=0, color=alt.Undefined):
+            df = pd.DataFrame(data=self.weights_dist(weights, Q=Q, complex_norm=complex_norm))
+            chart = alt.Chart(data=df, width=70)
+            plot = chart.mark_tick(width=10, thickness=2, xOffset=offset, color=color
+                                   ).encode(
+                x='r_name:N',
+                y='median:Q',
+            )
+
+            for q in range(Q):
+                plot += chart.mark_bar(width=10, opacity=.2 if q < Q-2 else .3, xOffset=offset, color=color
+                                       ).encode(
+                    x='r_name:N',
+                    y=f'-q{q}:Q',
+                    y2=f'q{q}:Q',
+                )
+            return plot
+
+        if isinstance(weights, dict):
+            i = 0
+            tableau10 = '#4E79A7 #F28E2B #E15759 #76B6B2 #59A14F #EDC948 #B07AA1 #FF9DA7 #9C755F #BAB0AC'.split(' ')
+            plots = []
+            for k, w in weights.items():
+                plots += [plot_dist(weights=w, offset=10*i, color=tableau10[i])]
+                i += 1
+            plot = alt.LayerChart(plots)
+        else:
+            plot = plot_dist(weights=weights)
+
+        return plot.facet(column='k').resolve_scale(x='independent')
+
+    def weights_histogram(self, weights, bins=100, wrange=None, binspace='linear', complex_norm=False,
+                          displayable=True):
+        import pandas as pd
+        weights, w_infos = self.flatten_weights(weights, complex_norm=complex_norm)
+        if isinstance(bins, int):
+            if wrange is None:
+                wrange = weights.min(), weights.max()
+                print(wrange)
+            if binspace == 'linear':
+                bins = np.linspace(wrange[0], wrange[1], num=bins)
+            elif binspace == 'log':
+                bins = np.logspace(np.log10(wrange[0]), np.log10(wrange[1]), num=bins)
+            else:
+                raise NotImplementedError(f'{binspace} scale is not implemented yet. '
+                                          f'Valid binspace is "linear" or "log"')
+        else:
+            wrange = np.min(bins), np.max(bins)
+
+        hists = []
+        for i in range(weights.shape[1]):
+            hist, bins_edge = np.histogram(weights[:, i], bins=bins, range=wrange)
+            hists += [(hist/hist.sum())]
+        bins = (bins_edge[:-1] + bins_edge[1:])/2
+
+        if displayable:
+            idx = pd.MultiIndex.from_tuples([(_['k'], _['r_name']) for _ in w_infos], names=['k', 'r'])
+            return pd.DataFrame(data=hists, index=idx, columns=bins)
+        else:
+            dfs = [pd.DataFrame(h, index=pd.Index(bins, name='w'), columns=['density']) for h in hists]
+            return pd.concat(dfs, keys=[(_['k'], _['r'], _['name']) for _ in w_infos], names=['k', 'r', 'name'])
+
+    def plot_weights_hist(self, weights, bins=100, binspace='linear', wrange=None, complex_norm=True):
+        import altair as alt
+
+        if not isinstance(bins, int):
+            binspace = 'linear'
+        df = self.weights_histogram(weights, bins=bins, binspace=binspace, wrange=wrange,
+                                    complex_norm=complex_norm, displayable=False)\
+                 .reset_index(['r', 'k', 'name', 'w'])
+        wrange = df.loc[:, 'w'].min(), df.loc[:, 'w'].max()
+        chart = alt.Chart(data=df, width=50)
+        print(binspace, wrange)
+        plot = chart.mark_area(orient='horizontal').encode(
+            y=alt.Y('w:Q', scale=alt.Scale(type=binspace, domain=wrange, ),
+                           axis=alt.Axis(title="Weights Distribution")),
+            x=alt.X(
+                'density:Q',
+                stack='center',
+                title=None,
+                impute=None,
+                axis=alt.Axis(labels=False, values=[0], grid=False, ticks=True),
+            ),
+            column=alt.Column(
+                'name:N',
+                title="Basis Kernel",
+                header=alt.Header(
+                    titleOrient='bottom',
+                    labelOrient='bottom',
+                    labelPadding=0,
+                ),
+            ))
+        return plot.configure_facet(
+            spacing=0
+        ).configure_view(
+            stroke=None
+        )
