@@ -629,28 +629,37 @@ class SteerableKernelBase(KernelBase):
 
         return plot.facet(column='k').resolve_scale(x='independent').interactive(bind_x=False)
 
-    def weights_histogram(self, weights, bins=100, wrange=None, binspace='linear', complex_norm=False,
-                          displayable=True):
+    def weights_hist(self, weights, bins=100, wrange=None, binspace='linear', complex_norm=False, norm='sum',
+                     symlog_C=None, displayable=True):
         import pandas as pd
         weights, w_infos = self.flatten_weights(weights, complex_norm=complex_norm)
         if isinstance(bins, int):
             if wrange is None:
                 wrange = weights.min(), weights.max()
-                print(wrange)
             if binspace == 'linear':
                 bins = np.linspace(wrange[0], wrange[1], num=bins)
             elif binspace == 'log':
                 bins = np.logspace(np.log10(wrange[0]), np.log10(wrange[1]), num=bins)
+            elif binspace == 'symlog':
+                if symlog_C is None:
+                    symlog_C = np.abs(np.diff(wrange))*2/bins
+                wrange = np.sign(wrange)*np.log10(1 + np.abs(wrange)/symlog_C)
+                bins = np.linspace(wrange[0], wrange[1], endpoint=True)
+                bins = np.sign(bins)*symlog_C*(np.power(10, np.abs(bins))-1)
             else:
                 raise NotImplementedError(f'{binspace} scale is not implemented yet. '
-                                          f'Valid binspace is "linear" or "log"')
+                                          f'Valid binspace is "linear", "log" or "symlog".')
         else:
             wrange = np.min(bins), np.max(bins)
 
         hists = []
         for i in range(weights.shape[1]):
             hist, bins_edge = np.histogram(weights[:, i], bins=bins, range=wrange)
-            hists += [(hist/hist.sum())]
+            if norm == 'max':
+                hist = hist / hist.max()
+            elif norm == 'sum':
+                hist = hist / hist.sum()
+            hists += [hist]
         bins = (bins_edge[:-1] + bins_edge[1:])/2
 
         if displayable:
@@ -660,20 +669,21 @@ class SteerableKernelBase(KernelBase):
             dfs = [pd.DataFrame(h, index=pd.Index(bins, name='w'), columns=['density']) for h in hists]
             return pd.concat(dfs, keys=[(_['k'], _['r'], _['name']) for _ in w_infos], names=['k', 'r', 'name'])
 
-    def plot_weights_hist(self, weights, bins=100, binspace='linear', wrange=None, complex_norm=True):
+    def plot_weights_hist(self, weights, bins=100, binspace='linear', wrange=None, complex_norm=True, norm='max'):
         import altair as alt
-
+        if binspace == 'log' and not complex_norm:
+            binspace = 'symlog'
         if not isinstance(bins, int):
             binspace = 'linear'
-        df = self.weights_histogram(weights, bins=bins, binspace=binspace, wrange=wrange,
-                                    complex_norm=complex_norm, displayable=False)\
+        df = self.weights_hist(weights, bins=bins, binspace=binspace, wrange=wrange, norm=norm,
+                               complex_norm=complex_norm, displayable=False)\
                  .reset_index(['r', 'k', 'name', 'w'])
         wrange = df.loc[:, 'w'].min(), df.loc[:, 'w'].max()
         chart = alt.Chart(data=df, width=50)
-        print(binspace, wrange)
+
         plot = chart.mark_area(orient='horizontal').encode(
-            y=alt.Y('w:Q', scale=alt.Scale(type=binspace, domain=wrange, ),
-                           axis=alt.Axis(title="Weights Distribution")),
+            y=alt.Y('w:Q', scale=alt.Scale(type=binspace, domain=wrange, constant=(wrange[1]-wrange[0])/20),
+                    axis=alt.Axis(title="Weights Distribution")),
             x=alt.X(
                 'density:Q',
                 stack='center',

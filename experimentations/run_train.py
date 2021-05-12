@@ -13,6 +13,9 @@ from src.datasets import load_dataset
 from src.trainer import BinaryClassifierNet, ExportValidation
 from src.trainer.loggers import setup_log
 
+import matplotlib.pylab as pl
+import matplotlib
+matplotlib.scale.SymmetricalLogScale
 
 def run_train(**opt):
     cfg = parse_arguments(opt)
