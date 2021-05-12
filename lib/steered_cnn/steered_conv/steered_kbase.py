@@ -627,7 +627,7 @@ class SteerableKernelBase(KernelBase):
         else:
             plot = plot_dist(weights=weights)
 
-        return plot.facet(column='k').resolve_scale(x='independent')
+        return plot.facet(column='k').resolve_scale(x='independent').interactive(bind_x=False)
 
     def weights_histogram(self, weights, bins=100, wrange=None, binspace='linear', complex_norm=False,
                           displayable=True):
@@ -694,4 +694,4 @@ class SteerableKernelBase(KernelBase):
             spacing=0
         ).configure_view(
             stroke=None
-        )
+        ).interactive(bind_x=False)
