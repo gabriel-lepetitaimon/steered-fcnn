@@ -114,12 +114,12 @@ class SteerableKernelBase(KernelBase):
 
         if dist == 'normal':
             nn.init.normal_(w_equi, std=std)
-            w_steer_rho = torch.normal(0, std=std, size=(n_out, n_in, self.K_steer))
+            w_steer_rho = torch.abs(torch.normal(0, std=std, size=(n_out, n_in, self.K_steer)))
             w_steer = w_steer_rho * torch.exp(1j*w_steer_theta)
         elif dist == 'uniform':
             bound = std * math.sqrt(3)
             nn.init.uniform_(w_equi, -bound, bound)
-            w_steer_rho = torch.rand((n_out, n_in, self.K_steer))*(2*bound)-bound
+            w_steer_rho = torch.rand((n_out, n_in, self.K_steer))*bound
             w_steer = w_steer_rho * torch.exp(1j*w_steer_theta)
         else:
             raise NotImplementedError(f'Unsupported distribution for the random initialization of weights: "{dist}". \n'
