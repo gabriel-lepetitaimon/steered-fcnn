@@ -14,9 +14,6 @@ from src.trainer import BinaryClassifierNet, ExportValidation
 from src.trainer.loggers import setup_log
 from steered_cnn.models import setup_model
 
-import matplotlib.pylab as pl
-import matplotlib
-matplotlib.scale.SymmetricalLogScale
 
 def run_train(**opt):
     cfg = parse_arguments(opt)
