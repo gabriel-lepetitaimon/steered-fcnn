@@ -31,6 +31,8 @@ class SteerableKernelBase(KernelBase):
         # Statically store the maximum harmonic order (max_k) and all harmonics orders values (k_values)
         self.k_max = max(n_kernel_by_k.keys())
         self.k_values = list(sorted(n_kernel_by_k.keys()))
+        self.r_values = [n_kernel_by_k[k] for k in self.k_values]
+        self.k_len = len(self.k_values)
 
         # Store the number of kernel for k=0
         self._n_k0 = n_kernel_by_k.get(0, 0)
@@ -88,26 +90,41 @@ class SteerableKernelBase(KernelBase):
     def base_y(self):
         return self.base[self.idx_imag()]
 
-    def create_weights(self, n_in, n_out, nonlinearity='relu', nonlinearity_param=None, dist='normal'):
+    def expand_r(self, arr, dim=0):
+        l = []
+        arr = torch.split(arr, 1, dim=dim)
+        for ki, r in enumerate(self.r_values):
+            if self.k_values[ki] == 0:
+                continue
+            l += [arr[ki]]*r
+        return torch.cat(l, dim=dim)
+
+    def create_weights(self, n_in, n_out, nonlinearity='relu', nonlinearity_param=None, dist='normal', std_theta=0):
         from torch.nn.init import calculate_gain
         import math
 
         w_equi = torch.empty((n_out, n_in, self.K_equi))
-        w_steer = torch.empty((n_out, n_in, self.K_steer*2))
+
+        w_steer_theta = self.expand_r(torch.rand((n_out, n_in, self.k_len))*(2*math.pi), dim=2)
+        if std_theta:
+            w_steer_theta += torch.normal(0, std=std_theta, size=(n_out, n_in, self.K_steer))
 
         gain = calculate_gain(nonlinearity, nonlinearity_param)
         std = gain*math.sqrt(1/(n_in*(self.K_equi+self.K_steer)))
+
         if dist == 'normal':
             nn.init.normal_(w_equi, std=std)
-            nn.init.normal_(w_steer, std=std/math.sqrt(2))
+            w_steer_rho = torch.normal(0, std=std, size=(n_out, n_in, self.K_steer))
+            w_steer = w_steer_rho * torch.exp(1j*w_steer_theta)
         elif dist == 'uniform':
             bound = std * math.sqrt(3)
             nn.init.uniform_(w_equi, -bound, bound)
-            nn.init.uniform_(w_steer, -bound/math.sqrt(2), bound/math.sqrt(2))
+            w_steer_rho = torch.rand((n_out, n_in, self.K_steer))*(2*bound)-bound
+            w_steer = w_steer_rho * torch.exp(1j*w_steer_theta)
         else:
             raise NotImplementedError(f'Unsupported distribution for the random initialization of weights: "{dist}". \n'
                                       f'(Supported distribution are "normal" or "uniform"')
-        w = torch.cat((w_equi,w_steer), dim=2).contiguous()
+        w = torch.cat((w_equi, w_steer.real, w_steer.imag), dim=2).contiguous()
         return w
 
     @staticmethod
@@ -164,12 +181,12 @@ class SteerableKernelBase(KernelBase):
 
                 psi = radial_steerable_filter(size, k, r, std=std)
 
-                labels_real += [f'k{k}r{r}'+('r' if k > 0 else '')]
+                labels_real += [f'k{k}r{r}'+('R' if k > 0 else '')]
                 info_real += [{'k': k, 'r': r, 'type': 'R'}]
                 kernels_real += [psi.real]
                 if k > 0:
                     labels_imag += [f'k{k}r{r}I']
-                    info_real += [{'k': k, 'r': r, 'type': 'I'}]
+                    info_imag += [{'k': k, 'r': r, 'type': 'I'}]
                     kernels_imag += [psi.imag]
 
         K = np.stack(kernels_real + kernels_imag)
@@ -529,7 +546,7 @@ class SteerableKernelBase(KernelBase):
         infos = list(self.kernels_info)
         couples = []
         couples_info = []
-        while sum(_ is not None for _ in infos) >= 2:
+        while sum(_ is not None for _ in infos):
             info1 = infos.pop(-1)
             if info1 is None:
                 continue
@@ -547,38 +564,53 @@ class SteerableKernelBase(KernelBase):
                               'name': f'k={info1["k"]} r={info1["r"]}'}]
         return tuple(reversed(couples)), tuple(reversed(couples_info))
 
-    def flatten_weights(self, weights, complex_norm=False):
+    def flatten_weights(self, weights, complex=False):
         import numpy as np
-        if complex_norm:
+        if complex:
             complex_couples, w_infos = self.complex_kernels_couple()
         else:
-            w_infos = [{'r_name': f'r={_["r"]} {("R" if _["type"]=="R" else "I") if _["k"]>0 else ""}',
-                        'name': f'k={_["k"]} r={_["r"]} {("R" if _["type"]=="R" else "I") if _["k"]>0 else ""}',
+            w_infos = [{'r_name': f'r={_["r"]} {("R" if _["type"]=="R" else " I") if _["k"]>0 else ""}',
+                        'name': f'k={_["k"]} r={_["r"]} {("R" if _["type"]=="R" else " I") if _["k"]>0 else ""}',
                         'k': _['k'], 'r': _['r']} for _ in self.kernels_info]
             complex_couples = None
 
-        def flatten_weight(w):
+        def flatten_weight(w, w_infos):
             if isinstance(w, torch.Tensor):
                 w = w.detach().cpu().numpy()
             w = w.reshape(-1, w.shape[-1])
-            if complex_norm:
-                l = []
-                for w1, w2 in complex_couples:
-                    if w2 is None:
-                        l += [np.abs(w[:, w1])]
-                    else:
-                        l += [np.abs(w[:, w1]+1j*w[:, w2])]
-                w = np.stack(l, axis=1)
-            return w
-        if isinstance(weights, (list, tuple)):
-            return np.concatenate(tuple(flatten_weight(_) for _ in weights), axis=0), w_infos
-        else:
-            return flatten_weight(weights), w_infos
+            if complex is False:
+                return w, w_infos
 
-    def weights_dist(self, weights, Q=3, complex_norm=False):
+            infos = []
+            l = []
+            for w1, w2 in complex_couples:
+                if w2 is None:
+                    if complex == 'angle':
+                        continue
+                    w0 = w[:, w1]
+                else:
+                    w0 = w[:, w1]+1j*w[:, w2]
+                if complex == 'angle':
+                    l += [np.angle(w0)]
+                else:
+                    l += [np.abs(w0)]
+                infos += [w_infos[w1]]
+            w = np.stack(l, axis=1)
+            return w, infos
+
+        if isinstance(weights, (list, tuple)):
+            flat_weights = []
+            for w in weights:
+                flat_w, infos = flatten_weight(w, w_infos)
+                flat_weights += [flat_w]
+            return np.concatenate(flat_weights, axis=0), infos
+        else:
+            return flatten_weight(weights, w_infos)
+
+    def weights_dist(self, weights, Q=3, complex=False):
         import numpy as np
 
-        weights, infos = self.flatten_weights(weights, complex_norm=complex_norm)
+        weights, infos = self.flatten_weights(weights, complex=complex)
         data = {k: [_[k] for _ in infos] for k, v in infos[0].items()}
         if isinstance(Q, int):
             Q = [(i+1)/(Q+1) for i in range(Q)]
@@ -594,12 +626,12 @@ class SteerableKernelBase(KernelBase):
             data[f'-q{i}'] = perc[i]
         return data
 
-    def plot_weights_dist(self, weights, Q=5, complex_norm=True):
+    def plot_weights_dist(self, weights, Q=5, complex='norm'):
         import pandas as pd
         import altair as alt
         N = len(weights) if isinstance(weights, dict) else 1
         def plot_dist(weights, offset=0, color=alt.Undefined):
-            df = pd.DataFrame(data=self.weights_dist(weights, Q=Q, complex_norm=complex_norm))
+            df = pd.DataFrame(data=self.weights_dist(weights, Q=Q, complex=complex))
             chart = alt.Chart(data=df, width=70)
             plot = chart.mark_tick(width=10, thickness=2, xOffset=offset, color=color
                                    ).encode(
@@ -629,10 +661,10 @@ class SteerableKernelBase(KernelBase):
 
         return plot.facet(column='k').resolve_scale(x='independent').interactive(bind_x=False)
 
-    def weights_hist(self, weights, bins=100, wrange=None, binspace='linear', complex_norm=False, norm='sum',
+    def weights_hist(self, weights, bins=100, wrange=None, binspace='linear', complex=False, norm='sum',
                      symlog_C=None, displayable=True):
         import pandas as pd
-        weights, w_infos = self.flatten_weights(weights, complex_norm=complex_norm)
+        weights, w_infos = self.flatten_weights(weights, complex=complex)
         if isinstance(bins, int):
             if wrange is None:
                 wrange = weights.min(), weights.max()
@@ -669,14 +701,19 @@ class SteerableKernelBase(KernelBase):
             dfs = [pd.DataFrame(h, index=pd.Index(bins, name='w'), columns=['density']) for h in hists]
             return pd.concat(dfs, keys=[(_['k'], _['r'], _['name']) for _ in w_infos], names=['k', 'r', 'name'])
 
-    def plot_weights_hist(self, weights, bins=100, binspace='linear', wrange=None, complex_norm=True, norm='max'):
+    def plot_weights_hist(self, weights, bins=100, binspace=None, wrange=None, complex='norm', norm='max'):
         import altair as alt
-        if binspace == 'log' and not complex_norm:
+        if binspace is None:
+            if complex is False or complex=='angle':
+                binspace = 'linear'
+            else:
+                binspace = 'symlog'
+        elif binspace == 'log' and complex != 'norm':
             binspace = 'symlog'
         if not isinstance(bins, int):
             binspace = 'linear'
         df = self.weights_hist(weights, bins=bins, binspace=binspace, wrange=wrange, norm=norm,
-                               complex_norm=complex_norm, displayable=False)\
+                               complex=complex, displayable=False)\
                  .reset_index(['r', 'k', 'name', 'w'])
         wrange = df.loc[:, 'w'].min(), df.loc[:, 'w'].max()
         chart = alt.Chart(data=df, width=50)
