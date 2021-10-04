@@ -87,8 +87,17 @@ class SteerableKernelBase(KernelBase):
         return self.base[self.idx_real()]
 
     @property
-    def base_y(self):
+    def base_imag(self):
         return self.base[self.idx_imag()]
+
+    @property
+    def base_complex(self):
+        return torch.cat([self.base_equi,
+                          self.base_real+1j*self.base_imag], dim=0)
+
+    def complex_weights(self, weights):
+        return torch.cat([weights[self.idx_equi()],
+                          weights[self.idx_real()]+1j*weights[self.idx_imag()]], dim=0)
 
     def expand_r(self, arr, dim=0):
         l = []
@@ -626,24 +635,39 @@ class SteerableKernelBase(KernelBase):
             data[f'-q{i}'] = perc[i]
         return data
 
-    def plot_weights_dist(self, weights, Q=5, complex='norm'):
+    def plot_weights_dist(self, weights, Q=5, complex='norm', scale_type='linear', wrange=None):
         import pandas as pd
         import altair as alt
         N = len(weights) if isinstance(weights, dict) else 1
-        def plot_dist(weights, offset=0, color=alt.Undefined):
+        def plot_dist(weights, offset=0, color=alt.Undefined, domain=None):
             df = pd.DataFrame(data=self.weights_dist(weights, Q=Q, complex=complex))
             chart = alt.Chart(data=df, width=70)
+
+            if domain is None:
+                domain = df.loc[:, 'w'].min(), df.loc[:, 'w'].max()
+
+            if scale_type == 'log':
+                axis = alt.Axis(format='e', values=[10**_
+                                                    for _ in range(int(np.floor(np.log10(domain[0]))),
+                                                                   int(np.ceil(np.log10(domain[1]))))])
+            else:
+                axis = alt.Axis()
+
             plot = chart.mark_tick(width=10, thickness=2, xOffset=offset, color=color
                                    ).encode(
                 x='r_name:N',
-                y='median:Q',
+                y=alt.Y('median:Q', title='Weights '+complex,
+                        scale=alt.Scale(type=scale_type, domain=domain),
+                        axis=axis)
             )
 
             for q in range(Q):
                 plot += chart.mark_bar(width=10, opacity=.2 if q < Q-2 else .3, xOffset=offset, color=color
                                        ).encode(
                     x='r_name:N',
-                    y=f'-q{q}:Q',
+                    y=alt.Y(f'-q{q}:Q', title='',
+                            #axis=alt.Axis(tickCount=7)
+                            ),
                     y2=f'q{q}:Q',
                 )
             return plot
@@ -652,12 +676,16 @@ class SteerableKernelBase(KernelBase):
             i = 0
             tableau10 = '#4E79A7 #F28E2B #E15759 #76B6B2 #59A14F #EDC948 #B07AA1 #FF9DA7 #9C755F #BAB0AC'.split(' ')
             plots = []
+            if wrange is None:
+                wrange = [float(min(_.min() for _ in weights.values())), float(max(_.max() for _ in weights.values()))]
             for k, w in weights.items():
-                plots += [plot_dist(weights=w, offset=10*i, color=tableau10[i])]
+                plots += [plot_dist(weights=w, offset=10*i, color=tableau10[i], domain=wrange)]
                 i += 1
             plot = alt.LayerChart(plots)
         else:
-            plot = plot_dist(weights=weights)
+            if wrange is None:
+                wrange = [float(min(_.min() for _ in weights)), float(max(_.max() for _ in weights))]
+            plot = plot_dist(weights=weights, domain=wrange)
 
         return plot.facet(column='k').resolve_scale(x='independent').interactive(bind_x=False)
 
