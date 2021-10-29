@@ -109,6 +109,22 @@ class SteerableKernelBase(KernelBase):
         return torch.cat(l, dim=dim)
 
     def create_weights(self, n_in, n_out, nonlinearity='relu', nonlinearity_param=None, dist='normal', std_theta=0):
+        """
+
+        Args:
+            n_in:
+            n_out:
+            nonlinearity: Type of nonlinearity used after the convolution. This parameter
+            nonlinearity_param:
+            dist: Distribution used for the random initialization of the weights.
+                  (Valid value: 'normal', 'uniform'; Default: 'normal')
+            std_theta: By default, all radial components of a given weight ω_nmk share the same phase
+                       (uniformly sampled between 0 and 2π). This parameter allow the addition of gaussian noise on
+                       those phases of standard deviation std_theta. (Default: 0)
+
+        Returns:
+
+        """
         from torch.nn.init import calculate_gain
         import math
 
