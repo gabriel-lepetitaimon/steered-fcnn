@@ -5,18 +5,28 @@ class ConvBN(torch.nn.Module):
     def __init__(self, kernel, n_in, n_out=None, stride=1, relu=True, padding=0, dilation=1, bn=False):
         super().__init__()
 
-        self._bn = bn
         if n_out is None:
             n_out = n_in
         if isinstance(kernel, int):
             kernel = kernel, kernel
         padding = compute_padding(padding, kernel)
 
-        model = [torch.nn.Conv2d(n_in, n_out, kernel_size=kernel, stride=stride, padding=padding, bias=False,
-                                 dilation=dilation)]
+        self.kernel = kernel
+        self.n_in = n_in
+        self.n_out = n_out
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self._relu = relu
+        self._bn = bn
+
+        model = [self.setup_conv_module(n_in, n_out)]
 
         if bn:
-            model += [torch.nn.BatchNorm2d(n_out)]
+            batchnorm = torch.nn.BatchNorm2d(n_out)
+            torch.nn.init.constant_(batchnorm.weight, 1)
+            torch.nn.init.constant_(batchnorm.bias, 0)
+            model += [batchnorm]
             if relu:
                 model += [torch.nn.ReLU()]
         elif relu:
@@ -24,17 +34,20 @@ class ConvBN(torch.nn.Module):
 
         self.model = torch.nn.Sequential(*model)
 
-        # nn.init.kaiming_normal_(self.conv.weight, mode='fan_out', nonlinearity='relu')
-        # if bn:
-        # nn.init.constant_(self.bn.weight, 1)
-        # nn.init.constant_(self.bn.bias, 0)
-
     def forward(self, x):
         return self.model(x)
 
     @property
     def conv(self):
         return self.model[0]
+
+    def setup_conv_module(self, n_in, n_out):
+        conv = torch.nn.Conv2d(n_in, n_out, kernel_size=self.kernel, stride=self.stride, padding=self.padding,
+                               dilation=self.dilation, bias=not self._bn)
+        torch.nn.init.kaiming_normal_(conv.weight, mode='fan_out', nonlinearity='relu')
+        if not self._bn:
+            torch.nn.init.constant_(self.bn.bias, 0)
+        return conv
 
     @property
     def bn(self):

@@ -7,3 +7,4 @@ from src.config import default_config, parse_config
 from src.datasets import load_dataset
 from run_train import setup_model
 import steered_cnn
+from steered_cnn.models import setup_model

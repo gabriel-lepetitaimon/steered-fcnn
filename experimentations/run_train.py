@@ -12,10 +12,8 @@ from json import dump
 from src.datasets import load_dataset
 from src.trainer import BinaryClassifierNet, ExportValidation
 from src.trainer.loggers import setup_log
+from steered_cnn.models import setup_model
 
-import matplotlib.pylab as pl
-import matplotlib
-matplotlib.scale.SymmetricalLogScale
 
 def run_train(**opt):
     cfg = parse_arguments(opt)
@@ -150,7 +148,7 @@ def parse_arguments(opt=None):
     return cfg
 
 
-def setup_model(model_cfg, old=False):
+def leg_setup_model(model_cfg, old=False):
     from steered_cnn.models import HemelingNet, SteeredHemelingNet, OldHemelingNet
     if model_cfg['steered']:
         model = SteeredHemelingNet(6, nfeatures_base=model_cfg['nfeatures-base'],
@@ -158,8 +156,7 @@ def setup_model(model_cfg, old=False):
                                    depth=model_cfg['depth'],
                                    batchnorm=model_cfg['batchnorm'],
                                    upsample=model_cfg['upsample'],
-                                   attention=model_cfg['steered'] == 'attention',
-                                   static_principal_direction=model_cfg['static-principal-direction'])
+                                   attention=model_cfg['steered'] == 'attention')
     else:
         if old:
             model = OldHemelingNet(6, nfeatures_base=model_cfg['nfeatures-base'],

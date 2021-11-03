@@ -72,8 +72,20 @@ class AttributeDict(OrderedDict):
         return yaml.dump(self.to_dict(), stream=file, default_flow_style=False)
 
     def __setitem__(self, key, value):
-        if not isinstance(key, str) or '.' in key:
+        if not isinstance(key, str):
             raise ValueError('Invalid AttributeDict key: %s.' % repr(key))
+        if '.' in key:
+            keys = key.split('.')
+            r = self
+            for i, k in enumerate(keys[:-1]):
+                try:
+                    r = r[k]
+                except (KeyError, IndexError, TypeError):
+                    raise IndexError(f'Invalid key: {".".join(keys[:i])}.') from None
+            try:
+                r[keys[-1]] = value
+            except (KeyError, IndexError, TypeError):
+                raise IndexError(f'Invalid key: {keys}.') from None
         super(AttributeDict, self).__setitem__(key, value)
 
     def __getitem__(self, item):
@@ -83,7 +95,17 @@ class AttributeDict(OrderedDict):
                 raise IndexError('Index %i out of range (AttributeDict length: %s)' % (item, len(k)))
             return super(AttributeDict, self).__getitem__(list(self.keys())[item])
         elif isinstance(item, str):
-            return super(AttributeDict, self).__getitem__(item)
+            if '.' not in item:
+                return super(AttributeDict, self).__getitem__(item)
+            else:
+                item = item.split('.')
+                r = self
+                for i, it in enumerate(item):
+                    try:
+                        r = r[it]
+                    except (KeyError, IndexError, TypeError):
+                        raise IndexError(f'Invalid item: {".".join(item[:i])}.') from None
+                return r
         else:
             return super(AttributeDict, self).__getitem__(str(item))
 
@@ -91,6 +113,11 @@ class AttributeDict(OrderedDict):
         if item in self:
             return self[item]
         raise AttributeError('%s is unknown' % item)
+
+    def __setattr__(self, key, value):
+        if key in self:
+            self[key] = value
+        raise AttributeError('%s is unknown' % key)
 
     def __iter__(self):
         for v in self.values():
@@ -127,3 +154,54 @@ class AttributeDict(OrderedDict):
     def copy(self):
         from copy import deepcopy
         return deepcopy(self)
+
+    def subset(self, items):
+        from copy import deepcopy
+        r = AttributeDict()
+        if isinstance(items, str):
+            items = items.split(',')
+            items = [_.strip() for _ in items]
+        for it in items:
+            r[it] = deepcopy(self[it])
+        return r
+
+    def check(self, path, value=True, missing=None):
+        path = path.split('.')
+
+        miss = False
+        item = self
+        for i, p in enumerate(path):
+            if p not in item:
+                miss = True
+                path = '.'.join(path[:i])
+                break
+            item = item[p]
+
+        if miss:
+            if missing is None:
+                raise AttributeError(f'Missing attribute {path}.')
+            return missing
+
+        if isinstance(value, bool) or value is None:
+            return item is value
+        return item == value
+
+    def get(self, path, default='raise'):
+        path = path.split('.')
+
+        miss = False
+        item = self
+        for i, p in enumerate(path):
+            try:
+                item = item[p]
+            except (KeyError, IndexError, TypeError):
+                miss = True
+                path = '.'.join(path[:i])
+                break
+
+        if miss:
+            if default is 'raise':
+                raise AttributeError(f'Missing attribute {path}.')
+            return default
+
+        return item

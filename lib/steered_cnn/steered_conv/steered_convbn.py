@@ -3,16 +3,18 @@ from .steered_conv import SteeredConv2d
 
 
 class SteeredConvBN(nn.Module):
-    def __init__(self, n_in, n_out=None, steerable_base=None, attention_base=None,
-                 stride=1, padding='same', dilation=1, groups=1, bn=False, relu=True):
+    def __init__(self, kernel, n_in, n_out=None, steerable_base=None, stride=1, padding='same', dilation=1,
+                 attention_base=None, attention_mode='feature', normalize_steer_vec=None,
+                 groups=1, bn=False, relu=True):
         super().__init__()
 
         self._bn = bn
         if n_out is None:
             n_out = n_in
         self.n_out = n_out
-        self.conv = SteeredConv2d(n_in, n_out, steerable_base=steerable_base, stride=stride, groups=groups,
+        self.conv = SteeredConv2d(kernel, n_in, n_out, steerable_base=steerable_base, stride=stride, groups=groups,
                                   padding=padding, bias=not bn, dilation=dilation, attention_base=attention_base,
+                                  attention_mode=attention_mode, normalize_steer_vec=normalize_steer_vec,
                                   nonlinearity='relu')
         bn_relu = []
         if bn:

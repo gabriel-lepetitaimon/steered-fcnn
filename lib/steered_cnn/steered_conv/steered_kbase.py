@@ -153,7 +153,8 @@ class SteerableKernelBase(KernelBase):
         return w
 
     @staticmethod
-    def from_steerable(kr: Union[int, Dict[int, List[int]]], std=.5, size=None, max_k=None, autonormalize=True):
+    def from_steerable(kr: Union[int, Dict[int, List[int]]], std=.5, size=None, oversample=16,
+                       max_k=None, autonormalize=True):
         """
 
 
@@ -167,6 +168,7 @@ class SteerableKernelBase(KernelBase):
                       before the apparition of aliasing artefact
             std: The standard deviation of the gaussian distribution which weights the kernels radially.
             size:
+            oversample:
             max_k:
             autonormalize:
 
@@ -204,7 +206,7 @@ class SteerableKernelBase(KernelBase):
                 else:
                     n_kernel_by_k[k] = 1
 
-                psi = radial_steerable_filter(size, k, r, std=std)
+                psi = radial_steerable_filter(size, k, r, std=std, oversampling=oversample)
 
                 labels_real += [f'k{k}r{r}'+('R' if k > 0 else '')]
                 info_real += [{'k': k, 'r': r, 'type': 'R'}]
@@ -244,7 +246,7 @@ class SteerableKernelBase(KernelBase):
                     Default: None
             rho:    The norm of the attention vector multiplying the outputs features.
                     This parameter can be:
-                        - A number: especially if rho=1 it is ignored.
+                        - A number: especially if rho=1 computations are simplified to ignore the norm.
                         - A 3D tensor: (b, h, w)
                         - A 4D tensor: (b, n_out, h, w)
                         - A 5D tensor: (k_max, b, n_out, h, w)
@@ -322,15 +324,16 @@ class SteerableKernelBase(KernelBase):
             assert w_a == 1 or w_a == w, f'Invalid width for alpha: alpha.shape[{alpha.dim() - 1}]={w_a} but should be {w} (or  1 for broadcast)\n' \
                                          f'(alpha.shape={alpha.shape}, input.shape={input.shape}'
 
+            if rho is None:
+                alpha, rho = normalize_vector(alpha)
+
         # --- RHO ---
-        if rho is None:
-            alpha, rho = normalize_vector(alpha)
-        elif isinstance(rho, (int, float)):
+        if isinstance(rho, (int, float)):
             if rho == 1:
                 rho = None
             else:
-                rho = torch.Tensor([alpha]).to(device=input.device)[:, None, None]
-        if rho is not None:
+                rho = torch.Tensor([rho]).to(device=input.device)[:, None, None, None]
+        elif rho is not None:
             rho = clip_pad_center(rho, (h, w), broadcastable=True)
 
             assert 3 <= rho.dim() <= 5, f'Invalid number of dimensions for rho: rho.shape={rho.shape}.\n' \
@@ -451,7 +454,6 @@ class SteerableKernelBase(KernelBase):
             f = F.conv2d(input, self.composite_equi_kernels(weight), **conv_opts)
             if rho_k:
                 f *= rho[0]
-
         else:
             f = torch.zeros((b, n_out, h, w),
                             device=self.base.device, dtype=self.base.dtype)
