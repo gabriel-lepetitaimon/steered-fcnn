@@ -6,12 +6,13 @@ from .model import Model
 
 
 class UNet(Model):
-    def __init__(self, n_in, n_out=1, nfeatures_base=64, kernel=3, depth=2, nscale=5, padding='same',
+    def __init__(self, n_in, n_out=1, nfeatures=64, kernel=3, depth=2, nscale=5, padding='same',
                  p_dropout=0, batchnorm=True, downsampling='maxpooling', upsampling='conv', **kwargs):
         """
         :param n_in: Number of input features (or channels).
         :param n_out: Number of output features (or classes).
-        :param nfeatures_base: Number of features of each convolution block for the first stage of the UNet. The number of features doubles at every stage.
+        :param nfeatures: Number of features of each convolution block for the first stage of the UNet.
+                          The number of features doubles at every stage.
         :param kernel: Height and Width of the convolution kernels
         :param depth: Number of convolution block in each stage.
         :param nscale: Number of downsampling stage.
@@ -27,15 +28,24 @@ class UNet(Model):
             - bilinear: Bilinear upsampling
             - nearest: Nearest upsampling
         """
-        super().__init__(n_in=n_in, n_out=n_out, nfeatures_base=nfeatures_base, depth=depth, nscale=nscale,
+        super().__init__(n_in=n_in, n_out=n_out, nfeatures=nfeatures, depth=depth, nscale=nscale,
                          kernel=kernel, padding=padding, p_dropout=p_dropout, batchnorm=batchnorm,
                          downsampling=downsampling, upsampling=upsampling, **kwargs)
+
+        if isinstance(nfeatures, int):
+            nfeatures = [nfeatures*(2**scale) for scale in range(nscale)]
+        if isinstance(nfeatures, (tuple, list)):
+            if len(nfeatures) == nscale:
+                nfeatures = nfeatures + list(reversed(nfeatures[:-1]))
+            elif len(nfeatures) != nscale*2-1:
+                raise ValueError(f'Invalid length for nfeatures: {nfeatures}.\n '
+                                 f'Should be nscale={nscale} or nscale*2-1={nscale*2-1}.')
 
         # Down
         self.down_conv = []
         for i in range(nscale):
-            nf_prev = n_in if i == 0 else (nfeatures_base * (2**(i-1)))
-            nf_scale = nfeatures_base * (2**i)
+            nf_prev = n_in if i == 0 else nfeatures[i-1]
+            nf_scale = nfeatures[i]
             conv_stack = [self.setup_convbn(nf_prev, nf_scale)]
             conv_stack += [self.setup_convbn(nf_scale, nf_scale) for _ in range(depth-1)]
             if downsampling == 'conv':
@@ -45,9 +55,9 @@ class UNet(Model):
                 self.add_module(f'downconv{i}-{j}', mod)
 
         self.up_conv = []
-        for i in reversed(range(nscale-1)):
-            nf_scale = nfeatures_base * 3 * (2**i)
-            nf_next = nfeatures_base * (2**i)
+        for i in range(nscale, 2*nscale-1):
+            nf_scale = nfeatures[i] + nfeatures[2*nscale-i-1]
+            nf_next = nfeatures[i]
             conv_stack = [self.setup_convbn(nf_scale, nf_scale) for _ in range(depth-1)]
             if upsampling == 'conv':
                 conv_stack += [self.setup_convtranspose(nf_scale, nf_next)]
@@ -58,7 +68,7 @@ class UNet(Model):
                 self.add_module(f'upconv{i}-{j}', mod)
 
         # End
-        self.final_conv = nn.Conv2d(nfeatures_base, n_out, kernel_size=(1, 1))
+        self.final_conv = nn.Conv2d(nfeatures[-1], n_out, kernel_size=(1, 1))
 
         self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else identity
         if downsampling == 'maxpooling':

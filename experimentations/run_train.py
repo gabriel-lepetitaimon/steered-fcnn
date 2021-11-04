@@ -4,22 +4,22 @@ import torch
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from orion.client import report_objective
-from pytorch_lightning.utilities.cloud_io import load as pl_load
 import os
 import os.path as P
 from json import dump
 
 from src.datasets import load_dataset
-from src.trainer import BinaryClassifierNet, ExportValidation
-from src.trainer.loggers import setup_log
+from src.trainer import Binary2DSegmentation, ExportValidation
+from src.trainer.loggers import Logs
 from steered_cnn.models import setup_model
 
 
 def run_train(**opt):
     cfg = parse_arguments(opt)
     args = cfg['script-arguments']
-    tmp = setup_log(cfg)
-    tmp_path = tmp.name
+    logs = Logs()
+    logs.setup_log(cfg)
+    tmp_path = logs.tmp_path
     
     if isinstance(cfg.training['seed'], int):
         torch.manual_seed(cfg.training['seed'])
@@ -30,17 +30,24 @@ def run_train(**opt):
     val_n_epoch = cfg.training['val-every-n-epoch']
     max_epoch = cfg.training['max-epoch']
 
-    # ---  MODEL  ---
+    ###################
+    # ---  MODEL  --- #
+    # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ #
     model = setup_model(cfg['model'])
-
-    # ---  TRAIN  ---
-    r_code = 10
-    trainer_kwargs = {}
     hyper_params = cfg['hyper-parameters']
-    net = BinaryClassifierNet(model=model, loss=hyper_params['loss'],
-                              optimizer=hyper_params['optimizer'],
-                              lr=hyper_params['lr'],
-                              p_dropout=hyper_params['drop-out'])
+    net = Binary2DSegmentation(model=model, loss=hyper_params['loss'],
+                               optimizer=hyper_params['optimizer'],
+                               lr=hyper_params['lr'],
+                               p_dropout=hyper_params['drop-out'])
+
+    ###################
+    # ---  TRAIN  --- #
+    # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ #
+    # Define r_code, a return code sended back to train_single.py.
+    # (A run is considered successful if it returns 10 <= r <= 20. Otherwise orion is interrupted.)
+    r_code = 10
+
+    trainer_kwargs = {}
     if cfg.training['half-precision']:
         trainer_kwargs['amp_level'] = 'O2'
         trainer_kwargs['precision'] = 16
@@ -68,11 +75,13 @@ def run_train(**opt):
     try:
         trainer.fit(net, trainD, validD)
     except KeyboardInterrupt:
-        r_code = 1
+        r_code = 1  # Interrupt Orion
 
-    
-    # --- TEST ---
+    ################
+    # --- TEST --- #
+    # ‾‾‾‾‾‾‾‾‾‾‾‾ #
     reported_metric = cfg.training['optimize']
+    best_ckpt = None
     if reported_metric not in modelCheckpoints:
         print(f'Invalid optimized metric {reported_metric}, optimizing {checkpointed_metrics[0]} instead.')
         reported_metric = reported_metric[0]
@@ -80,11 +89,8 @@ def run_train(**opt):
         metric_value = float(checkpoint.best_model_score.cpu().numpy())
         mlflow.log_metric('best-' + metric_name, metric_value)
         if metric_name == reported_metric:
+            best_ckpt = checkpoint
             reported_value = -metric_value
-            state_dict = pl_load(checkpoint.best_model_path)['state_dict']
-            net.load_state_dict(state_dict)
-
-    net.eval()
     
     if 'av' in cfg.training['dataset-file']:
         cmap = {(0, 0): 'blue', (1, 1): 'red', (1, 0): 'cyan', (0, 1): 'pink', 'default': 'lightgray'}
@@ -95,14 +101,15 @@ def run_train(**opt):
     tester = pl.Trainer(gpus=args.gpus,
                         callbacks=[ExportValidation(cmap, path=tmp_path + '/samples')],)
     net.testset_names, testD = list(zip(*testD.items()))
-    tester.test(net, testD)
-    
-    # --- LOG ---
-    report_objective(reported_value)
-    mlflow.log_artifacts(tmp.name)
-    mlflow.end_run()
-    tmp.cleanup()
+    tester.test(net, testD, ckpt_path=best_ckpt.best_model_path)
 
+    ###############
+    # --- LOG --- #
+    # ‾‾‾‾‾‾‾‾‾‾‾ #
+    report_objective(reported_value)
+    logs.save_cleanup()
+
+    # Store data in a json file to send info back to train_single.py script.
     with open(P.join(cfg['script-arguments']['tmp-dir'], f'{cfg.trial.name}-{cfg.trial.id}.json'), 'w') as f:
         json = {'rcode': r_code}
         dump(json, f)

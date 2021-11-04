@@ -6,7 +6,7 @@ from ..utils import ConvBN, cat_crop
 
 class OriginalHemelingNet(UNet):
     def __init__(self, n_in, n_out):
-        super(OriginalHemelingNet, self).__init__(n_in, n_out, nfeatures_base=16, kernel=5, upsampling='bilinear')
+        super(OriginalHemelingNet, self).__init__(n_in, n_out, nfeatures=16, kernel=5, upsampling='bilinear')
 
 
 class HemelingNet(nn.Module):

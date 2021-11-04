@@ -1,17 +1,18 @@
 import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
-import pytorch_lightning.metrics.functional as metricsF
+from torchmetrics import functional as metricsF
+import torchmetrics
 
 from steered_cnn.utils import clip_pad_center
 
 
-class BinaryClassifierNet(pl.LightningModule):
+class Binary2DSegmentation(pl.LightningModule):
     def __init__(self, model, loss='BCE', optimizer=None, lr=1e-3, p_dropout=0):
         super().__init__()
         self.model = model
 
-        self.val_accuracy = pl.metrics.Accuracy(compute_on_step=False)
+        self.val_accuracy = torchmetrics.Accuracy(compute_on_step=False)
         self.lr = lr
         self.p_dropout = p_dropout
         if loss == 'dice':
@@ -66,7 +67,7 @@ class BinaryClassifierNet(pl.LightningModule):
             'y_hat': y_hat,
             'y': y,
             'y_sig': y_sig,
-            'metrics': BinaryClassifierNet.metrics(y_sig, y)
+            'metrics': Binary2DSegmentation.metrics(y_sig, y)
         }
 
     @staticmethod

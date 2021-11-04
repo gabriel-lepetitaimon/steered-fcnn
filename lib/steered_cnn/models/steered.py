@@ -7,13 +7,13 @@ from .backbones import UNet
 
 
 class SteeredUNet(UNet):
-    def __init__(self, n_in, n_out, nfeatures_base=6, kernel=3, depth=2, nscale=5, padding='same',
+    def __init__(self, n_in, n_out, nfeatures=6, kernel=3, depth=2, nscale=5, padding='same',
                  p_dropout=0, batchnorm=True, downsampling='maxpooling', upsampling='conv',
                  base=DEFAULT_STEERABLE_BASE, attention_base=None, attention_mode='shared', normalize_steer=False):
         self.base = base
         self.attention_base = attention_base
 
-        super(SteeredUNet, self).__init__(n_in, n_out, nfeatures_base=nfeatures_base, kernel=kernel, depth=depth,
+        super(SteeredUNet, self).__init__(n_in, n_out, nfeatures=nfeatures, kernel=kernel, depth=depth,
                                           nscale=nscale, padding=padding, p_dropout=p_dropout, batchnorm=batchnorm,
                                           downsampling=downsampling, upsampling=upsampling,
                                           attention_mode=attention_mode, normalize_steer=normalize_steer)

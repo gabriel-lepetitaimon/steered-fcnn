@@ -1,2 +1,2 @@
-from .classifier_net import BinaryClassifierNet
+from .classifier_net import Binary2DSegmentation
 from .callbacks import *

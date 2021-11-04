@@ -29,7 +29,7 @@ class ExportValidation(Callback):
 
         x = batch['x']
         y = (batch['y'] != 0).float()
-        y_pred = outputs.detach().cpu() > .5
+        y_pred = outputs.detach() > .5
         y = clip_pad_center(y, y_pred.shape)
 
         if 'mask' in batch:
@@ -40,7 +40,7 @@ class ExportValidation(Callback):
             os.makedirs(self.path)
 
         diff = torch.stack((y, y_pred), dim=1)
-        diff = diff.numpy()
+        diff = diff.cpu().numpy()
         for i, diff_img in enumerate(diff):
             diff_img = (self.color_lut(diff_img).transpose(1, 2, 0) * 255).astype(np.uint8)
             path = os.path.abspath(os.path.join(self.path, f'{prefix}{dataloader_idx}-{i}.png'))

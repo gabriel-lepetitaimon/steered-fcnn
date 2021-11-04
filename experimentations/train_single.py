@@ -52,6 +52,7 @@ def run_experiment(cfg_path, env=None):
 
     # --- Set Env Variable ---
     os.environ['TRIAL_ID'] = str(n_trials)
+    os.environ['TRIAL_CFG_PATH'] = cfg_path
     for k, v in env.items():
         os.environ[k] = str(v)
 

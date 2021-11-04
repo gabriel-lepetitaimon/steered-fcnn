@@ -15,7 +15,7 @@ model:
 
     n_in: 6
     n_out: 1
-    nfeatures_base: 16
+    nfeatures: 16
     nscale: 5
     depth: 2
     kernel: 5
@@ -34,7 +34,7 @@ training:
     val-every-n-epoch: 1
     half-precision: False
     optimize: 'val-acc'
-    num-worker: 8
+    num-worker: 6
     early-stopping:
         monitor: 'auto'
         min_delta: 0.005
@@ -58,15 +58,15 @@ hyper-parameters:
     # optimizer:
     #     type: 'ASGD' 
     #     weight_decay: 0
-        alpha: 0.75
-        t0: 1000000.0
+    #    alpha: 0.75
+    #    t0: 1000000.0
     
     # optimizer:
     #     type: 'SGD' 
     #     weight_decay: 0
-        momentum: 0, 
-        dampening: 0
-        nesterov: False
+    #    momentum: 0,
+    #    dampening: 0
+    #    nesterov: False
 
 
 data-augmentation:
