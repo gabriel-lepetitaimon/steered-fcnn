@@ -71,6 +71,13 @@ class Logs:
         mlflow.log_param('training.dataset', cfg.training['training-dataset'])
 
     def save_cleanup(self):
+        for ckpt in os.listdir(self.tmp.name):
+            if ckpt.endswith('.ckpt'):
+                l = ckpt.split('-')
+                if len(l) == 3:
+                    new_ckpt = '-'.join(l[:2]) + '.ckpt'
+                    os.rename(join(self.tmp.name, ckpt), join(self.tmp.name, new_ckpt))
+
         mlflow.log_artifacts(self.tmp.name)
         mlflow.end_run()
         self.tmp.cleanup()
