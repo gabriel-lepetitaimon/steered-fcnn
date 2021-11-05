@@ -28,6 +28,7 @@ model:
 training:
     seed: 1234
     dataset-file: 'vessels.h5'
+    dataset-path: 'default'
     training-dataset: 'DRIVE'
     training-dataset-factor: 8
     max-epoch: 30

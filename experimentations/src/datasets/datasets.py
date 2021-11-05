@@ -10,7 +10,7 @@ from .data_augment import DataAugment
 DEFAULT_DATA_PATH = P.join(P.abspath(P.dirname(__file__)), '../../DATA')
 
 
-def load_dataset(cfg=None, data_path=DEFAULT_DATA_PATH):
+def load_dataset(cfg=None):
     if cfg is None:
         cfg = default_config()
     batch_size = cfg['hyper-parameters']['batch-size']
@@ -18,6 +18,9 @@ def load_dataset(cfg=None, data_path=DEFAULT_DATA_PATH):
     if steered == 'attention':
         steered = False
     train_dataset = cfg.training['training-dataset']
+    data_path = cfg.training.get('dataset-path', 'default')
+    if data_path == 'default':
+        data_path = DEFAULT_DATA_PATH
     dataset_file = P.join(data_path, cfg.training['dataset-file'])
     trainD = DataLoader(TrainDataset('train/'+train_dataset, file=dataset_file,
                                      factor=cfg.training['training-dataset-factor'],
