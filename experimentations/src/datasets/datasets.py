@@ -46,27 +46,27 @@ class TrainDataset(Dataset):
             data_augmentation_cfg = default_config()['data-augmentation']
 
         with h5py.File(file, 'r') as DATA:
-            self.x = DATA.get(f'{dataset}/data')
-            self.y = DATA.get(f'{dataset}/av')
-            self.mask = DATA.get(f'{dataset}/mask')
+            self.x = DATA.get(f'{dataset}/data')[:]
+            self.y = DATA.get(f'{dataset}/av')[:]
+            self.mask = DATA.get(f'{dataset}/mask')[:]
             data_fields = dict(images='x', labels='y,mask')
 
             if steered:
                 if steered is True:
                     steered = 'vec-norm'
                 if steered == 'vec':
-                    self.steer = DATA.get(f'{dataset}/principal-vec-norm')
+                    self.steer = DATA.get(f'{dataset}/principal-vec-norm')[:]
                     data_fields['vectors'] = 'alpha'
                 elif steered == 'vec-norm':
-                    self.steer = DATA.get(f'{dataset}/principal-vec')
+                    self.steer = DATA.get(f'{dataset}/principal-vec')[:]
                     data_fields['vectors'] = 'alpha'
                 elif steered == 'angle':
                     data_fields['angles'] = 'alpha'
-                    self.steer = DATA.get(f'{dataset}/principal-angle')
+                    self.steer = DATA.get(f'{dataset}/principal-angle')[:]
                 elif steered == 'all':
-                    self.angle = DATA.get(f'{dataset}/principal-angle')
-                    self.vec = DATA.get(f'{dataset}/principal-vec-norm')  # Through sigmoid
-                    self.vec_norm = DATA.get(f'{dataset}/principal-vec')
+                    self.angle = DATA.get(f'{dataset}/principal-angle')[:]
+                    self.vec = DATA.get(f'{dataset}/principal-vec-norm')[:]  # Through sigmoid
+                    self.vec_norm = DATA.get(f'{dataset}/principal-vec')[:] 
                     data_fields['angles'] = 'angle'
                     data_fields['vectors'] = 'vec,vec_norm,angle_xy'
                 else:
@@ -117,35 +117,35 @@ class TrainDataset(Dataset):
 class TestDataset(Dataset):
     def __init__(self, dataset, file, steered=True):
         super(TestDataset, self).__init__()
-        DATA = h5py.File(file, 'r')
+        with h5py.File(file, 'r') as DATA:
 
-        self.x = DATA.get(f'{dataset}/data')
-        self.y = DATA.get(f'{dataset}/av')
-        self.mask = DATA.get(f'{dataset}/mask')
-        data_fields = dict(images='x', labels='y,mask')
+            self.x = DATA.get(f'{dataset}/data')[:]
+            self.y = DATA.get(f'{dataset}/av')[:]
+            self.mask = DATA.get(f'{dataset}/mask')[:]
+            data_fields = dict(images='x', labels='y,mask')
 
-        if steered:
-            if steered is True:
-                steered = 'vec-norm'
-            if steered == 'vec':
-                self.steer = DATA.get(f'{dataset}/principal-vec-norm')
-                data_fields['vectors'] = 'alpha'
-            elif steered == 'vec-norm':
-                self.steer = DATA.get(f'{dataset}/principal-vec')
-                data_fields['vectors'] = 'alpha'
-            elif steered == 'angle':
-                data_fields['angles'] = 'alpha'
-                self.steer = DATA.get(f'{dataset}/principal-angle')
-            elif steered == 'all':
-                self.angle = DATA.get(f'{dataset}/principal-angle')
-                self.vec = DATA.get(f'{dataset}/principal-vec-norm')  # Through sigmoid
-                self.vec_norm = DATA.get(f'{dataset}/principal-vec')
-                data_fields['angles'] = 'angle'
-                data_fields['vectors'] = 'vec,vec_norm'
-            else:
-                raise ValueError(
-                    'steered should be one of "vec", "vec-norm", "angle" or "all".'
-                    f'(Provided: "{steered}")')
+            if steered:
+                if steered is True:
+                    steered = 'vec-norm'
+                if steered == 'vec':
+                    self.steer = DATA.get(f'{dataset}/principal-vec-norm')[:]
+                    data_fields['vectors'] = 'alpha'
+                elif steered == 'vec-norm':
+                    self.steer = DATA.get(f'{dataset}/principal-vec')[:]
+                    data_fields['vectors'] = 'alpha'
+                elif steered == 'angle':
+                    data_fields['angles'] = 'alpha'
+                    self.steer = DATA.get(f'{dataset}/principal-angle')[:]
+                elif steered == 'all':
+                    self.angle = DATA.get(f'{dataset}/principal-angle')[:]
+                    self.vec = DATA.get(f'{dataset}/principal-vec-norm')[:]  # Through sigmoid
+                    self.vec_norm = DATA.get(f'{dataset}/principal-vec')[:]
+                    data_fields['angles'] = 'angle'
+                    data_fields['vectors'] = 'vec,vec_norm'
+                else:
+                    raise ValueError(
+                        'steered should be one of "vec", "vec-norm", "angle" or "all".'
+                        f'(Provided: "{steered}")')
 
         self.geo_aug = DataAugment().compile(**data_fields, to_torch=True)
         
