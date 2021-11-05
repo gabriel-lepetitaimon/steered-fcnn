@@ -37,10 +37,10 @@ training:
     optimize: 'val-acc'
     num-worker: 6
     early-stopping:
-        monitor: 'auto'
+        monitor: 'train-loss'
         min_delta: 0.005
-        patience: 5
-        mode: 'max'
+        patience: 8
+        mode: 'min'
 
     
 hyper-parameters:
@@ -48,7 +48,7 @@ hyper-parameters:
     batch-size: 8
     accumulate-gradient-batch: 1
     drop-out: 0
-    loss: 'dice'  # 'focalLoss' / 'binaryCE' / 'dice'
+    loss: 'binaryCE'  # 'focalLoss' / 'binaryCE' / 'dice'
     smooth-label: 0
     optimizer:
         type: 'Adam' # also supported: AdamW and Adammax
