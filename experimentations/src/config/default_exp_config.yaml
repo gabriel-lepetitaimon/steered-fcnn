@@ -38,8 +38,8 @@ training:
     num-worker: 6
     early-stopping:
         monitor: 'train-loss'
-        min_delta: 0.005
-        patience: 8
+        min_delta: 0.0005
+        patience: 10
         mode: 'min'
 
     
