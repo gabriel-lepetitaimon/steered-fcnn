@@ -66,7 +66,7 @@ def run_train(**opt):
         modelCheckpoints[metric] = checkpoint
         callbacks.append(checkpoint)
         
-    trainer = pl.Trainer(gpus=args.gpus, callbacks=callbacks,
+    trainer = pl.Trainer(gpus=args.gpus.split(','), callbacks=callbacks,
                          max_epochs=int(np.ceil(max_epoch / val_n_epoch) * val_n_epoch),
                          check_val_every_n_epoch=val_n_epoch,
                          accumulate_grad_batches=cfg['hyper-parameters']['accumulate-gradient-batch'],
