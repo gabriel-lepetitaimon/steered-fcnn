@@ -221,7 +221,7 @@ class DataAugment:
     @augment_method('geometric')
     def rotate(self, angle=(-180, +180), value_type=None,
                interpolation=cv2.INTER_LINEAR, border_mode=cv2.BORDER_CONSTANT, border_value=0):
-        import albumentations.augmentations.functional as AF
+        import albumentations.augmentations.geometric.functional as AF
         angle = _RD.auto(angle, symetric=True)
 
         pre_rot = None
@@ -244,7 +244,7 @@ class DataAugment:
     def elastic_distortion(self, alpha=1, sigma=50, alpha_affine=50,
                            approximate=False, interpolation=cv2.INTER_LINEAR,
                            border_mode=cv2.BORDER_CONSTANT, border_value=0.0):
-        import albumentations.augmentations.functional as AF
+        import albumentations.augmentations.geometric.functional as AF
         def augment(x, rng_seed):
             random_state = np.random.RandomState(rng_seed)
             return AF.elastic_transform(x, alpha=alpha, sigma=sigma, alpha_affine=alpha_affine, approximate=approximate,
