@@ -24,7 +24,7 @@ def main():
         env['TRIAL_GPUS'] = str(args.gpus)
     if args.debug:
         env['TRIAL_DEBUG'] = str(args.debug)
-    run_experiment(args.cfg)
+    run_experiment(args.cfg, env=env)
 
 
 def run_experiment(cfg_path, env=None):
