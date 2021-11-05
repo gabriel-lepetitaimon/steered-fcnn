@@ -21,9 +21,9 @@ def main():
 
     env = {}
     if args.gpus is not None:
-        env['TRIAL_GPUS'] = args.gpus
-    if args.debug is not None:
-        env['TRIAL_DEBUG'] = args.debug
+        env['TRIAL_GPUS'] = str(args.gpus)
+    if args.debug:
+        env['TRIAL_DEBUG'] = str(args.debug)
     run_experiment(args.cfg)
 
 
