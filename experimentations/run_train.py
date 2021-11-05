@@ -30,6 +30,8 @@ def run_train(**opt):
     val_n_epoch = cfg.training['val-every-n-epoch']
     max_epoch = cfg.training['max-epoch']
 
+    gpus = [int(_) for _ in args.gpus.split(',')]
+
     ###################
     # ---  MODEL  --- #
     # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ #
@@ -66,7 +68,7 @@ def run_train(**opt):
         modelCheckpoints[metric] = checkpoint
         callbacks.append(checkpoint)
         
-    trainer = pl.Trainer(gpus=args.gpus.split(','), callbacks=callbacks,
+    trainer = pl.Trainer(gpus=gpus, callbacks=callbacks,
                          max_epochs=int(np.ceil(max_epoch / val_n_epoch) * val_n_epoch),
                          check_val_every_n_epoch=val_n_epoch,
                          accumulate_grad_batches=cfg['hyper-parameters']['accumulate-gradient-batch'],
@@ -97,10 +99,8 @@ def run_train(**opt):
         cmap = {(0, 0): 'blue', (1, 1): 'red', (1, 0): 'cyan', (0, 1): 'pink', 'default': 'lightgray'}
     else:
         cmap = {(0, 0): 'black', (1, 1): 'white', (1, 0): 'orange', (0, 1): 'greenyellow', 'default': 'lightgray'}
-        
-    
-    tester = pl.Trainer(gpus=args.gpus,
-                        callbacks=[ExportValidation(cmap, path=tmp_path + '/samples')],)
+
+    tester = pl.Trainer(gpus=gpus, callbacks=[ExportValidation(cmap, path=tmp_path + '/samples')],)
     net.testset_names, testD = list(zip(*testD.items()))
     tester.test(net, testD, ckpt_path=best_ckpt.best_model_path)
 

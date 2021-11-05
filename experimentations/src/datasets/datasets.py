@@ -66,7 +66,7 @@ class TrainDataset(Dataset):
                 elif steered == 'all':
                     self.angle = DATA.get(f'{dataset}/principal-angle')[:]
                     self.vec = DATA.get(f'{dataset}/principal-vec-norm')[:]  # Through sigmoid
-                    self.vec_norm = DATA.get(f'{dataset}/principal-vec')[:] 
+                    self.vec_norm = DATA.get(f'{dataset}/principal-vec')[:]
                     data_fields['angles'] = 'angle'
                     data_fields['vectors'] = 'vec,vec_norm,angle_xy'
                 else:
