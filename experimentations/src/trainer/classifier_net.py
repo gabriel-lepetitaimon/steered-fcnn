@@ -1,4 +1,6 @@
 from functools import partial
+
+import mlflow
 import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
@@ -101,11 +103,13 @@ class Binary2DSegmentation(pl.LightningModule):
             'iou': metricsF.iou(y_pred, y),
         }
 
-    def log_metrics(self, metrics, prefix=''):
+    def log_metrics(self, metrics, prefix='', force_mlflow=False):
         if prefix and not prefix.endswith('-'):
             prefix += '-'
         for k, v in metrics.items():
             self.log(prefix + k, v.cpu().item())
+            if force_mlflow:
+                mlflow.log_metric(prefix+k, float(v.cpu().item()))
 
     def validation_step(self, batch, batch_idx):
         result = self._validate(batch)
@@ -120,7 +124,7 @@ class Binary2DSegmentation(pl.LightningModule):
         prefix = 'test'
         if self.testset_names:
             prefix = self.testset_names[dataloader_idx]
-        self.log_metrics(metrics, prefix)
+        self.log_metrics(metrics, prefix, force_mlflow=True)
         return result['y_pred']
 
     def configure_optimizers(self):

@@ -103,8 +103,10 @@ def run_train(**opt):
     else:
         cmap = {(0, 0): 'black', (1, 1): 'white', (1, 0): 'orange', (0, 1): 'greenyellow', 'default': 'lightgray'}
 
-    tester = pl.Trainer(gpus=gpus, callbacks=[ExportValidation(cmap, path=tmp_path + '/samples')],)
     net.testset_names, testD = list(zip(*testD.items()))
+    tester = pl.Trainer(gpus=gpus,
+                        callbacks=[ExportValidation(cmap, path=tmp_path + '/samples', dataset_names=net.testset_names)],
+                        progress_bar_refresh_rate=1 if args.debug else 0,)
     tester.test(net, testD, ckpt_path=best_ckpt.best_model_path)
 
     ###############
