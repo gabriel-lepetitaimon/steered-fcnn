@@ -1,5 +1,6 @@
 experiment:
     max_trials: 20
+    max_broken: 10
     algorithms:
         tpe:
             seed: null
@@ -12,6 +13,7 @@ experiment:
 
 worker:
     max_trials: 1
+    max_broken: 3
 
 storage:
     database:

@@ -30,7 +30,10 @@ def run_train(**opt):
     val_n_epoch = cfg.training['val-every-n-epoch']
     max_epoch = cfg.training['max-epoch']
 
-    gpus = [int(_) for _ in args.gpus.split(',')]
+    if isinstance(args.gpus, str):
+        gpus = [int(_) for _ in args.gpus.split(',')]
+    else:
+        gpus = args.gpus
 
     ###################
     # ---  MODEL  --- #
