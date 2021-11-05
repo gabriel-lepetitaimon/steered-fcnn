@@ -1,10 +1,10 @@
 experiment:
-    max_trials: 30
+    max_trials: 20
     algorithms:
         tpe:
             seed: null
-            n_initial_points: 15
-            n_ei_candidates: 15
+            n_initial_points: 12
+            n_ei_candidates: 8
             gamma: 0.25
             equal_weight: False
             prior_weight: 1.0

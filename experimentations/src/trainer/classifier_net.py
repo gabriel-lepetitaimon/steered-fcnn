@@ -1,3 +1,4 @@
+from functools import partial
 import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
@@ -8,23 +9,44 @@ from steered_cnn.utils import clip_pad_center
 
 
 class Binary2DSegmentation(pl.LightningModule):
-    def __init__(self, model, loss='BCE', optimizer=None, lr=1e-3, p_dropout=0):
+    def __init__(self, model, loss='BCE', optimizer=None, lr=1e-3, p_dropout=0, soft_label=0):
         super().__init__()
         self.model = model
 
         self.val_accuracy = torchmetrics.Accuracy(compute_on_step=False)
         self.lr = lr
         self.p_dropout = p_dropout
+        self.soft_label = soft_label
+        
+        if isinstance(loss, dict):
+            loss_kwargs = loss
+            loss = loss['type']
+            del loss_kwargs['type']
+        else:
+            loss_kwargs = {}
+        
         if loss == 'dice':
             from .losses import binary_dice_loss
-            self.loss_f = lambda y_hat, y: binary_dice_loss(torch.sigmoid(y_hat), y)
-        else:
-            self.loss_f = lambda y_hat, y: F.binary_cross_entropy_with_logits(y_hat, y.float())
+            self._loss = lambda y_hat, y: binary_dice_loss(torch.sigmoid(y_hat), y)
+        elif loss == 'focalLoss':
+            from .losses import focal_loss
+            _loss = partial(focal_loss, gamma=loss_kwargs.get('gamma',2))
+            print('FocalLoss.Gamma=', loss_kwargs.get('gamma',2))
+            self._loss = lambda y_hat, y: _loss(torch.sigmoid(y_hat), y)
+        elif loss == 'binaryCE':
+            self._loss = lambda y_hat, y: F.binary_cross_entropy_with_logits(y_hat, y.float())
         if optimizer is None:
             optimizer = {'type': 'Adam'}
         self.optimizer = optimizer
 
         self.testset_names = None
+        
+    def loss_f(self, pred, target):
+        if self.soft_label:
+            target = target.float()
+            target *= 1-2*self.soft_label
+            target += self.soft_label
+        return self._loss(pred, target)
 
     def compute_y_yhat(self, batch):
         x = batch['x']

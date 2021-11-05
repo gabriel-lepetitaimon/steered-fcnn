@@ -35,9 +35,10 @@ def run_train(**opt):
     # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ #
     model = setup_model(cfg['model'])
     hyper_params = cfg['hyper-parameters']
-    net = Binary2DSegmentation(model=model, loss=hyper_params['loss'],
+    net = Binary2DSegmentation(model=model, loss=hyper_params['loss'], 
+                               soft_label=hyper_params['smooth-label'],
                                optimizer=hyper_params['optimizer'],
-                               lr=hyper_params['lr'],
+                               lr=hyper_params['lr'] / hyper_params['accumulate-gradient-batch'],
                                p_dropout=hyper_params['drop-out'])
 
     ###################
