@@ -94,7 +94,7 @@ def run_train(**opt):
     for metric_name, checkpoint in modelCheckpoints.items():
         metric_value = float(checkpoint.best_model_score.cpu().numpy())
         mlflow.log_metric('best-' + metric_name, metric_value)
-        mlflow.log_metric(f'best-{metric_name}-epoch', float(checkpoint.best_model_path[:-5].rsplit('-', 1)[1]))
+        mlflow.log_metric(f'best-{metric_name}-epoch', float(checkpoint.best_model_path[:-5].rsplit('-', 1)[1][6:]))
         if metric_name == reported_metric:
             best_ckpt = checkpoint
             reported_value = -metric_value
