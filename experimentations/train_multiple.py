@@ -32,9 +32,7 @@ def train_multiple(path=None, debug=False, gpus=None, env=None):
         cfgs = sorted(_ for _ in os.listdir(path) if _.endswith('.yaml') if _[0] != "!")
         ended = True
         for cfg in cfgs:
-            if run_experiment(os.path.join(path, cfg), env):
-                ended = bool(env.get('TRIAL_DEBUG', False))   # True if debug else False
-                break
+            run_experiment(os.path.join(path, cfg), env)
 
 
 if __name__ == '__main__':

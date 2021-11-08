@@ -153,10 +153,7 @@ def parse_arguments(opt=None):
     for k, v in args.items():
         if v is not None:
             script_args[k] = v
-    # Save trial info
-    cfg['trial'] = AttributeDict(id=int(os.getenv('TRIAL_ID', 0)),
-                                 name=os.getenv('ORION_EXPERIMENT_NAME', 'trial-name'),
-                                 version=os.getenv('ORION_EXPERIMENT_VERSION', 0))
+
     if script_args.debug:
         cfg.training['max-epoch'] = 1
     return cfg
