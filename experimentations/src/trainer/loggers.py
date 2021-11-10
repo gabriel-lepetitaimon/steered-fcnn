@@ -10,6 +10,7 @@ from ..config import default_config
 class Logs:
     def __init__(self):
         self.tmp = None
+        self.misc = {}
 
     @property
     def tmp_path(self):
@@ -52,6 +53,7 @@ class Logs:
         with open(join(tmp.name, 'cfg_extended.yaml'), 'w') as f:
             cfg.to_yaml(f)
 
+        # --- LOG PARAMS ---
         mlflow.log_param('sub-experiment', cfg.experiment['sub-experiment'])
         if cfg.experiment['sub-experiment-id']:
             mlflow.log_param('sub-experiment-id', cfg.experiment['sub-experiment-id'])
@@ -70,13 +72,33 @@ class Logs:
         mlflow.log_param('training.file', cfg.training['dataset-file'])
         mlflow.log_param('training.dataset', cfg.training['training-dataset'])
 
+    def log_misc(self, key, value):
+        if isinstance(key, (list, tuple)):
+            misc = self.misc
+            for k in key[:-1]:
+                if k not in misc:
+                    misc[k] = {}
+                misc = misc[k]
+            misc[key[-1]] = value
+        else:
+            self.misc[key] = value
+
+    def log_miscs(self, misc):
+        self.misc.update(misc)
+
     def save_cleanup(self):
+        # --- NORMALIZE CHECKPOINT FILE NAME ---
         for ckpt in os.listdir(self.tmp.name):
             if ckpt.endswith('.ckpt'):
                 l = ckpt.split('-')
                 if len(l) == 3:
                     new_ckpt = '-'.join(l[:2]) + '.ckpt'
                     os.rename(join(self.tmp.name, ckpt), join(self.tmp.name, new_ckpt))
+
+        # --- LOG MISC ---
+        from json import dump
+        with open(join(self.tmp.name, 'misc.json'), 'w') as json_file:
+            dump(self.misc, json_file)
 
         mlflow.log_artifacts(self.tmp.name)
         mlflow.end_run()

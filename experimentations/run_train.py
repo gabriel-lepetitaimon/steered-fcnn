@@ -45,6 +45,9 @@ def run_train(**opt):
                                optimizer=hyper_params['optimizer'],
                                lr=hyper_params['lr'] / hyper_params['accumulate-gradient-batch'],
                                p_dropout=hyper_params['drop-out'])
+    logs.log_miscs({'model': {
+        'params': sum(p.numel() for p in net.parameters())
+    }})
 
     ###################
     # ---  TRAIN  --- #
