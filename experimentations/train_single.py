@@ -61,7 +61,7 @@ def run_experiment(cfg_path, env=None):
                     cfg['trial']['version'] = orion_exp.version
 
         print('')
-        print(f' === Running {orion_exp_name} ({cfg_path}): trial {cfg.trial.id} ===')
+        print(f' === Running {orion_exp_name} ({cfg_path}): trial {cfg["trial"]["id"]} ===')
         r = run_orion(cfg_path, cfg, env)
 
         if not DEBUG:

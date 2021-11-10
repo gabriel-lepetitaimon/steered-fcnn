@@ -1,6 +1,6 @@
 experiment:
     max_trials: 20
-    max_broken: 10
+    max_broken: 1000
     algorithms:
         tpe:
             seed: null
@@ -13,14 +13,14 @@ experiment:
 
 worker:
     max_trials: 1
-    max_broken: 3
+    max_broken: 1
 
 storage:
     database:
         type: 'mongodb'
         name: 'orion_fundus'
         host: 'mongodb://localhost'
-        port: 27017
+        port: 27017 
 
 evc:
     ignore_code_changes: True
