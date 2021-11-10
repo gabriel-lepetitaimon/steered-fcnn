@@ -27,7 +27,7 @@ class Logs:
         tags = cfg.experiment.tags.to_dict()
         tags['subexp'] = cfg.experiment['sub-experiment']
         tags['subexpID'] = str(cfg.experiment['sub-experiment-id'])
-        run_name = f"{cfg.experiment['sub-experiment']}{cfg.experiment['sub-experiment-id']}-{cfg.trial.id:02}"
+        run_name = f"{cfg.experiment['sub-experiment']} ({cfg.experiment['sub-experiment-id']}:{cfg.trial.id:02})"
         mlflow.start_run(run_name=run_name, tags=tags)
 
         # --- CREATE TMP ---
