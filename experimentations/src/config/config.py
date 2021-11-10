@@ -30,7 +30,7 @@ def parse_config(cfg_file):
 
     # --- Preprocess cfg file
     if "sub-experiment" not in exp_config['experiment']:
-        exp_config['experiment'] = f'[{exp_config["exp"]}] {exp_config["sub"]}'
+        exp_config['experiment'] = f'[{exp_config.tags["exp"]}] {exp_config.tags.get("sub","")}'
     exp_config = exp_config.filter(lambda k, v: not (isinstance(v, str) and v.startswith('orion~')), recursive=True)
 
     return default_cfg.recursive_update(exp_config)
