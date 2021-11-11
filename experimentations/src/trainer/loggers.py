@@ -5,7 +5,6 @@ from os.path import join
 import os
 from mlflow.tracking import MlflowClient
 
-from ..config import default_config
 
 class Logs:
     def __init__(self):
@@ -16,10 +15,7 @@ class Logs:
     def tmp_path(self):
         return self.tmp.name
 
-    def setup_log(self, cfg=None):
-        if cfg is None:
-            cfg = default_config()
-
+    def setup_log(self, cfg):
         # --- SETUP MLFOW ---
         mlflow.set_tracking_uri(cfg['mlflow']['uri'])
         mlflow.set_experiment(cfg['experiment']['name'] if not cfg['script-arguments'].debug else 'DEBUG_RUNS')

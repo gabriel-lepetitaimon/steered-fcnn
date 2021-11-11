@@ -8,6 +8,7 @@ import os
 import os.path as P
 from json import dump
 
+from src.config import parse_arguments
 from src.datasets import load_dataset
 from src.trainer import Binary2DSegmentation, ExportValidation
 from src.trainer.loggers import Logs
@@ -29,11 +30,6 @@ def run_train(**opt):
 
     val_n_epoch = cfg.training['val-every-n-epoch']
     max_epoch = cfg.training['max-epoch']
-
-    if isinstance(args.gpus, str):
-        gpus = [int(_) for _ in args.gpus.split(',')]
-    else:
-        gpus = args.gpus
 
     ###################
     # ---  MODEL  --- #
@@ -120,46 +116,9 @@ def run_train(**opt):
     logs.save_cleanup()
 
     # Store data in a json file to send info back to train_single.py script.
-    with open(P.join(cfg['script-arguments']['tmp-dir'], f'{cfg.trial.name}-{cfg.trial.id}.json'), 'w') as f:
+    with open(P.join(cfg['script-arguments']['tmp-dir'], f'result.json'), 'w') as f:
         json = {'rcode': r_code}
         dump(json, f)
-
-
-def parse_arguments(opt=None):
-    import argparse
-    from src.config import parse_config, AttributeDict
-
-    # --- PARSE ARGS & ENVIRONNEMENTS VARIABLES ---
-    if not opt:
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--config', required=True,
-                            help='config file with hyper parameters - in yaml format')
-        parser.add_argument('--debug', help='Debug trial (not logged into orion)',
-                            default=bool(os.getenv('TRIAL_DEBUG', False)))
-        parser.add_argument('--gpus', help='list of gpus to use for this trial',
-                            default=os.getenv('TRIAL_GPUS', None))
-        parser.add_argument('--tmp-dir', help='Directory where the trial temporary folders will be stored.',
-                            default=os.getenv('TRIAL_TMP_DIR', None))
-        args = vars(parser.parse_args())
-    else:
-        args = {'config': opt.get('config'),
-                'debug': opt.get('debug', False),
-                'gpus': opt.get('gpus', None),
-                'tmp-dir': opt.get('tmp-dir', None)}
-        args = AttributeDict.from_dict(args)
-
-    # --- PARSE CONFIG ---
-    cfg = parse_config(args['config'])
-
-    # Save scripts arguments
-    script_args = cfg['script-arguments']
-    for k, v in args.items():
-        if v is not None:
-            script_args[k] = v
-
-    if script_args.debug:
-        cfg.training['max-epoch'] = 1
-    return cfg
 
 
 def leg_setup_model(model_cfg, old=False):
