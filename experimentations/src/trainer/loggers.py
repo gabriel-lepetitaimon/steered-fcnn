@@ -23,7 +23,7 @@ class Logs:
         tags = cfg.experiment.tags.to_dict()
         tags['subexp'] = cfg.experiment['sub-experiment']
         tags['subexpID'] = str(cfg.experiment['sub-experiment-id'])
-        run_name = f"{cfg.experiment['sub-experiment']} ({cfg.experiment['sub-experiment-id']}:{cfg.trial.id:02})"
+        run_name = f"{cfg.experiment['sub-experiment']} ({cfg.experiment['sub-experiment-id']}:{cfg.trial.ID:02})"
         mlflow.start_run(run_name=run_name, tags=tags)
 
         # --- CREATE TMP ---
@@ -41,7 +41,7 @@ class Logs:
             raise RuntimeError('The sanity check for storing artifacts failed.'
                                'Interrupting the script before the training starts.')
 
-        exp_cfg_path = os.getenv('TRIAL_CFG_PATH', None)
+        exp_cfg_path = cfg.get('trial.cfg_path', None)
         if exp_cfg_path is not None:
             shutil.copy(exp_cfg_path, join(tmp.name, 'cfg_original.yaml'))
             mlflow.log_artifact(join(tmp.name, 'cfg_original.yaml'))
@@ -87,8 +87,8 @@ class Logs:
         for ckpt in os.listdir(self.tmp.name):
             if ckpt.endswith('.ckpt'):
                 l = ckpt.split('-')
-                if len(l) == 3:
-                    new_ckpt = '-'.join(l[:2]) + '.ckpt'
+                if l[-1].startswith('epoch='):
+                    new_ckpt = '-'.join(l[:-1]) + '.ckpt'
                     os.rename(join(self.tmp.name, ckpt), join(self.tmp.name, new_ckpt))
 
         # --- LOG MISC ---

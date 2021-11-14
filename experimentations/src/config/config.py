@@ -48,7 +48,7 @@ def parse_arguments(opt=None, require_config=True):
         parser.add_argument('--config', help='config file with hyper parameters - in yaml format',
                             **kwargs)
         parser.add_argument('--debug', help='Debug trial (not logged into orion)', action='store_true',
-                            default=bool(os.getenv('TRIAL_DEBUG', False)))
+                            default=os.getenv('TRIAL_DEBUG', None)=="True")
         parser.add_argument('--gpus', help='list of gpus to use for this trial',
                             default=os.getenv('TRIAL_GPUS', None))
         parser.add_argument('--tmp-dir', help='Directory where the trial temporary folders will be stored.',
@@ -59,7 +59,7 @@ def parse_arguments(opt=None, require_config=True):
                 'debug': opt.get('debug', False),
                 'gpus': opt.get('gpus', None),
                 'tmp-dir': opt.get('tmp-dir', None)}
-        args = AttributeDict.from_dict(args)
+    args = AttributeDict.from_dict(args)
 
     # --- PARSE CONFIG ---
     cfg = parse_config(args['config'])
@@ -72,13 +72,14 @@ def parse_arguments(opt=None, require_config=True):
     trial = {
         'ID': int(os.getenv('TRIAL_ID', default_trial .get('ID', 0))),
         'version': int(os.getenv('TRIAL_VERSION', default_trial .get('version', 0))),
-        'name': os.getenv('TRIAL_NAME', default_trial .get('name', 0))
+        'name': os.getenv('TRIAL_NAME', default_trial .get('name', "")),
+        'cfg_path': os.getenv('TRIAL_CFG_PATH', default_trial .get('cfg_path', "")),
     }
-    cfg['trial'] = trial
+    cfg['trial'] = AttributeDict.from_dict(trial)
 
     # --- Update scripts arguments ---
     if isinstance(args.gpus, str):
-        args.gpus = [int(_) for _ in args.gpus.split(',')]
+        args['gpus'] = [int(_) for _ in args.gpus.split(',')]
 
     script_args = cfg['script-arguments']
     for k, v in args.items():
@@ -112,3 +113,5 @@ def set_env_var(cfg):
             os.environ['TRIAL_VERSION'] = str(trial['version'])
         if 'name' in trial:
             os.environ['TRIAL_NAME'] = trial['name']
+        if 'cfg_path' in trial:
+            os.environ['TRIAL_CFG_PATH'] = trial['cfg_path']

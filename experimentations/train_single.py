@@ -19,7 +19,7 @@ def main():
 
 
 def run_experiment(cfg):
-    script_args = cfg['script-argument']
+    script_args = cfg['script-arguments']
     DEBUG = script_args.debug
     cfg_path = script_args.config
 
@@ -32,7 +32,7 @@ def run_experiment(cfg):
 
     ended = False
     while not ended:
-        cfg['trial'] = dict(id=0, name=orion_exp_name, version=0)
+        cfg['trial'] = dict(ID=0, name=orion_exp_name, version=0, cfg_path=cfg_path)
         # --- Fetch Orion Infos ---
         if not DEBUG:
             try:
@@ -49,11 +49,11 @@ def run_experiment(cfg):
                     cfg['trial']['version'] = orion_exp.version
 
         print('')
-        print(f' === Running {orion_exp_name} ({cfg_path}): trial {cfg.trial.id} ===')
+        print(f' === Running {orion_exp_name} ({cfg_path}): trial {cfg["trial"]["ID"]} ===')
         r = run_orion(cfg)
 
         if not DEBUG:
-            if 10 <= r['r_code'] <= 20:
+            if 10 <= r.get('r_code', -2) <= 20:
                 print('')
                 print('-'*30)
                 print('')
@@ -65,19 +65,20 @@ def run_experiment(cfg):
 
 
 def run_orion(cfg: Dict):
+    script_args = cfg['script-arguments']
     orion_exp_name = cfg['trial']['name']
-    cfg_path = cfg['script-arguments']['config']
-    DEBUG = cfg['script-arguments']['debug']
+    cfg_path = script_args['config']
+    DEBUG = script_args['debug']
 
     # --- Prepare tmp folder ---
-    tmp_path = cfg['script-arguments']['tmp-dir']
+    tmp_path = script_args['tmp-dir']
     if not P.exists(tmp_path):
         os.makedirs(tmp_path)
     with TemporaryDirectory(dir=tmp_path, prefix=f"{orion_exp_name}-{cfg['trial']['ID']}") as tmp_dir:
-        cfg['script-arguments']['tmp-dir'] = tmp_dir.name
+        cfg['script-arguments']['tmp-dir'] = tmp_dir
 
         # --- Save orion cfg file to tmp ---
-        with open(P.join(tmp_dir.name, '.orion_cfg.yaml'), 'w+') as orion_cfg:
+        with open(P.join(tmp_dir, '.orion_cfg.yaml'), 'w+') as orion_cfg:
             cfg['orion'].to_yaml(orion_cfg)
             orion_cfg_filepath = P.join(tmp_path, orion_cfg.name)
 
@@ -94,7 +95,7 @@ def run_orion(cfg: Dict):
                      f'python3 run_train.py --config "{cfg_path}"')
 
         # --- Run orion command ---
-        print('>> ', orion_cmd)
+        print('>> ', orion_cmd, '\n')
         os.system(orion_cmd)
 
         # --- Fetch and return run results ---
@@ -102,10 +103,9 @@ def run_orion(cfg: Dict):
         try:
             with open(tmp_json, 'r') as f:
                 r = load(f)
-            os.remove(tmp_json)
             return r
         except OSError:
-            return {'r': -1}
+            return {'r_code': -2}
 
 
 if __name__ == '__main__':
