@@ -59,7 +59,7 @@ def parse_arguments(opt=None, require_config=True):
                 'debug': opt.get('debug', False),
                 'gpus': opt.get('gpus', None),
                 'tmp-dir': opt.get('tmp-dir', None)}
-    args = AttributeDict.from_dict(args)
+        args = AttributeDict.from_dict(args)
 
     # --- PARSE CONFIG ---
     cfg = parse_config(args['config'])
