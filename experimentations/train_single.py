@@ -37,31 +37,38 @@ def run_experiment(cfg):
         if not DEBUG:
             try:
                 orion_exp = get_experiment(orion_exp_name)
-            except NoConfigurationError:
+                trial_id = cfg['trial']['ID'] = len(orion_exp.fetch_trials())
+            except NoConfigurationError:x
                 pass
             else:
                 if orion_exp.is_done:
+                    print(f'!> Orion Experiment is done (trail id={trial_id}/{orion_exp.max_trials}). \n'
+                          f'!> Exiting orion experiment "{orion_exp_name}".')
                     return True
                 elif orion_exp.is_broken:
+                    print(f'!> Orion Experiment is broken (trail id={trial_id}/{orion_exp.max_trials}). \n'
+                          f'!> Exiting orion experiment "{orion_exp_name}".')
                     return False
                 else:
-                    cfg['trial']['ID'] = len(orion_exp.fetch_trials())
+                    cfg['trial']['ID'] = trial_id
                     cfg['trial']['version'] = orion_exp.version
 
         print('')
         print(f' === Running {orion_exp_name} ({cfg_path}): trial {cfg.trial.id} ===')
         r = run_orion(cfg)
 
-        if not DEBUG:
+        if DEBUG:
+            return True
+        else:
             if 10 <= r['r_code'] <= 20:
                 print('')
                 print('-'*30)
                 print('')
                 continue
             else:
+                print(f'!> Trial {cfg["trial"]["ID"]} exited with r_code={r["r_code"]}.'
+                      f'!> Exiting orion experiment "{orion_exp_name}".')
                 return False
-        else:
-            return True
 
 
 def run_orion(cfg: Dict):
