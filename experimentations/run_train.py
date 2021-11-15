@@ -16,11 +16,9 @@ from steered_cnn.models import setup_model
 
 
 def run_train(**opt):
+    # --- Parse cfg ---
     cfg = parse_arguments(opt)
     args = cfg['script-arguments']
-    logs = Logs()
-    logs.setup_log(cfg)
-    tmp_path = logs.tmp_path
 
     # --- Set Seed --
     seed = cfg.training.get('seed', None)
@@ -37,10 +35,13 @@ def run_train(**opt):
     elif seed is not None:
         print(f"Seed can't be interpreted as int and will be ignored.")
 
-    trainD, validD, testD = load_dataset(cfg)
+    # --- Setup logs ---
+    logs = Logs()
+    logs.setup_log(cfg)
+    tmp_path = logs.tmp_path
 
-    val_n_epoch = cfg.training['val-every-n-epoch']
-    max_epoch = cfg.training['max-epoch']
+    # --- Setup dataset ---
+    trainD, validD, testD = load_dataset(cfg)
 
     ###################
     # ---  MODEL  --- #
@@ -59,6 +60,9 @@ def run_train(**opt):
     ###################
     # ---  TRAIN  --- #
     # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ #
+    val_n_epoch = cfg.training['val-every-n-epoch']
+    max_epoch = cfg.training['max-epoch']
+
     # Define r_code, a return code sended back to train_single.py.
     # (A run is considered successful if it returns 10 <= r <= 20. Otherwise orion is interrupted.)
     r_code = 10
