@@ -59,7 +59,7 @@ def parse_arguments(opt=None, require_config=True):
                 'debug': opt.get('debug', False),
                 'gpus': opt.get('gpus', None),
                 'tmp-dir': opt.get('tmp-dir', None)}
-        args = AttributeDict.from_dict(args)
+    args = AttributeDict.from_dict(args)
 
     # --- PARSE CONFIG ---
     cfg = parse_config(args['config'])
@@ -84,6 +84,7 @@ def parse_arguments(opt=None, require_config=True):
     script_args = cfg['script-arguments']
     for k, v in args.items():
         if v is not None:
+            k = {"tmp_dir": "tmp-dir"}.get(k,k)
             script_args[k] = v
 
     # --- Post-process cfg knowing args ---

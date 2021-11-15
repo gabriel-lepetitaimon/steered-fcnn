@@ -117,8 +117,9 @@ def run_train(**opt):
 
     # Store data in a json file to send info back to train_single.py script.
     with open(P.join(cfg['script-arguments']['tmp-dir'], f'result.json'), 'w') as f:
-        json = {'rcode': r_code}
+        json = {'r_code': r_code}
         dump(json, f)
+        print("WRITING JSON AT: ", P.join(cfg['script-arguments']['tmp-dir'], f'result.json'))
 
 
 def leg_setup_model(model_cfg, old=False):

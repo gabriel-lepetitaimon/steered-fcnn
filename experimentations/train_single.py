@@ -38,7 +38,7 @@ def run_experiment(cfg):
             try:
                 orion_exp = get_experiment(orion_exp_name)
                 trial_id = cfg['trial']['ID'] = len(orion_exp.fetch_trials())
-            except NoConfigurationError:x
+            except NoConfigurationError:
                 pass
             else:
                 if orion_exp.is_done:
@@ -57,18 +57,23 @@ def run_experiment(cfg):
         print(f' === Running {orion_exp_name} ({cfg_path}): trial {cfg["trial"]["ID"]} ===')
         r = run_orion(cfg)
 
-        if DEBUG:
-            return True
+
+        if 10 <= r.get('r_code', -10) <= 20:
+            print('')
+            print('-'*30)
+            print('')
+            if DEBUG:
+                print(f'!> Debug trial run smoothly! Exiting....\n')
+                return True
+            continue
         else:
-            if 10 <= r['r_code'] <= 20:
-                print('')
-                print('-'*30)
-                print('')
-                continue
-            else:
-                print(f'!> Trial {cfg["trial"]["ID"]} exited with r_code={r["r_code"]}.'
-                      f'!> Exiting orion experiment "{orion_exp_name}".')
-                return False
+            print(f'!> Trial {cfg["trial"]["ID"]} exited with r_code={r.get("r_code", -10)}.')
+            if 'error' in r:
+                print(f'!> ERROR: ' + r.get('error'))
+            elif 'r_code' not in r:
+                print(f'!> MISSING r_code in:\n{repr(r)}'.replace("\n", "\n\t>"))
+            print(f'!> Exiting orion experiment "{orion_exp_name}".')
+            return DEBUG
 
 
 def run_orion(cfg: Dict):
@@ -87,7 +92,7 @@ def run_orion(cfg: Dict):
         # --- Save orion cfg file to tmp ---
         with open(P.join(tmp_dir, '.orion_cfg.yaml'), 'w+') as orion_cfg:
             cfg['orion'].to_yaml(orion_cfg)
-            orion_cfg_filepath = P.join(tmp_path, orion_cfg.name)
+            orion_cfg_filepath = P.join(tmp_dir, orion_cfg.name)
 
         # --- Set Env Variable ---
         set_env_var(cfg)
@@ -106,13 +111,13 @@ def run_orion(cfg: Dict):
         os.system(orion_cmd)
 
         # --- Fetch and return run results ---
-        tmp_json = P.join(tmp_path, f'result.json')
+        tmp_json = P.join(tmp_dir, f'result.json')
         try:
             with open(tmp_json, 'r') as f:
                 r = load(f)
             return r
-        except OSError:
-            return {'r_code': -2}
+        except OSError as e:
+            return {'r_code': -2, 'error': f"{repr(e)} [file={tmp_json}]"}
 
 
 if __name__ == '__main__':
