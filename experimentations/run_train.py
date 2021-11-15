@@ -21,10 +21,18 @@ def run_train(**opt):
     logs = Logs()
     logs.setup_log(cfg)
     tmp_path = logs.tmp_path
-    
+
+    # --- Set Seed --
+    if cfg.training['seed'] == "random":
+        cfg.training['seed'] = int.from_bytes(os.getrandom(32), 'little', signed=False)
+    elif isinstance(cfg.training['seed'], (tuple, list)):
+        seed_list = cfg.training['seed']
+        cfg.training['seed'] = seed_list[cfg.trial.ID % len(seed_list)]
     if isinstance(cfg.training['seed'], int):
         torch.manual_seed(cfg.training['seed'])
         np.random.seed(cfg.training['seed'])
+    else:
+        print(f"Seed can't be interpreted as int and will be ignored.")
 
     trainD, validD, testD = load_dataset(cfg)
 
