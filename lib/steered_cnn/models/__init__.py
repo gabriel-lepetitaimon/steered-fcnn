@@ -13,6 +13,7 @@ def setup_model(cfg):
             if cfg.get('steering', 'attention') == 'attention' and not cfg.get('attention_base', False):
                 cfg['attention_base'] = True
             net = SteeredUNet(normalize_steer=cfg.get('normalized', True),
+                              base=cfg.get('base', None),
                               attention_mode=cfg.get('normalized', 'shared'),
                               attention_base=cfg.get('attention_base', False), **args)
         else:

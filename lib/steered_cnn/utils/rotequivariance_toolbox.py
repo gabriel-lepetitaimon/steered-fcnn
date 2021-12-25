@@ -5,10 +5,10 @@ def cartesian_space(size, center=None):
     if not isinstance(size, tuple):
         size = (size, size)
     if center is None:
-        center = tuple(_ / 2 for _ in size)
+        center = tuple((_-1) / 2 for _ in size)
 
-    x = np.linspace(-center[0], size[0] - center[0], size[0], dtype=np.float32)
-    y = np.linspace(-center[1], size[1] - center[1], size[1], dtype=np.float32)
+    x = np.arange(-center[0], size[0] - center[0], dtype=np.float32)
+    y = np.arange(-center[1], size[1] - center[1], dtype=np.float32)
     x, y = np.meshgrid(x, y)
     return y, x
 

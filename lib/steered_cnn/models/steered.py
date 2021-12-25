@@ -1,15 +1,17 @@
 import torch
 from torch import nn
 from ..utils import cat_crop, pyramid_pool2d, normalize_vector
-from ..steered_conv import SteeredConvBN, DEFAULT_STEERABLE_BASE
+from ..steered_conv import SteeredConvBN, SteeredConvTranspose2d, DEFAULT_STEERABLE_BASE
 from ..steered_conv.steerable_filters import cos_sin_ka_stack
 from .backbones import UNet
 
 
 class SteeredUNet(UNet):
-    def __init__(self, n_in, n_out, nfeatures=6, kernel=3, depth=2, nscale=5, padding='same',
+    def __init__(self, n_in, n_out, nfeatures=6, depth=2, nscale=5, padding='same',
                  p_dropout=0, batchnorm=True, downsampling='maxpooling', upsampling='conv',
                  base=DEFAULT_STEERABLE_BASE, attention_base=None, attention_mode='shared', normalize_steer=False):
+        if base is None:
+            base = DEFAULT_STEERABLE_BASE
         self.base = base
         self.attention_base = attention_base
 
@@ -19,12 +21,12 @@ class SteeredUNet(UNet):
                                           attention_mode=attention_mode, normalize_steer=normalize_steer)
 
     def setup_convbn(self, n_in, n_out):
-        return SteeredConvBN(self.kernel, n_in, n_out, steerable_base=self.base, attention_base=self.attention_base,
+        return SteeredConvBN(n_in, n_out, steerable_base=self.base, attention_base=self.attention_base,
                              attention_mode=self.attention_mode, normalize_steer_vec=self.normalize_steer,
                              relu=True, bn=self.batchnorm, padding=self.padding)
 
     def setup_convtranspose(self, n_in, n_out):
-        raise NotImplementedError()
+        return SteeredConvTranspose2d(n_in, n_out, stride=2)
 
     def forward(self, x, alpha=None, rho=None):
         N = 5

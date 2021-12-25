@@ -153,8 +153,8 @@ class SteerableKernelBase(KernelBase):
         return w
 
     @staticmethod
-    def from_steerable(kr: Union[int, Dict[int, List[int]]], std=.5, size=None, oversample=16,
-                       max_k=None, autonormalize=True):
+    def from_steerable(kr: Union[int, Dict[int, List[int]]], std=.5, size=-1, oversample=16,
+                       phase=None, max_k=None, autonormalize=True):
         """
 
 
@@ -176,11 +176,30 @@ class SteerableKernelBase(KernelBase):
 
         """
         import numpy as np
+        from ..utils.rotequivariance_toolbox import polar_space
+        
         if isinstance(kr, int):
-            rk = {r: np.arange(max_steerable_harmonics(r)+1) for r in range(kr)}
+            # --- Automatically generate kr to cover a kernel of size kr ---
+            if not kr%2 and phase is None:
+                phase = np.pi/4  # Shift phase by 45° when kernel size is even.
+                
+            if size == -1:
+                size = int(np.round(kr*np.sqrt(2)))
+                if (size%2) ^ (kr%2):
+                    size += 1
+            
+            r, _ = polar_space(kr)
+            r = r.flatten()
+            rk = {}
+            for i in np.arange(1, size/np.sqrt(2)+1):
+                r_in_interval = (i-1 <= r) & (r < i)
+                if r_in_interval.sum():
+                    k = (r_in_interval.sum())//2
+                    rk[r[r_in_interval].mean()] = int(k)
+
             kr = {}
             for r, K in rk.items():
-                for k in K:
+                for k in range(K+1):
                     if max_k is not None and k > max_k:
                         break
                     if k in kr:
@@ -188,31 +207,34 @@ class SteerableKernelBase(KernelBase):
                     else:
                         kr[k] = [r]
 
+        if phase is None:
+            phase = 0
+        if size == -1:
+                r_max = max(R if np.isscalar(R) else max(R) for R in kr.values())
+                size = int(np.ceil(2*(r_max+std)))
+        
         kernels_real, kernels_imag = [], []
         labels_real, labels_imag = [], []
         info_real, info_imag = [], []
         n_kernel_by_k = {}
 
-        if size is None:
-            r_max = max(max(R) for R in kr.values())
-            size = int(np.ceil(2*(r_max+std)))
-            size += int(1-(size % 2))    # Ensure size is odd
-
         for k in sorted(kr.keys()):
             R = kr[k]
+            if np.isscalar(R):
+                R = (R,)
             for r in sorted(R):
                 if k in n_kernel_by_k:
                     n_kernel_by_k[k] += 1
                 else:
                     n_kernel_by_k[k] = 1
 
-                psi = radial_steerable_filter(size, k, r, std=std, oversampling=oversample)
+                psi = radial_steerable_filter(size, k, r, std=std, oversampling=oversample, phase=phase)
 
-                labels_real += [f'k{k}r{r}'+('R' if k > 0 else '')]
+                labels_real += [f'k{k}r{r:.4g}'+('R' if k > 0 else '')]
                 info_real += [{'k': k, 'r': r, 'type': 'R'}]
                 kernels_real += [psi.real]
                 if k > 0:
-                    labels_imag += [f'k{k}r{r}I']
+                    labels_imag += [f'k{k}r{r:.4g}I']
                     info_imag += [{'k': k, 'r': r, 'type': 'I'}]
                     kernels_imag += [psi.imag]
 
@@ -275,13 +297,65 @@ class SteerableKernelBase(KernelBase):
                          stride=stride, padding=padding, dilation=dilation)
         return self.composite_kernels_conv2d(**conv_opts)
         # return self.preconvolved_base_conv2d(**conv_opts)
+        
+    def conv_transpose2d(self, input: torch.Tensor, weight: torch.Tensor,
+               alpha: Union[int, float, torch.Tensor] = None, rho: Union[int, float, torch.Tensor] = 1,
+               stride=None, padding='same', dilation=1) -> torch.Tensor:
+        """
+        Compute the transposed convolution of `input` and this base's kernels steered by the angle `alpha`
+        and premultiplied by `weight`.
 
-    def _prepare_steered_conv(self, input, weight, alpha, rho, stride, padding, dilation):
+        Args:
+            input: Input tensor.
+            weight: Weight for each couples of in and out features and for each kernels of this base.
+            alpha: The angle by which the kernels are steered. (If None then alpha=0.)
+                    To enhance the efficiency of the steering computation, α should not be provided as an angle but as a
+                    vertical and horizontal projection: cos(α) and sin(α).
+                    Hence this parameter can either be:
+                        - A 4D tensor where  alpha=α
+                        - A 5D tensor where  alpha[0]=cos(α) and alpha[1]=sin(α)
+                        - A 6D tensor where  alpha[0,k-1]=cos(kα) and alpha[1,k-1]=sin(kα) for k=1:k_max
+                    The last 4 dimensions allow to specify a different alpha for each output pixels [n, n_out, h, w].
+                    (If any of these dimensions has a length of 1, alpha will be broadcasted along.)
+                    Default: None
+            rho:    The norm of the attention vector multiplying the outputs features.
+                    This parameter can be:
+                        - A number: especially if rho=1 computations are simplified to ignore the norm.
+                        - A 3D tensor: (b, h, w)
+                        - A 4D tensor: (b, n_out, h, w)
+                        - A 5D tensor: (k_max, b, n_out, h, w)
+                        - None: The value of rho is derived from the norm of alpha.
+                    (If any of these dimensions has a length of 1, alpha will be broadcasted along.)
+                    Default: 1
+            stride: The stride of the transposed convolution (the upsampling factor). Can be a single number or a tuple (sH, sW).
+                    Default: None, the kernel size
+            padding:  Implicit paddings on both sides of the input. Can be a single number, a tuple (padH, padW) or
+                      one of 'true', 'same' and 'full'.
+                      Default: 'same'
+            dilation: The spacing between kernel elements. Can be a single number or a tuple (dH, dW).
+                      Default: 1
+
+        Shape:
+            input: (b, n_in, h, w)
+            weight: (n_out, n_in, K)
+            alpha: ([2, [k_max]], b, n_out, ~h, ~w)     (The last four dimensions are broadcastable
+                                                         by replacing b, n_out, h or w by 1)
+            rho: ([k_max], b, [n_out], ~h, ~w)          (b, h and w are broadcastable)
+
+            return: (b, n_out, ~h*stride, ~w*stride)
+
+        """
+        conv_opts = dict(input=input, weight=weight, alpha=alpha, rho=rho, transpose=True,
+                         stride=stride, padding=padding, dilation=dilation)
+        return self.composite_kernels_conv2d(**conv_opts)
+        # return self.preconvolved_base_conv2d(**conv_opts)
+
+    def _prepare_steered_conv(self, input, weight, alpha, rho, stride, padding, dilation, transpose=False):
         """
         Prepare module for the convolution operation.
         Returns alpha, conv_opts, (b, n_in, n_out, k, h, w)
         """
-        conv_opts, shapes = self._prepare_conv(input=input, weight=weight,
+        conv_opts, shapes = self._prepare_conv(input=input, weight=weight, transpose=transpose,
                                                stride=stride, padding=padding, dilation=dilation)
         b, n_in, n_out, k, h, w = shapes
         if isinstance(alpha, (int, float)):
@@ -440,18 +514,20 @@ class SteerableKernelBase(KernelBase):
     def composite_kernels_conv2d(self, input: torch.Tensor, weight: torch.Tensor,
                                  alpha: Union[int, float, torch.Tensor] = None,
                                  rho: Union[int, float, torch.Tensor] = None,
-                                 stride=1, padding='same', dilation=1):
+                                 stride=1, padding='same', dilation=1, transpose=False):
         alpha, rho, conv_opts, (b, n_in, n_out, K, h, w) = self._prepare_steered_conv(input, weight, alpha, rho,
                                                                                       stride, padding, dilation)
         if alpha is None:
-            return super(SteerableKernelBase, self).composite_kernels_conv2d(input, weight, **conv_opts)
+            return super(SteerableKernelBase, self).composite_kernels_conv2d(input, weight, transpose=transpose, **conv_opts)
         rho_k = rho is not None and rho.dim() == 5
         rho_fout = rho is not None and rho.dim() == 4
+        
+        conv2d = F.conv2d if not transpose else F.conv_transpose2d
 
         # f = X⊛K_equi + Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
         # computing f = X ⊛ K_equi ...
         if self._n_k0:
-            f = F.conv2d(input, self.composite_equi_kernels(weight), **conv_opts)
+            f = conv2d(input, self.composite_equi_kernels(weight), **conv_opts)
             if rho_k:
                 f *= rho[0]
         else:
@@ -470,12 +546,12 @@ class SteerableKernelBase(KernelBase):
             else:
                 cos_sin_kalpha = alpha[:, k-1]
             if rho_k:
-                f_k = cos_sin_kalpha[0] * F.conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts)
-                f_k.addcmul_(cos_sin_kalpha[1], F.conv2d(input, self.composite_steerable_kernels_imag(weight, k=k), **conv_opts))
+                f_k = cos_sin_kalpha[0] * conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts)
+                f_k.addcmul_(cos_sin_kalpha[1], conv2d(input, self.composite_steerable_kernels_imag(weight, k=k), **conv_opts))
                 f.addcmul_(rho[k], f_k)
             else:
-                f.addcmul_(cos_sin_kalpha[0], F.conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts))
-                f.addcmul_(cos_sin_kalpha[1], F.conv2d(input, self.composite_steerable_kernels_imag(weight, k=k), **conv_opts))
+                f.addcmul_(cos_sin_kalpha[0], conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts))
+                f.addcmul_(cos_sin_kalpha[1], conv2d(input, self.composite_steerable_kernels_imag(weight, k=k), **conv_opts))
 
         if rho_fout:
             f *= rho
@@ -493,11 +569,11 @@ class SteerableKernelBase(KernelBase):
     def preconvolved_base_conv2d(self, input: torch.Tensor, weight: torch.Tensor,
                                  alpha: Union[int, float, torch.Tensor] = None,
                                  rho: Union[int, float, torch.Tensor] = None,
-                                 stride=1, padding='same', dilation=1):
+                                 stride=1, padding='same', dilation=1, transpose=False):
         alpha, rho, conv_opts, (b, n_in, n_out, K, h, w) = self._prepare_steered_conv(input, weight, alpha, rho,
                                                                                       stride, padding, dilation)
         if alpha is None:
-            return super(SteerableKernelBase, self).preconvolved_base_conv2d(input, weight, **conv_opts)
+            return super(SteerableKernelBase, self).preconvolved_base_conv2d(input, weight, transpose=transpose, **conv_opts)
         rho_k = rho is not None and rho.dim() == 5
         rho_fout = rho is not None and rho.dim() == 4
 
@@ -509,7 +585,7 @@ class SteerableKernelBase(KernelBase):
         if rho_k:
             rho = rho.permute(0, 1, 3, 4, 2)     # (k_max, b, ~h, ~w, n_out)
 
-        xbase = KernelBase.preconvolve_base(input, self.base, **conv_opts)
+        xbase = KernelBase.preconvolve_base(input, self.base, transpose=transpose, **conv_opts)
         # f = X⊛K_equi + Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
         # computing f = X ⊛ K_equi ...
         if self._n_k0:

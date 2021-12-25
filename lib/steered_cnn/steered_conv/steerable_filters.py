@@ -14,7 +14,7 @@ def max_steerable_harmonics(radius):
     return int(inter_area//2)-1
 
 
-def radial_steerable_filter(size, k, r, std=.5, oversampling=1):
+def radial_steerable_filter(size, k, r, std=.5, oversampling=1, phase=0):
     from ..utils.rotequivariance_toolbox import polar_space
     oversampling = int(np.round(oversampling if oversampling >= 1 else 1))
     oversampled_size = size * oversampling
@@ -25,7 +25,7 @@ def radial_steerable_filter(size, k, r, std=.5, oversampling=1):
     G = np.exp(-(rho-r)**2/(2 * std**2)) / (std * np.sqrt(2*np.pi))
     if k != 0:
         G[rho == 0] = 0
-    PHI = np.exp(1j*k*phi)
+    PHI = np.exp(1j*k*(phi+phase))
 
     f = G*PHI
     if oversampling > 1:
@@ -92,11 +92,15 @@ def cos_sin_ka(cos_sin_a, cos_sin_km1_a):
     Computes cos((k+1)α) and sin((k+1)α) given cos(α), sin(α), cos(kα) and sin(kα):
          cos((k+1)α) = cos(kα)cos(α) - sin(kα)sin(α)
          sin((k+1)α) = cos(kα)sin(α) + sin(kα)cos(α)
+    Be carefull, this function only work with unitary cos/sin vectors:
+        - cos_sin_a[0]**2 + cos_sin_a[1]**2 should equal 1;
+        - cos_sin_km1_a[0]**2 + cos_sin_km1_a[1]**2 should equal 1.
+    
     Args:
-        cos_sin_a: A tensor of shape [2, n1, n2, ...], where cos1_sin1[0]=cos(α) and cos1_sin1[1]=sin(α).
-        cos_sin_km1_a: A tensor of shape [2, n1, n2, ...], where coskm1_sinkm1[0]=cos(kα) and coskm1_sinkm1[1]=sin(kα).
+        cos_sin_a: A tensor of shape [2, n1, n2, ...], where cos_sin[0]=cos(α) and cos_sin[1]=sin(α).
+        cos_sin_km1_a: A tensor of shape [2, n1, n2, ...], where cos_sin_km1_a[0]=cos(kα) and cos_sin_km1_a[1]=sin(kα).
 
-    Returns: A tensor cosk_sink of shape [2, n1, n2, ...], where cosk_sink[0]=cos((k+1)α) and cosk_sink[1]=sin((k+1)α).
+    Returns: A tensor cos_sin_ka of shape [2, n1, n2, ...], where cos_sin_ka[0]=cos((k+1)α) and cos_sin_k_a[1]=sin((k+1)α).
     """
     cos_sin_k = torch.stack((
         cos_sin_km1_a[0] * cos_sin_a[0] - cos_sin_km1_a[1] * cos_sin_a[1],
@@ -110,6 +114,9 @@ def cos_sin_ka_stack(cos_alpha, sin_alpha, k):
     Computes the matrix:
     [[cos(α), cos(2α), ..., cos(kα)],
      [sin(α), sin(2α), ..., sin(kα)]]
+     
+     Be carefull, this function only work with unitary cos_sin vector:
+        cos_alpha**2 + sin_alpha**2 should equal 1.
 
     Args:
         cos_alpha: The tensor cos(α) of shape [n0, n1, ...]
