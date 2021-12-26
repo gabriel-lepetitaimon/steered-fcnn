@@ -1,21 +1,22 @@
 import torch
 from torch import nn
 from ..utils import cat_crop, pyramid_pool2d, normalize_vector
-from ..steered_conv import SteeredConvBN, SteeredConvTranspose2d, DEFAULT_STEERABLE_BASE
+from ..steered_conv import SteeredConvBN, SteeredConvTranspose2d, SteerableKernelBase, OrthoKernelBase
 from ..steered_conv.steerable_filters import cos_sin_ka_stack
 from .backbones import UNet
+
+DEFAULT_STEERABLE_BASE = SteerableKernelBase.create_radial(5, max_k=5)
+DEFAULT_ATTENTION_BASE = OrthoKernelBase.create_radial(5)
 
 
 class SteeredUNet(UNet):
     def __init__(self, n_in, n_out, nfeatures=6, depth=2, nscale=5, padding='same',
                  p_dropout=0, batchnorm=True, downsampling='maxpooling', upsampling='conv',
-                 base=DEFAULT_STEERABLE_BASE, attention_base=None, attention_mode='shared', normalize_steer=False):
-        if base is None:
-            base = DEFAULT_STEERABLE_BASE
-        self.base = base
-        self.attention_base = attention_base
+                 base=DEFAULT_STEERABLE_BASE, attention_base=False, attention_mode='shared', normalize_steer=False):
+        self.base = SteerableKernelBase.parse(base, default=DEFAULT_STEERABLE_BASE)
+        self.attention_base = OrthoKernelBase.parse(attention_base, default=DEFAULT_ATTENTION_BASE)
 
-        super(SteeredUNet, self).__init__(n_in, n_out, nfeatures=nfeatures, kernel=kernel, depth=depth,
+        super(SteeredUNet, self).__init__(n_in, n_out, nfeatures=nfeatures, depth=depth,
                                           nscale=nscale, padding=padding, p_dropout=p_dropout, batchnorm=batchnorm,
                                           downsampling=downsampling, upsampling=upsampling,
                                           attention_mode=attention_mode, normalize_steer=normalize_steer)

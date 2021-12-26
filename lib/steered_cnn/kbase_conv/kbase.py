@@ -61,7 +61,7 @@ class KernelBase:
                 base.append(np.stack(kernels))
         return KernelBase(base)
 
-    def create_weights(self, n_in, n_out, nonlinearity=' relu', nonlinearity_param=None, dist='normal'):
+    def init_weights(self, n_in, n_out, nonlinearity=' relu', nonlinearity_param=None, dist='normal'):
         from torch.nn.init import calculate_gain
         import math
 
@@ -123,11 +123,12 @@ class KernelBase:
         self.base = self.base.to(*args, **kwargs)
         return self
 
-    def _prepare_conv(self, input, weight, stride, padding, dilation, transpose=False):
+    def _prepare_conv(self, input, weight, stride, padding, dilation, transpose=False, output_padding=0):
         from ..utils import compute_conv_outputs_dim, compute_padding
         if self.device != input.device:
             self.to(input.device)
         padding = compute_padding(padding, self.base.shape)
+        output_padding = compute_padding(output_padding, self.base.shape)
 
         b, n_in, h, w = input.shape
         n_out, n_in_w, k_w = weight.shape
@@ -137,10 +138,15 @@ class KernelBase:
         assert k == k_w, f"The provided weights have an incorrect number of kernels:\n " + \
                          f"weight.shape={weight.shape} (k={k_w}), but should be {k}."
         conv_opts = dict(padding=padding, dilation=dilation, stride=stride)
+        if output_padding:
+            if transpose:
+                conv_opts['output_padding'] = output_padding
+            else:
+                raise ValueError('Parameter output_padding should equal 0 for not transpose conv, '
+                                 f'but {output_padding} was provided.')
         h, w = compute_conv_outputs_dim(input.shape, self.base.shape, transpose=transpose, **conv_opts)
 
         return conv_opts, (b, n_in, n_out, k, h, w)
-
 
     # --- Composite Kernels ---
     @staticmethod
@@ -155,18 +161,20 @@ class KernelBase:
         return torch.matmul(W, K).reshape(n_out, n_in, n, m)
 
     def composite_kernels_conv2d(self, input: 'torch.Tensor [b,i,w,h]', weight: 'np.array [n_out, n_in, k]',
-                                 stride=1, padding='same', dilation=1, groups=1, transpose=False):
+                                 stride=1, padding='same',  output_padding=0, dilation=1, groups=1, transpose=False):
         W = KernelBase.composite_kernels(weight, self.base)
         padding = compute_padding(padding, W.shape)
         if not transpose:
             return F.conv2d(input, W, stride=stride, padding=padding, dilation=dilation, groups=groups)
         else:
-            return F.conv_transpose2d(input, W, stride=stride, padding=padding, dilation=dilation, groups=groups)
+            output_padding = compute_padding(output_padding, W.shape)
+            return F.conv_transpose2d(input, W, stride=stride, padding=padding, output_padding=output_padding,
+                                      dilation=dilation, groups=groups)
 
     # --- Preconvolve Base ---
     @staticmethod
     def preconvolve_base(input: 'torch.Tensor [b,i,w,h]', base: 'torch.Tensor [n_k, n, m]',
-                         stride=1, padding='same', dilation=1, transpose=False):
+                         stride=1, padding='same', output_padding=0, dilation=1, transpose=False):
         b, n_in, h, w = input.shape
         n_k, n, m = base.shape
         pad = compute_padding(padding, (n, m))
@@ -176,7 +184,9 @@ class KernelBase:
         if not transpose:
             K = F.conv2d(input, base, stride=stride, padding=pad, dilation=dilation)
         else:
-            K = F.conv_tranpose2d(input, base, stride=stride, padding=pad, dilation=dilation)
+            output_padding = compute_padding(output_padding, (n, m))
+            K = F.conv_tranpose2d(input, base, stride=stride, padding=pad, dilation=dilation,
+                                  output_padding=output_padding)
         h, w = K.shape[-2:]     # h and w after padding, K.shape: [b*n_in, n_k, ~h, ~w]
         return K.reshape(b, n_in, n_k, h, w).permute(0, 3, 4, 1, 2).reshape(b, h, w, n_in, n_k)
 
@@ -188,8 +198,9 @@ class KernelBase:
         return f.permute(0, 3, 1, 2)    # [b,n_out,h,w]
 
     def preconvolved_base_conv2d(self, input: 'torch.Tensor [b,i,w,h]', weight: 'np.array [n_out, n_in, k]',
-                                 stride=1, padding='same', dilation=1, transpose=False):
-        bases = KernelBase.preconvolve_base(input, self.base, stride=stride, padding=padding, dilation=dilation, transpose=transpose)
+                                 stride=1, padding='same', output_padding=0, dilation=1, transpose=False):
+        bases = KernelBase.preconvolve_base(input, self.base, stride=stride, padding=padding, dilation=dilation,
+                                            transpose=transpose, output_padding=output_padding)
         b, h, w, n_in, k = bases.shape
         n_out, n_in_w, k_w = weight.shape
 
