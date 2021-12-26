@@ -9,7 +9,7 @@ from .steerable_filters import radial_steerable_filter
 
 
 class OrthoKernelBase(KernelBase):
-    def __init__(self, base: Union[np.ndarray, torch.Tensor], autonormalize=True):
+    def __init__(self, base: Union[np.ndarray, torch.Tensor]):
         """
 
         Args:
@@ -22,7 +22,7 @@ class OrthoKernelBase(KernelBase):
             base = torch.from_numpy(base).to(dtype=torch.float)
         base = torch.cat((base, torch.rot90(base, 1, (-2, -1))), dim=0)
 
-        super(OrthoKernelBase, self).__init__(base, autonormalize=autonormalize)
+        super(OrthoKernelBase, self).__init__(base)
         self.K = base.shape[0] // 2
         self.kernels_label = None
         self.kernels_info = None
@@ -93,9 +93,8 @@ class OrthoKernelBase(KernelBase):
         raise ValueError(f'Invalid OrthoKernelBase specs: {spec}.')
 
     @staticmethod
-    def create_radial(kernel_size: int, std=.5, size=-1, phase=None, autonormalize=True, oversample=100):
+    def create_radial(kernel_size: int, std=.5, size=-1, phase=None, oversample=100):
         """
-
 
         Args:
             kr: A specification of which steerable filters should be included in the base.
@@ -142,9 +141,9 @@ class OrthoKernelBase(KernelBase):
             size = int(np.ceil(2*(r_max+std)))
 
         kernels = [np.real(radial_steerable_filter(size=size, k=1, r=r, phase=phase,
-                                                   std=std, oversampling=oversample))
+                                                   std=std, oversampling=oversample, normalize=True))
                    for r in R]
-        base = OrthoKernelBase(np.stack(kernels), autonormalize=autonormalize)
+        base = OrthoKernelBase(np.stack(kernels))
         base.kernels_label = [f'r{r}R' for r in R] + [f'r{r}I' for r in R]
         base.kernels_info = [{'r': r, 'type': 'R'} for r in R] + [{'r': r, 'type': 'I'} for r in R]
         return base

@@ -14,7 +14,7 @@ def max_steerable_harmonics(radius):
     return int(inter_area//2)-1
 
 
-def radial_steerable_filter(size, k, r, std=.5, oversampling=1, phase=0):
+def radial_steerable_filter(size, k, r, std=.5, oversampling=1, phase=0, normalize=False):
     from ..utils.rotequivariance_toolbox import polar_space
     oversampling = int(np.round(oversampling if oversampling >= 1 else 1))
     oversampled_size = size * oversampling
@@ -30,6 +30,12 @@ def radial_steerable_filter(size, k, r, std=.5, oversampling=1, phase=0):
     f = G*PHI
     if oversampling > 1:
         f = f.reshape((size, oversampling, size, oversampling)).mean(axis=(1, 3))
+    if normalize is True or normalize == 'square':
+        f /= np.sqrt((f**2).sum())+1e-8
+    elif normalize == 'abs':
+        f /= np.abs(f).sum()+1e-8
+    elif normalize == 'sum':
+        f /= np.abs(f.sum())+1e-8
     return f
 
 

@@ -12,14 +12,14 @@ from typing import Union, Dict, List
 
 
 class SteerableKernelBase(KernelBase):
-    def __init__(self, base: 'list(np.array) [K,n,m]', n_kernel_by_k: 'dict {k -> n_k}', autonormalize=True):
+    def __init__(self, base: 'list(np.array) [K,n,m]', n_kernel_by_k: 'dict {k -> n_k}'):
         """
 
         Args:
             base: kernels are assumed to be sorted by ascending k
             n_kernel_by_k:
         """
-        super(SteerableKernelBase, self).__init__(base, autonormalize=autonormalize)
+        super(SteerableKernelBase, self).__init__(base, autonormalize=False)
 
         # Sorting n_filter_by_k and removing invalid values
         self.n_filter_by_k = OrderedDict()
@@ -171,7 +171,7 @@ class SteerableKernelBase(KernelBase):
 
     @staticmethod
     def create_radial(kr: Union[int, Dict[int, List[int]]], std=.5, size=-1, oversample=16,
-                      phase=None, max_k=None, autonormalize=True):
+                      phase=None, max_k=None):
         """
 
 
@@ -187,7 +187,6 @@ class SteerableKernelBase(KernelBase):
             size:
             oversample:
             max_k:
-            autonormalize:
 
         Returns: A SteerableKernelBase parametrized by the corresponding kernels.
 
@@ -245,6 +244,7 @@ class SteerableKernelBase(KernelBase):
                     n_kernel_by_k[k] = 1
 
                 psi = radial_steerable_filter(size, k, r, std=std, oversampling=oversample, phase=phase)
+                psi /= np.sqrt((psi**2).sum())
 
                 labels_real += [f'k{k}r{r:.4g}'+('R' if k > 0 else '')]
                 info_real += [{'k': k, 'r': r, 'type': 'R'}]
@@ -255,9 +255,8 @@ class SteerableKernelBase(KernelBase):
                     kernels_imag += [psi.imag]
 
         K = np.stack(kernels_real + kernels_imag)
-        # K /= np.sqrt((K**2).sum((1, 2)).mean())
 
-        B = SteerableKernelBase(K, n_kernel_by_k=n_kernel_by_k, autonormalize=autonormalize)
+        B = SteerableKernelBase(K, n_kernel_by_k=n_kernel_by_k)
         B.kernels_label = labels_real + labels_imag
         B.kernels_info = info_real + info_imag
         return B
