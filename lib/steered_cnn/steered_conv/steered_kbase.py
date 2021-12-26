@@ -243,7 +243,7 @@ class SteerableKernelBase(KernelBase):
                 else:
                     n_kernel_by_k[k] = 1
 
-                psi = radial_steerable_filter(size, k, r, std=std, oversampling=oversample, phase=phase)
+                psi = radial_steerable_filter(size, k, r, std=std, oversampling=oversample, phase=phase, normalize=True)
                 psi /= np.sqrt((psi**2).sum())
 
                 labels_real += [f'k{k}r{r:.4g}'+('R' if k > 0 else '')]
