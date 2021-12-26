@@ -44,6 +44,22 @@ class OrthoKernelBase(KernelBase):
         return self.base[self.K:]
 
     def init_weights(self, n_in, n_out, nonlinearity='linear', nonlinearity_param=None, dist='normal'):
+        """
+        Create and randomly initialize a weight tensor accordingly to this kernel base.
+
+        Args:
+            n_in (int): Number of channels in the input image
+            n_out (int): Number of channels produced by the convolution
+            nonlinearity: Type of nonlinearity used after the convolution.
+                          See torch.nn.init.calculate_gain() documentation for more detail.
+            nonlinearity_param: Optional parameter for the non-linear function.
+                                See torch.nn.init.calculate_gain() documentation for more detail.
+            dist: Distribution used for the random initialization of the weights. Can be one of: 'normal' or 'uniform'.
+                    Default: 'normal'
+
+        Returns:
+            A weight tensor of shape (n_out, n_in, self.K).
+        """
         from torch.nn.init import calculate_gain
         import math
 
@@ -134,7 +150,7 @@ class OrthoKernelBase(KernelBase):
         return base
 
     def ortho_conv2d(self, input: torch.Tensor, weight: torch.Tensor,
-               stride=1, padding='same', dilation=1) -> torch.Tensor:
+                     stride=1, padding='same', dilation=1) -> torch.Tensor:
         """
         Compute the convolution of `input` with the vertical and horizontal kernels of this base given the provided
          weigths.

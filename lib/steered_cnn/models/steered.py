@@ -7,27 +7,33 @@ from .backbones import UNet
 
 DEFAULT_STEERABLE_BASE = SteerableKernelBase.create_radial(5, max_k=5)
 DEFAULT_ATTENTION_BASE = OrthoKernelBase.create_radial(5)
+DEFAULT_STEERABLE_UPSAMPLING_BASE = SteerableKernelBase.create_radial(2)
+DEFAULT_ATTENTION_UPSAMPLING_BASE = OrthoKernelBase.create_radial(3)
 
 
 class SteeredUNet(UNet):
     def __init__(self, n_in, n_out, nfeatures=6, depth=2, nscale=5, padding='same',
                  p_dropout=0, batchnorm=True, downsampling='maxpooling', upsampling='conv',
-                 base=DEFAULT_STEERABLE_BASE, attention_base=False, attention_mode='shared', normalize_steer=False):
-        self.base = SteerableKernelBase.parse(base, default=DEFAULT_STEERABLE_BASE)
-        self.attention_base = OrthoKernelBase.parse(attention_base, default=DEFAULT_ATTENTION_BASE)
-
+                 base=DEFAULT_STEERABLE_BASE, attention_base=False, attention_mode='shared', rho_nonlinearity=False):
         super(SteeredUNet, self).__init__(n_in, n_out, nfeatures=nfeatures, depth=depth,
                                           nscale=nscale, padding=padding, p_dropout=p_dropout, batchnorm=batchnorm,
                                           downsampling=downsampling, upsampling=upsampling,
-                                          attention_mode=attention_mode, normalize_steer=normalize_steer)
+                                          attention_mode=attention_mode, rho_nonlinearity=rho_nonlinearity)
+
+        self.base = SteerableKernelBase.parse(base, default=DEFAULT_STEERABLE_BASE)
+        self.attention_base = OrthoKernelBase.parse(attention_base, default=DEFAULT_ATTENTION_BASE)
+
 
     def setup_convbn(self, n_in, n_out):
         return SteeredConvBN(n_in, n_out, steerable_base=self.base, attention_base=self.attention_base,
-                             attention_mode=self.attention_mode, normalize_steer_vec=self.normalize_steer,
+                             attention_mode=self.attention_mode, rho_nonlinearity=self.rho_nonlinearity,
                              relu=True, bn=self.batchnorm, padding=self.padding)
 
     def setup_convtranspose(self, n_in, n_out):
-        return SteeredConvTranspose2d(n_in, n_out, stride=2)
+        return SteeredConvTranspose2d(n_in, n_out, stride=2,
+                                      steerable_base=DEFAULT_STEERABLE_UPSAMPLING_BASE,
+                                      attention_base=DEFAULT_ATTENTION_UPSAMPLING_BASE,
+                                      attention_mode=self.attention_mode, rho_nonlinearity='normalize')
 
     def forward(self, x, alpha=None, rho=None):
         """
