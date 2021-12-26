@@ -23,6 +23,7 @@ class Logs:
         tags = cfg.experiment.tags.to_dict()
         tags['subexp'] = cfg.experiment['sub-experiment']
         tags['subexpID'] = str(cfg.experiment['sub-experiment-id'])
+        tags['git-hash'] = get_git_revision_hash()
         run_name = f"{cfg.experiment['sub-experiment']} ({cfg.experiment['sub-experiment-id']}:{cfg.trial.ID:02})"
         mlflow.start_run(run_name=run_name, tags=tags)
 
@@ -99,3 +100,11 @@ class Logs:
         mlflow.log_artifacts(self.tmp.name)
         mlflow.end_run()
         self.tmp.cleanup()
+
+
+def get_git_revision_hash() -> str:
+    import os
+    import subprocess
+    return subprocess.check_output(['git', 'rev-parse', 'HEAD'],
+                                   cwd=os.path.dirname(__file__)
+                                   ).decode('ascii').strip()
