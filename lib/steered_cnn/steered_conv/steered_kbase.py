@@ -556,6 +556,34 @@ class SteerableKernelBase(KernelBase):
 
         return KernelBase.composite_kernels(w_real, psi_imag) - KernelBase.composite_kernels(w_imag, psi_real)
 
+    def composite_steerable_kernels_complex(self, weight: torch.Tensor, k) -> torch.Tensor:
+        """
+        Compute φR_jik: the imaginary part of the sum of all kernels for a specific polar harmonic k,
+        based on the provided weight and self.base (shape: [K, n, m], Ψ=[Ψ_0r, ΨR_1r, ΨR_2r, ..., ΨI_1r. ΨI_2r, ...]).
+
+        Args:
+            weight: The complex weight of each kernels in self.base
+                    [ω_ji0r, ωR_ji1r, ωR_ji2r, ..., ωI_ji1r, ωI_ji2r, ...]
+            k: The desired polar harmonic. (0 <= k <= self.max_k)
+
+        Shapes:
+            weight: (n_out, n_in, K)
+            return: (n_out, n_in, n, m)
+
+        Returns: The composite kernel.
+                 φI_jik = Σr[ ωR_jikr ΨI_kr - ωI_jikr ΨR_kr]
+        """
+        if k == 0:
+            n_out, n_in, K = weight.shape
+            K, n, m = self.base.shape
+            return torch.zeros((n_out, n_in, n, m), device=self.base.device, dtype=self.base.dtype)
+        real_idx = self.idx_real(k)
+        imag_idx = self.idx_imag(k)
+        w = weight[..., real_idx] + 1.j*weight[..., imag_idx]
+        psi = self.base[real_idx] + 1.j*self.base[imag_idx]
+
+        return w*psi
+
     def composite_kernels_conv2d(self, input: torch.Tensor, weight: torch.Tensor,
                                  alpha: Union[int, float, torch.Tensor] = None,
                                  rho: Union[int, float, torch.Tensor] = None, rho_nonlinearity: str = None,
@@ -591,6 +619,48 @@ class SteerableKernelBase(KernelBase):
                 cos_sin_kalpha = alpha[:, k-1]
             f.addcmul_(cos_sin_kalpha[0], conv2d(input, self.composite_steerable_kernels_real(weight, k=k), **conv_opts))
             f.addcmul_(cos_sin_kalpha[1], conv2d(input, self.composite_steerable_kernels_imag(weight, k=k), **conv_opts))
+
+        if rho is not None:
+            f *= rho
+        return f
+
+    def composite_complex_kernels_conv2d(self, input: torch.Tensor, weight: torch.Tensor,
+                                      alpha: Union[int, float, torch.Tensor] = None,
+                                      rho: Union[int, float, torch.Tensor] = None, rho_nonlinearity: str = None,
+                                      stride=1, padding='same', output_padding=0, dilation=1, transpose=False):
+        alpha, rho, conv_opts, (b, n_in, n_out, K, h, w) = self._prepare_steered_conv(input, weight, alpha,
+                                                                                      rho, rho_nonlinearity,
+                                                                                      stride, padding, dilation,
+                                                                                      transpose, output_padding)
+        if alpha is None:
+            return super(SteerableKernelBase, self).composite_kernels_conv2d(input, weight, transpose=transpose,
+                                                                             **conv_opts)
+
+        conv2d = F.conv2d if not transpose else F.conv_transpose2d
+
+        # f = X⊛K_equi + Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
+        # computing f = X ⊛ K_equi ...
+        if self._n_k0:
+            f = conv2d(input, self.composite_equi_kernels(weight), **conv_opts)
+        else:
+            f = torch.zeros((b, n_out, h, w),
+                            device=self.base.device, dtype=self.base.dtype)
+
+        alpha = alpha[0]+1j*alpha[1]
+
+        # then: f += Σk[ cos(kα)(X⊛K_kreal) + sin(kα) (X⊛K_kimag)]
+        for k in self.k_values:
+            if k == 0:
+                continue
+            if alpha.dim() == 5:
+                if k == 1:
+                    cos_sin_kalpha = alpha
+                else:
+                    cos_sin_kalpha *= alpha
+            else:
+                cos_sin_kalpha = alpha[k-1]
+            f += torch.real(cos_sin_kalpha *
+                            conv2d(input, self.composite_steerable_kernels_complex(weight, k=k), **conv_opts))
 
         if rho is not None:
             f *= rho
