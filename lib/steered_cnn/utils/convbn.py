@@ -23,10 +23,7 @@ class ConvBN(torch.nn.Module):
         model = [self.setup_conv_module(n_in, n_out)]
 
         if bn:
-            batchnorm = torch.nn.BatchNorm2d(n_out)
-            torch.nn.init.constant_(batchnorm.weight, 1)
-            torch.nn.init.constant_(batchnorm.bias, 0)
-            model += [batchnorm]
+            model += [torch.nn.BatchNorm2d(n_out)]
             if relu:
                 model += [torch.nn.ReLU()]
         elif relu:
@@ -44,9 +41,10 @@ class ConvBN(torch.nn.Module):
     def setup_conv_module(self, n_in, n_out):
         conv = torch.nn.Conv2d(n_in, n_out, kernel_size=self.kernel, stride=self.stride, padding=self.padding,
                                dilation=self.dilation, bias=not self._bn)
-        torch.nn.init.kaiming_normal_(conv.weight, mode='fan_out', nonlinearity='relu')
+        torch.nn.init.kaiming_normal_(conv.weight, mode='fan_out', 
+                                      nonlinearity=('relu' if self._bn else 'selu') if self._relu else 'linear')
         if not self._bn:
-            torch.nn.init.constant_(self.bn.bias, 0)
+            torch.nn.init.constant_(conv.bias, 0)
         return conv
 
     @property

@@ -5,7 +5,7 @@ from .steered_conv import SteeredConv2d
 class SteeredConvBN(nn.Module):
     def __init__(self, n_in, n_out=None, stride=1, padding='same', dilation=1, bn=False, relu=True,
                  steerable_base=None, rho_nonlinearity=None,
-                 attention_mode='feature', attention_base=None):
+                 attention_mode=False, attention_base=None):
         """
 
         Args:
@@ -57,16 +57,17 @@ class SteeredConvBN(nn.Module):
         super().__init__()
 
         self._bn = bn
+        self._relu = relu
         if n_out is None:
             n_out = n_in
         self.n_out = n_out
-        self.conv = SteeredConv2d(n_in, n_out, steerable_base=steerable_base, stride=stride, groups=groups,
+        self.conv = SteeredConv2d(n_in, n_out, steerable_base=steerable_base, stride=stride,
                                   padding=padding, bias=not bn, dilation=dilation, attention_base=attention_base,
                                   attention_mode=attention_mode, rho_nonlinearity=rho_nonlinearity,
                                   nonlinearity=('relu' if bn else 'selu') if relu else 'linear')
         bn_relu = []
         if bn:
-            bn_relu += [nn.BatchNorm2d(self.n_out)]
+            bn_relu += [nn.BatchNorm2d(n_out)]
             if relu:
                 bn_relu += [nn.ReLU()]
         elif relu:
@@ -81,9 +82,11 @@ class SteeredConvBN(nn.Module):
     @property
     def bn(self):
         if self._bn:
-            return self.model[0]
+            return self.bn_relu[0]
         return None
 
     @property
     def relu(self):
-        return self.model[1 if self._bn else 0]
+        if self._relu:
+            return self.bn_relu[1 if self._bn else 0]
+        return None

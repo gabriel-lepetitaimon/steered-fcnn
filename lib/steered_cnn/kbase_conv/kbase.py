@@ -138,7 +138,7 @@ class KernelBase:
         assert k == k_w, f"The provided weights have an incorrect number of kernels:\n " + \
                          f"weight.shape={weight.shape} (k={k_w}), but should be {k}."
         conv_opts = dict(padding=padding, dilation=dilation, stride=stride)
-        if output_padding:
+        if output_padding not in (0, (0,0)):
             if transpose:
                 conv_opts['output_padding'] = output_padding
             else:

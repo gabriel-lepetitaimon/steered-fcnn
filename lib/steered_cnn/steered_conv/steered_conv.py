@@ -13,7 +13,7 @@ DEFAULT_ATTENTION_BASE = OrthoKernelBase.create_radial(3)
 class SteeredConv2d(nn.Module):
     def __init__(self, n_in, n_out=None, stride=1, padding='same', dilation=1, bias=True,
                  steerable_base: (SteerableKernelBase, int, dict) = None, rho_nonlinearity=None,
-                 attention_mode='feature', attention_base: (OrthoKernelBase, int, dict) = None,
+                 attention_mode=False, attention_base: (OrthoKernelBase, int, dict) = None,
                  nonlinearity='relu', nonlinearity_param=None):
         """
 
@@ -81,15 +81,17 @@ class SteeredConv2d(nn.Module):
         self.bias = None
         if bias:
             self.bias = nn.Parameter(torch.zeros(n_out), requires_grad=True) if bias else None
-            b = 1*math.sqrt(1/n_out)
-            nn.init.uniform_(self.bias, -b, b)
-
-        if self.attention_mode:
-            self.attention_mode = attention_mode
-            self.rho_nonlinearity = rho_nonlinearity
+            torch.nn.init.constant_(self.bias, 0)
+            
+        self.attention_mode = attention_mode
+        self.rho_nonlinearity = rho_nonlinearity
+        if attention_mode:
             w = self.attention_base.init_weights(n_in, n_out if attention_mode == 'feature' else 1,
                                                  nonlinearity='linear')
             self.attention_weights = nn.Parameter(w, requires_grad=True)
+        else:
+            self.attention_base = None
+            self.attention_weights = None
 
     def forward(self, x, alpha=None, rho=None):
         """
@@ -217,10 +219,10 @@ class SteeredConvTranspose2d(nn.Module):
         self.bias = None
         if bias:
             self.bias = nn.Parameter(torch.zeros(n_out), requires_grad=True) if bias else None
-            b = 1*math.sqrt(1/n_out)
-            nn.init.uniform_(self.bias, -b, b)
+            # b = 1*math.sqrt(1/n_out)
+            # nn.init.uniform_(self.bias, -b, b)
 
-        if self.attention_mode:
+        if attention_mode:
             self.attention_mode = attention_mode
             self.rho_nonlinearity = rho_nonlinearity
             w = self.attention_base.init_weights(n_in, n_out if attention_mode == 'feature' else 1,

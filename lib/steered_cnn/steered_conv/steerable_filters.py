@@ -31,7 +31,7 @@ def radial_steerable_filter(size, k, r, std=.5, oversampling=1, phase=0, normali
     if oversampling > 1:
         f = f.reshape((size, oversampling, size, oversampling)).mean(axis=(1, 3))
     if normalize is True or normalize == 'square':
-        f /= np.sqrt((f**2).sum())+1e-8
+        f /= np.sqrt((np.abs(f)**2).sum())+1e-8
     elif normalize == 'abs':
         f /= np.abs(f).sum()+1e-8
     elif normalize == 'sum':
