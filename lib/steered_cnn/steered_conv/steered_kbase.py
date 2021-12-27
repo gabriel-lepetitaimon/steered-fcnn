@@ -138,7 +138,7 @@ class SteerableKernelBase(KernelBase):
             w_steer_theta += torch.normal(0, std=std_theta, size=(n_out, n_in, self.K_steer))
 
         gain = calculate_gain(nonlinearity, nonlinearity_param)
-        std = gain*math.sqrt(1/(n_in*(self.K_equi+self.K_steer)))
+        std = gain*math.sqrt(2/(n_in*(self.K_equi+self.K_steer)))
 
         if dist == 'normal':
             nn.init.normal_(w_equi, std=std)
@@ -146,7 +146,7 @@ class SteerableKernelBase(KernelBase):
             w_steer = w_steer_rho * torch.exp(1j*w_steer_theta)
         elif dist == 'uniform':
             bound = std * math.sqrt(3)
-            nn.init.uniform_(w_equi, -bound, bound)
+            nn.init.uniform_(w_equi, 0, bound)
             w_steer_rho = torch.rand((n_out, n_in, self.K_steer))*bound
             w_steer = w_steer_rho * torch.exp(1j*w_steer_theta)
         else:
