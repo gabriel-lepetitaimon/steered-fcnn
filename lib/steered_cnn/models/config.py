@@ -11,8 +11,12 @@ def setup_model(cfg, n_in, n_out):
             steered = cfg.get('steered')
             if isinstance(steered, str):
                 steered = {'steering': steered}
-            if steered.get('steering', 'attention') == 'attention' and not steered.get('attention_mode', False):
-                steered['attention_mode'] = 'shared'
+            if steered.get('steering', 'attention') == 'attention':
+                steered['steering'] = 'attention'
+                if steered.get('attention_mode', False):
+                    steered['attention_mode'] = 'shared'
+            else:
+                steered['attention_mode'] = False
             net = SteeredUNet(n_in, n_out,
                               rho_nonlinearity=steered.get('rho_nonlinearity', None),
                               base=steered.get('base', None),

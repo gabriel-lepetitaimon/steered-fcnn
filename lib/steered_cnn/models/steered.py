@@ -160,9 +160,9 @@ class SteeredUNet(UNet):
                     rho = torch.Tensor([rho]).to(device=x.device)
                     rho = torch.stack((torch.cos(rho), torch.sin(rho)))[:, None, None, None]
 
-                if self.normalize_steer is True:
+                if self.rho_nonlinearity == 'normalize':
                     rho = 1
-                elif self.normalize_steer == 'tanh':
+                elif self.rho_nonlinearity == 'tanh':
                     rho = torch.tanh(rho)
                 rho_pyramid = [rho]*N if not isinstance(rho, torch.Tensor) else pyramid_pool2d(rho, n=N)
 

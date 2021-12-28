@@ -14,7 +14,9 @@ def load_dataset(cfg=None):
     if cfg is None:
         cfg = default_config()
     batch_size = cfg['hyper-parameters']['batch-size']
-    steered = cfg.get('model.steered.steering', False)
+    steered =cfg.get('model.steered', False)
+    if not isinstance(steered, str):
+        steered = cfg.get('model.steered.steering', False)
     if steered == 'attention':
         steered = False
     train_dataset = cfg.training['training-dataset']
