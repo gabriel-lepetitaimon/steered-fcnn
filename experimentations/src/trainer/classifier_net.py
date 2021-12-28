@@ -72,15 +72,16 @@ class Binary2DSegmentation(pl.LightningModule):
 
     def _validate(self, batch):
         y, y_hat = self.compute_y_yhat(batch)
+        
         y_sig = torch.sigmoid(y_hat)
         y_pred = y_sig > .5
-
+        
         if 'mask' in batch:
             mask = clip_pad_center(batch['mask'], y_hat.shape)
             y_hat = y_hat[mask != 0]
             y_sig = y_sig[mask != 0]
             y = y[mask != 0]
-
+            
         y = y.flatten()
         y_hat = y_hat.flatten()
         y_sig = y_sig.flatten()

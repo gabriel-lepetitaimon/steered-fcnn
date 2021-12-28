@@ -20,7 +20,6 @@ model:
     downsampling: 'maxpooling'
     upsampling: 'conv'
     batchnorm: True
-    p_dropout: 0
 
 
 training:

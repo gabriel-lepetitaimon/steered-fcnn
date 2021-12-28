@@ -46,9 +46,9 @@ def run_train(**opt):
     ###################
     # ---  MODEL  --- #
     # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ #
-    sample = validD[0]
-    model = setup_model(cfg['model'], n_in=sample['x'].shape[1], 
-                        n_out=1 if sample['y'].ndim==3 else sample['y'].shape[1])
+    sample = validD.dataset[0]
+    model = setup_model(cfg['model'], n_in=sample['x'].shape[0], 
+                        n_out=1 if sample['y'].ndim==2 else sample['y'].shape[0])
     sample = None
     hyper_params = cfg['hyper-parameters']
     net = Binary2DSegmentation(model=model, loss=hyper_params['loss'], 

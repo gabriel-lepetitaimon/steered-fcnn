@@ -4,7 +4,7 @@ from .backbones import UNet
 
 def setup_model(cfg, n_in, n_out):
     if cfg.check('backbone', 'unet'):
-        args = cfg.subset('nfeatures,p_dropout,'
+        args = cfg.subset('nfeatures,'
                           'nscale,depth,padding,'
                           'batchnorm,downsampling,upsampling')
         if cfg.get('steered', default=False):

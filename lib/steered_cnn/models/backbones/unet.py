@@ -70,7 +70,7 @@ class UNet(Model):
         # End
         self.final_conv = nn.Conv2d(nfeatures[-1], n_out, kernel_size=(1, 1))
 
-        self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else identity
+        self.dropout = torch.nn.Dropout(p_dropout)
         if downsampling == 'maxpooling':
             self.downsample = torch.nn.MaxPool2d(2)
         elif downsampling == 'averagepooling':
