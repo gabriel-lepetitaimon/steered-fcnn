@@ -1,4 +1,5 @@
 from train_single import run_experiment
+from src.config import parse_arguments
 import argparse
 import os
 import os.path as P
@@ -19,20 +20,15 @@ def main():
 def train_multiple(path=None, debug=False, gpus=None, env=None):
     if path is None:
         path = P.abspath(P.join(P.dirname(__file__), 'EXP/'))
-    if env is None:
-        env = {}
-
-    if gpus is not None:
-        env['TRIAL_GPUS'] = str(gpus)
-    if debug:
-        env['TRIAL_DEBUG'] = str(debug)
 
     ended = False
     while not ended:
         cfgs = sorted(_ for _ in os.listdir(path) if _.endswith('.yaml') if _[0] != "!")
         ended = True
         for cfg in cfgs:
-            run_experiment(os.path.join(path, cfg), env)
+            opt = dict(config=os.path.join(path, cfg), debug=debug, gpus=gpus)
+            cfg = parse_arguments(opt)
+            run_experiment(cfg)
 
 
 if __name__ == '__main__':

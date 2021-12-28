@@ -5,7 +5,6 @@ from os.path import join
 import os
 from mlflow.tracking import MlflowClient
 
-from ..config import default_config
 
 class Logs:
     def __init__(self):
@@ -16,10 +15,7 @@ class Logs:
     def tmp_path(self):
         return self.tmp.name
 
-    def setup_log(self, cfg=None):
-        if cfg is None:
-            cfg = default_config()
-
+    def setup_log(self, cfg):
         # --- SETUP MLFOW ---
         mlflow.set_tracking_uri(cfg['mlflow']['uri'])
         mlflow.set_experiment(cfg['experiment']['name'] if not cfg['script-arguments'].debug else 'DEBUG_RUNS')
@@ -27,7 +23,8 @@ class Logs:
         tags = cfg.experiment.tags.to_dict()
         tags['subexp'] = cfg.experiment['sub-experiment']
         tags['subexpID'] = str(cfg.experiment['sub-experiment-id'])
-        run_name = f"{cfg.experiment['sub-experiment']} ({cfg.experiment['sub-experiment-id']}:{cfg.trial.id:02})"
+        tags['git-hash'] = get_git_revision_hash()
+        run_name = f"{cfg.experiment['sub-experiment']} ({cfg.experiment['sub-experiment-id']}:{cfg.trial.ID:02})"
         mlflow.start_run(run_name=run_name, tags=tags)
 
         # --- CREATE TMP ---
@@ -45,7 +42,7 @@ class Logs:
             raise RuntimeError('The sanity check for storing artifacts failed.'
                                'Interrupting the script before the training starts.')
 
-        exp_cfg_path = os.getenv('TRIAL_CFG_PATH', None)
+        exp_cfg_path = cfg.get('trial.cfg_path', None)
         if exp_cfg_path is not None:
             shutil.copy(exp_cfg_path, join(tmp.name, 'cfg_original.yaml'))
             mlflow.log_artifact(join(tmp.name, 'cfg_original.yaml'))
@@ -91,8 +88,8 @@ class Logs:
         for ckpt in os.listdir(self.tmp.name):
             if ckpt.endswith('.ckpt'):
                 l = ckpt.split('-')
-                if len(l) == 3:
-                    new_ckpt = '-'.join(l[:2]) + '.ckpt'
+                if l[-1].startswith('epoch='):
+                    new_ckpt = '-'.join(l[:-1]) + '.ckpt'
                     os.rename(join(self.tmp.name, ckpt), join(self.tmp.name, new_ckpt))
 
         # --- LOG MISC ---
@@ -103,3 +100,11 @@ class Logs:
         mlflow.log_artifacts(self.tmp.name)
         mlflow.end_run()
         self.tmp.cleanup()
+
+
+def get_git_revision_hash() -> str:
+    import os
+    import subprocess
+    return subprocess.check_output(['git', 'rev-parse', 'HEAD'],
+                                   cwd=os.path.dirname(__file__)
+                                   ).decode('ascii').strip()
