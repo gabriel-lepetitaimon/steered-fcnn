@@ -7,14 +7,11 @@ experiment:
 model:
     backbone: 'unet'
     steered: False
-        # steering: 'angle'
-        # normalized: True
-        # attention_mode: 'shared'
-        # attention_base: False
-        # base:
-
-    n_in: 6
-    n_out: 1
+        # steering: 'attention' # 'attention' / 'angle' / 'vec' / 'vec_norm'
+        # rho_nonlinearity: None # None / 'tanh' / 'normalized'
+        # base: None # kernel_size / {k: [r0, r1], ...} / {'kr': ..., 'max_k': k, 'phase': 0}
+        # attention_mode: 'shared' # 'shared' / 'feature' / False
+        # attention_base: ...
     nfeatures: 16
     nscale: 5
     depth: 2
@@ -23,6 +20,7 @@ model:
     downsampling: 'maxpooling'
     upsampling: 'conv'
     batchnorm: True
+    p_dropout: 0
 
 
 training:

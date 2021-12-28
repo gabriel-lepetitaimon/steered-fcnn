@@ -14,14 +14,75 @@ DEFAULT_ATTENTION_UPSAMPLING_BASE = OrthoKernelBase.create_radial(3)
 class SteeredUNet(UNet):
     def __init__(self, n_in, n_out, nfeatures=6, depth=2, nscale=5, padding='same',
                  p_dropout=0, batchnorm=True, downsampling='maxpooling', upsampling='conv',
-                 base=DEFAULT_STEERABLE_BASE, attention_base=False, attention_mode='shared', rho_nonlinearity=False):
+                 base=DEFAULT_STEERABLE_BASE, rho_nonlinearity=False,
+                 attention_mode=False, attention_base=DEFAULT_ATTENTION_BASE):
+        """
+
+        Args:
+            n_in (int): Number of channels in the input image.
+            n_out (int): Number of channels produced by the convolution.
+            nfeatures (int or tuple, optional): Base number of features for each layer. Namely the number of features of the first scale.
+            depth (int, optional): 
+            nscale (int, optional): 
+            
+            
+            padding (int, tuple or str, optional):
+                Implicit paddings on both sides of the input. Can be a single number, a tuple (padH, padW) or
+                one of 'true', 'same' and 'full'.
+                      Default: 'same'
+            p_dropout (float, optional): Probability of dropping out features during training. Drop out is disable if null.
+                  Default: 0
+            batchnorm (bool, optional): If True, adds batch normalization between the convolution layers and the activation functions.
+                                        It also disables bias on convolution layers.
+                   Default: True
+            downsampling (str, optional): 
+                Specify how the downsampling is performed. Can be one of:
+                   - 'maxpooling': Maxpooling Layer.
+                   - 'averagepooling': Average Pooling.
+                   - 'conv': Stride on the last convolution.
+                   Default: 'maxpooling'
+           upsampling (str, optional): 
+                Specify how the downsampling is performed. Can be one of:
+                   - 'conv': Deconvolution with stride
+                   - 'bilinear': Bilinear upsampling
+                   - 'nearest': Nearest upsampling
+                   Default: 'maxpooling'
+            base (SteerableKernelBase, int or dict, optional):
+                Steerable base which parametrize the steerable kernels. The weights are initialized accordingly.
+                Can be a SteerableKernelBase, an integer interpreted as the desired equivalent kernel size or
+                a dictionary with the specs of the base.
+                See the documentation of SteerableKernelBase.parse() for more details on SteerableKernelBase specs.
+                    Default: SteerableKernelBase.create_radial(5, max_k=5)
+            rho_nonlinearity (str, optional):
+                Apply a non-linearity on rho (or the norm of alpha if rho is None).
+                Can be one of:
+                  - None: rho is left unchanged (identity function);
+                  - 'tanh': hyperbolic tangent non linear function;
+                  - 'normalize': rho is set to 1 everywhere, only the angle information is kept.
+                    Default: None
+            attention_mode (str or bool, optional):
+                Define how the attention submodule responsible of the kernels steering affects the output.
+                Can be one of:
+                  - 'shared': all the output features are steered with the same angles;
+                  - 'feature': each output feature is steered with different angles;
+                  - False: the attention submodules is disabled, alpha must be provided when calling forward().
+                    Default: False
+            attention_base (OrthoKernelBase, int or dict, optional):
+                Orthogonal base which parametrize the attention sub-modules.
+                Can be a SteerableKernelBase, an integer interpreted as the desired equivalent kernel size or
+                a dictionary with the specs of the base.
+                This parameter is ignored if `attention_mode` is set to False.
+                See the documentation of OrthoKernelBase.parse() for more details on OrthoKernelBase specs.
+                    Default: SteerableKernelBase.create_radial(5)
+        """
+        
+        self.base = SteerableKernelBase.parse(base, default=DEFAULT_STEERABLE_BASE)
+        self.attention_base = OrthoKernelBase.parse(attention_base, default=DEFAULT_ATTENTION_BASE)
+        
         super(SteeredUNet, self).__init__(n_in, n_out, nfeatures=nfeatures, depth=depth,
                                           nscale=nscale, padding=padding, p_dropout=p_dropout, batchnorm=batchnorm,
                                           downsampling=downsampling, upsampling=upsampling,
                                           attention_mode=attention_mode, rho_nonlinearity=rho_nonlinearity)
-
-        self.base = SteerableKernelBase.parse(base, default=DEFAULT_STEERABLE_BASE)
-        self.attention_base = OrthoKernelBase.parse(attention_base, default=DEFAULT_ATTENTION_BASE)
 
 
     def setup_convbn(self, n_in, n_out):

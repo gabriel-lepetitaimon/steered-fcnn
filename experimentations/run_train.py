@@ -46,7 +46,10 @@ def run_train(**opt):
     ###################
     # ---  MODEL  --- #
     # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ #
-    model = setup_model(cfg['model'])
+    sample = validD[0]
+    model = setup_model(cfg['model'], n_in=sample['x'].shape[1], 
+                        n_out=1 if sample['y'].ndim==3 else sample['y'].shape[1])
+    sample = None
     hyper_params = cfg['hyper-parameters']
     net = Binary2DSegmentation(model=model, loss=hyper_params['loss'], 
                                soft_label=hyper_params['smooth-label'],
