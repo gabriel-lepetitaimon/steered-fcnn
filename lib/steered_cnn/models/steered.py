@@ -84,7 +84,9 @@ class SteeredUNet(UNet):
                                           downsampling=downsampling, upsampling=upsampling,
                                           attention_mode=attention_mode, rho_nonlinearity=rho_nonlinearity)
 
-    def setup_convbn(self, n_in, n_out, kernel, stride=1):
+    def setup_convbn(self, n_in, n_out, kernel=None, stride=1):
+        if kernel is None:
+            kernel = self.kernel
         opts = dict(attention_mode=self.attention_mode, rho_nonlinearity=self.rho_nonlinearity, stride=stride,
                     relu=True, bn=self.batchnorm, padding=self.padding)
         if kernel == 2:
