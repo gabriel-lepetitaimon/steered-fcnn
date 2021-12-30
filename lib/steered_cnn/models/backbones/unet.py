@@ -93,7 +93,9 @@ class UNet(Model):
             raise ValueError(f'upsampling must be one of: "linear", "bilinear", "bicubic", "nearest", "conv". '
                              f'Provided: {upsampling}.')
 
-    def setup_convbn(self, n_in, n_out, kernel, stride=1):
+    def setup_convbn(self, n_in, n_out, kernel=None, stride=1):
+        if kernel is None:
+            kernel = self.kernel
         return ConvBN(kernel, n_in, n_out, relu=True, bn=self.batchnorm, padding=self.padding, stride=stride)
 
     def setup_convtranspose(self, n_in, n_out):
