@@ -184,6 +184,8 @@ class AttributeDict(OrderedDict):
 
         if isinstance(value, bool) or value is None:
             return item is value
+        if isinstance(value, tuple) and not isinstance(item, tuple):
+            return item in value
         return item == value
 
     def get(self, path, default='raise'):

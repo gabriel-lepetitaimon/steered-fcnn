@@ -1,11 +1,12 @@
 import torch
 from torch import nn
+from collections import OrderedDict
 from ...utils import cat_crop
 from ...utils.convbn import ConvBN
 from .model import Model
 
 
-class UNet(Model):
+class HemelingNet(Model):
     def __init__(self, n_in, n_out=1, nfeatures=64, kernel=3, depth=2, nscale=5, padding='same',
                  p_dropout=0, dropout_mode='shortcut', batchnorm=True, downsampling='maxpooling', upsampling='conv',
                  **kwargs):
@@ -19,6 +20,7 @@ class UNet(Model):
         :param nscale: Number of downsampling stage.
         :param padding: Padding configuration [One of 'same' or 'auto'; 'true' or 'valid'; 'full'; number of padded pixel].
         :param p_dropout: Dropout probability during training.
+        :param dropout_mode: Decide where to apply dropout. [One of 'shortcut' or 'bottom']
         :param batchnorm: Adds batchnorm layers before each convolution layer.
         :param downsampling:
             - maxpooling: Maxpooling Layer.
@@ -31,7 +33,8 @@ class UNet(Model):
         """
         super().__init__(n_in=n_in, n_out=n_out, nfeatures=nfeatures, depth=depth, nscale=nscale,
                          kernel=kernel, padding=padding, p_dropout=p_dropout, dropout_mode=dropout_mode.lower(),
-                         batchnorm=batchnorm, downsampling=downsampling, upsampling=upsampling, **kwargs)
+                         batchnorm=batchnorm, downsampling=downsampling.lower(), upsampling=upsampling.lower(),
+                         **kwargs)
 
         if isinstance(nfeatures, int):
             nfeatures = [nfeatures*(2**scale) for scale in range(nscale)]
@@ -51,10 +54,8 @@ class UNet(Model):
         for i in range(nscale):
             nf_prev = n_in if i == 0 else nfeatures[i-1]
             nf_scale = nfeatures[i]
-            conv_stack = [self.setup_convbn(nf_prev, nf_scale)]
-            conv_stack += [self.setup_convbn(nf_scale, nf_scale) for _ in range(depth-2)]
-            if downsampling == 'conv':
-                conv_stack[-1].stride = 2
+            conv_stack = [self.setup_convbn(nf_prev, nf_scale, kernel)]
+            conv_stack += [self.setup_convbn(nf_scale, nf_scale, kernel) for _ in range(depth-1)]
             self.down_conv += [conv_stack]
             for j, mod in enumerate(conv_stack):
                 self.add_module(f'downconv{i}-{j}', mod)
@@ -63,35 +64,38 @@ class UNet(Model):
                 if downsampling.lower() == 'conv':
                     downsample = self.setup_convbn(nf_scale, nf_scale, kernel=2, stride=2)
                 else:
-                    downsample = nn.MaxPool2d(2) if downsampling.lower() == 'maxpooling' else nn.AvgPool2d(2)
+                    downsample = nn.MaxPool2d(2) if downsampling.lower()=='maxpooling' else nn.AvgPool2d(2)
                 self.downsample += [downsample]
                 self.add_module(f'downsample{i}', downsample)
 
+        # Up Conv
         self.up_conv = []
+        self.upsample = []
+        if upsampling.lower() not in ('conv', 'linear', 'bilinear', 'bicubic', 'nearest'):
+            raise ValueError(f'upsampling must be one of: "linear", "bilinear", "bicubic", "nearest", "conv". '
+                             f'Provided: {upsampling}.')
         for i in range(nscale, 2*nscale-1):
-            nf_scale = nfeatures[i] + nfeatures[2*nscale-i-1]
-            nf_next = nfeatures[i]
-            conv_stack = [self.setup_convbn(nf_scale, nf_scale) for _ in range(depth-1)]
-            if upsampling == 'conv':
-                conv_stack += [self.setup_convtranspose(nf_scale, nf_next)]
+            nf_prev = nfeatures[i-1]
+            nf_concat = nfeatures[i] + nfeatures[2*nscale-i-1]
+            nf_scale = nfeatures[i]
+            if upsampling.lower() == 'conv':
+                upsample = self.setup_convtranspose(nf_prev, nf_scale)
             else:
-                conv_stack += [self.setup_convbn(nf_scale, nf_next)]
+                upsample = nn.Sequential(OrderedDict({
+                        'conv': ConvBN(1, nf_prev, nf_scale, bn=False, relu=False),
+                        'upsample': torch.nn.Upsample(scale_factor=2, mode=upsampling.lower())}))
+            self.upsample += [upsample]
+            self.add_module(f'upsample{i}', upsample)
+
+            conv_stack = [self.setup_convbn(nf_concat, nf_scale, kernel)]
+            conv_stack += [self.setup_convbn(nf_scale, nf_scale, kernel) for _ in range(depth-1)]
             self.up_conv += [conv_stack]
             for j, mod in enumerate(conv_stack):
                 self.add_module(f'upconv{i}-{j}', mod)
 
         # End
-        self.final_conv = nn.Conv2d(nfeatures[-1], n_out, kernel_size=(1, 1))
-
+        self.final_conv = self.setup_convbn(nfeatures[-1], n_out, kernel=1)
         self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else identity
-
-        if upsampling.lower() == 'conv':
-            self.upsample = identity
-        elif upsampling.lower() in ('linear', 'bilinear', 'bicubic', 'nearest'):
-            self.upsample = torch.nn.Upsample(scale_factor=2, mode=upsampling)
-        else:
-            raise ValueError(f'upsampling must be one of: "linear", "bilinear", "bicubic", "nearest", "conv". '
-                             f'Provided: {upsampling}.')
 
     def setup_convbn(self, n_in, n_out, kernel, stride=1):
         return ConvBN(kernel, n_in, n_out, relu=True, bn=self.batchnorm, padding=self.padding, stride=stride)
@@ -127,18 +131,11 @@ class UNet(Model):
         x = self.reduce_stack(self.down_conv[-1], x)
         x = self.dropout(x)
 
-        for conv_stack in self.up_conv:
-            x = cat_crop(xscale.pop(), self.upsample(x))
+        for conv_stack, upsample in zip(self.up_conv, self.upsample):
+            x = cat_crop(xscale.pop(), upsample(x))
             x = self.reduce_stack(conv_stack, x)
 
         return self.final_conv(x)
-
-    def reduce_stack(self, conv_stack, x, **kwargs):
-        from functools import reduce
-
-        def conv(X, conv_mod):
-            return conv_mod(X, **kwargs)
-        return reduce(conv, conv_stack, x)
 
     @property
     def p_dropout(self):

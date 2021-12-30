@@ -50,7 +50,7 @@ def parse_arguments(opt=None, require_config=True):
         parser.add_argument('--debug', help='Debug trial (not logged into orion)', action='store_true',
                             default=os.getenv('TRIAL_DEBUG', None)=="True")
         parser.add_argument('--gpus', help='list of gpus to use for this trial',
-                            default=os.getenv('TRIAL_GPUS', None))
+                            default=os.getenv('TRIAL_GPUS', 0))
         parser.add_argument('--tmp-dir', help='Directory where the trial temporary folders will be stored.',
                             default=os.getenv('TRIAL_TMP_DIR', None))
         args = vars(parser.parse_args())

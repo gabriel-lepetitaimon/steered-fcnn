@@ -1,13 +1,14 @@
-from .steered import SteeredUNet
-from .backbones import UNet
+from .steered import SteeredUNet, SteeredHemelingNet
+from .backbones import UNet, HemelingNet
 
 
 def setup_model(cfg, n_in, n_out):
-    if cfg.check('backbone', 'unet'):
+    if cfg.check('backbone', ('unet', 'hemeling')):
         args = cfg.subset('nfeatures,'
                           'nscale,depth,padding,'
                           'batchnorm,downsampling,upsampling')
         if cfg.get('steered', default=False):
+            NET = SteeredUNet if cfg.get('backbone') == 'unet' else SteeredHemelingNet
             steered = cfg.get('steered')
             if isinstance(steered, str):
                 steered = {'steering': steered}
@@ -17,11 +18,12 @@ def setup_model(cfg, n_in, n_out):
                     steered['attention_mode'] = 'shared'
             else:
                 steered['attention_mode'] = False
-            net = SteeredUNet(n_in, n_out,
-                              rho_nonlinearity=steered.get('rho_nonlinearity', None),
-                              base=steered.get('base', None),
-                              attention_mode=steered.get('attention_mode'),
-                              attention_base=steered.get('attention_base', False), **args)
+            net = NET(n_in, n_out,
+                      rho_nonlinearity=steered.get('rho_nonlinearity', None),
+                      base=steered.get('base', None),
+                      attention_mode=steered.get('attention_mode'),
+                      attention_base=steered.get('attention_base', False), **args)
         else:
-            net = UNet(n_in, n_out, kernel=cfg.get('kernel',3), **args)
+            NET = UNet if cfg.get('backbone') == 'unet' else HemelingNet
+            net = NET(n_in, n_out, kernel=cfg.get('kernel',3), **args)
     return net

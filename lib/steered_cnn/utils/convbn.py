@@ -14,14 +14,20 @@ class ConvBN(torch.nn.Module):
         self.kernel = kernel
         self.n_in = n_in
         self.n_out = n_out
-        self.stride = stride
+        self._stride = stride
         self.padding = padding
         self.dilation = dilation
         self._relu = relu
         self._bn = bn
 
-        model = [self.setup_conv_module(n_in, n_out)]
+        conv = torch.nn.Conv2d(n_in, n_out, kernel_size=kernel, stride=stride, padding=padding,
+                               dilation=dilation, bias=not self._bn)
+        torch.nn.init.kaiming_normal_(conv.weight, mode='fan_out',
+                                      nonlinearity=('relu' if self._bn else 'selu') if self._relu else 'linear')
+        if not self._bn:
+            torch.nn.init.constant_(conv.bias, 0)
 
+        model = [self.setup_conv_module(n_in, n_out)]
         if bn:
             model += [torch.nn.BatchNorm2d(n_out)]
             if relu:
@@ -38,15 +44,6 @@ class ConvBN(torch.nn.Module):
     def conv(self):
         return self.model[0]
 
-    def setup_conv_module(self, n_in, n_out):
-        conv = torch.nn.Conv2d(n_in, n_out, kernel_size=self.kernel, stride=self.stride, padding=self.padding,
-                               dilation=self.dilation, bias=not self._bn)
-        torch.nn.init.kaiming_normal_(conv.weight, mode='fan_out', 
-                                      nonlinearity=('relu' if self._bn else 'selu') if self._relu else 'linear')
-        if not self._bn:
-            torch.nn.init.constant_(conv.bias, 0)
-        return conv
-
     @property
     def bn(self):
         if self._bn:
@@ -57,6 +54,16 @@ class ConvBN(torch.nn.Module):
     def relu(self):
         return self.model[2 if self._bn else 1]
 
+    def __getattr__(self, item):
+        if item in ('stride', 'padding', 'dilation'):
+            return getattr(self.conv, item)
+        return super().__getattr__(item)
+
+    def __setattr__(self, key, value):
+        if key in ('stride', 'padding', 'dilation'):
+            setattr(self.conv, key, value)
+        else:
+            self.__setattr__(key, value)
 
 # --- Utils function ---
 def compute_padding(padding, shape):
