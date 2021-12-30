@@ -84,10 +84,19 @@ class SteeredUNet(UNet):
                                           downsampling=downsampling, upsampling=upsampling,
                                           attention_mode=attention_mode, rho_nonlinearity=rho_nonlinearity)
 
-    def setup_convbn(self, n_in, n_out):
-        return SteeredConvBN(n_in, n_out, steerable_base=self.base, attention_base=self.attention_base,
-                             attention_mode=self.attention_mode, rho_nonlinearity=self.rho_nonlinearity,
-                             relu=True, bn=self.batchnorm, padding=self.padding)
+    def setup_convbn(self, n_in, n_out, kernel, stride=1):
+        opts = dict(attention_mode=self.attention_mode, rho_nonlinearity=self.rho_nonlinearity, stride=stride,
+                    relu=True, bn=self.batchnorm, padding=self.padding)
+        if kernel == 2:
+            return SteeredConvBN(n_in, n_out,
+                                 steerable_base=DEFAULT_STEERABLE_RESAMPLING_BASE,
+                                 attention_base=DEFAULT_ATTENTION_RESAMPLING_BASE,
+                                 **opts)
+        else:
+            return SteeredConvBN(n_in, n_out,
+                                 steerable_base=self.base,
+                                 attention_base=self.attention_base,
+                                 **opts)
 
     def setup_convtranspose(self, n_in, n_out):
         return SteeredConvTranspose2d(n_in, n_out, stride=2,
