@@ -100,4 +100,4 @@ class SteeredConvBN(nn.Module):
         if key in ('stride', 'padding', 'dilation'):
             setattr(self.conv, key, value)
         else:
-            self.__setattr__(key, value)
+            super().__setattr__(key, value)
