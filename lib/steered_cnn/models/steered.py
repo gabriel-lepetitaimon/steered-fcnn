@@ -264,9 +264,9 @@ def attention_pyramid(alpha, rho, module, device=None):
                 rho = torch.Tensor([rho]).to(device=x.device)
                 rho = torch.stack((torch.cos(rho), torch.sin(rho)))[:, None, None, None]
 
-            if module.normalize_steer is True:
+            if module.rho_nonlinearity == 'normalize':
                 rho = 1
-            elif module.normalize_steer == 'tanh':
+            elif module.rho_nonlinearity == 'tanh':
                 rho = torch.tanh(rho)
             rho_pyramid = [rho]*N if not isinstance(rho, torch.Tensor) else pyramid_pool2d(rho, n=N)
         return alpha_pyramid, rho_pyramid
