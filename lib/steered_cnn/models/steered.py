@@ -137,7 +137,7 @@ class SteeredUNet(UNet):
         alpha_pyramid, rho_pyramid = attention_pyramid(alpha, rho, self, x.device)
 
         xscale = []
-        for conv_stack, downsample in zip(self.down_conv[:-1], self.downsample):
+        for i, (conv_stack, downsample) in enumerate(zip(self.down_conv[:-1], self.downsample)):
             x = self.reduce_stack(conv_stack, x, alpha=alpha_pyramid[i], rho=rho_pyramid[i])
             xscale += [self.dropout(x)] if self.dropout_mode == 'shortcut' else [x]
             x = downsample(x)
