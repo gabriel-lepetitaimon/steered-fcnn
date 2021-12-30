@@ -427,8 +427,10 @@ class SteerableKernelBase(KernelBase):
                                     f'(if alpha is a 6D matrix its shape should be: (2, k_max, b, n_out, h, w),' \
                                     f' with alpha[0]=cos(α) and alpha[1]=sin(α)\n' \
                                     f'alpha.shape={alpha.shape})'
-                assert k_max_a == self.k_max, f'Invalid k dimension for alpha: alpha.shape[1]={k_max_a} but should be equal to k_max={self.k_max}.\n' \
+                assert k_max_a >= self.k_max, f'Invalid k dimension for alpha: alpha.shape[1]={k_max_a} but should be equal to k_max={self.k_max}.\n' \
                                             f'(alpha.shape={alpha.shape})'
+                if k_max_a < self.k_max:
+                    alpha = alpha[:, :self.k_max]
             assert b_a == 1 or b == b_a, f'Invalid batch size for alpha: alpha.shape[{alpha.dim()-4}]={b_a} but should be {b} (or  1 for broadcast)\n' \
                                          f'(alpha.shape={alpha.shape}, input.shape={input.shape}'
             assert n_out_a == 1 or n_out == n_out_a, f'Invalid number of output features for alpha: ' \
