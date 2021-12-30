@@ -140,7 +140,8 @@ class SteeredUNet(UNet):
         for i, (conv_stack, downsample) in enumerate(zip(self.down_conv[:-1], self.downsample)):
             x = self.reduce_stack(conv_stack, x, alpha=alpha_pyramid[i], rho=rho_pyramid[i])
             xscale += [self.dropout(x)] if self.dropout_mode == 'shortcut' else [x]
-            x = downsample(x)
+            x = downsample(x, alpha=alpha_pyramid[i], rho=rho_pyramid[i])\
+                if self.downsampling == 'conv' else downsample(x)
 
         x = self.reduce_stack(self.down_conv[-1], x, alpha=alpha_pyramid[-1], rho=rho_pyramid[-1])
         x = self.dropout(x)
@@ -217,7 +218,8 @@ class SteeredHemelingNet(HemelingNet):
         for i, (conv_stack, downsample) in enumerate(zip(self.down_conv[:-1], self.downsample)):
             x = self.reduce_stack(conv_stack, x, alpha=alpha_pyramid[i], rho=rho_pyramid[i])
             xscale += [self.dropout(x)] if self.dropout_mode == 'shortcut' else [x]
-            x = downsample(x)
+            x = downsample(x, alpha=alpha_pyramid[i], rho=rho_pyramid[i]) \
+                if self.downsampling == 'conv' else downsample(x)
 
         x = self.reduce_stack(self.down_conv[-1], x, alpha=alpha_pyramid[-1], rho=rho_pyramid[-1])
         x = self.dropout(x)
