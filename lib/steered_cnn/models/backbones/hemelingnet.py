@@ -76,8 +76,8 @@ class HemelingNet(Model):
                              f'Provided: {upsampling}.')
         for i in range(nscale, 2*nscale-1):
             nf_prev = nfeatures[i-1]
-            nf_concat = nfeatures[i] + nfeatures[2*nscale-i-1]
             nf_scale = nfeatures[i]
+            nf_concat = nf_scale + nfeatures[2*nscale-i-2]
             if upsampling.lower() == 'conv':
                 upsample = self.setup_convtranspose(nf_prev, nf_scale)
             else:
@@ -94,7 +94,7 @@ class HemelingNet(Model):
                 self.add_module(f'upconv{i}-{j}', mod)
 
         # End
-        self.final_conv = self.setup_convbn(nfeatures[-1], n_out, kernel=1)
+        self.final_conv = ConvBN(1, nfeatures[-1], n_out, relu=False, bn=False)
         self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else identity
 
     def setup_convbn(self, n_in, n_out, kernel, stride=1):

@@ -14,9 +14,6 @@ class ConvBN(torch.nn.Module):
         self.kernel = kernel
         self.n_in = n_in
         self.n_out = n_out
-        self._stride = stride
-        self.padding = padding
-        self.dilation = dilation
         self._relu = relu
         self._bn = bn
 
@@ -27,15 +24,18 @@ class ConvBN(torch.nn.Module):
         if not self._bn:
             torch.nn.init.constant_(conv.bias, 0)
 
-        model = [self.setup_conv_module(n_in, n_out)]
+        model = [conv]
         if bn:
             model += [torch.nn.BatchNorm2d(n_out)]
             if relu:
                 model += [torch.nn.ReLU()]
         elif relu:
             model += [torch.nn.SELU()]
-
         self.model = torch.nn.Sequential(*model)
+        
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation if isinstance(dilation, tuple) else (dilation, dilation)
 
     def forward(self, x):
         return self.model(x)

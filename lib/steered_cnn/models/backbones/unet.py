@@ -52,7 +52,7 @@ class UNet(Model):
             nf_prev = n_in if i == 0 else nfeatures[i-1]
             nf_scale = nfeatures[i]
             conv_stack = [self.setup_convbn(nf_prev, nf_scale)]
-            conv_stack += [self.setup_convbn(nf_scale, nf_scale) for _ in range(depth-2)]
+            conv_stack += [self.setup_convbn(nf_scale, nf_scale) for _ in range(depth-1)]
             if downsampling == 'conv':
                 conv_stack[-1].stride = 2
             self.down_conv += [conv_stack]
@@ -81,7 +81,7 @@ class UNet(Model):
                 self.add_module(f'upconv{i}-{j}', mod)
 
         # End
-        self.final_conv = nn.Conv2d(nfeatures[-1], n_out, kernel_size=(1, 1))
+        self.final_conv = ConvBN(1, nfeatures[-1], n_out, relu=False, bn=False)
 
         self.dropout = torch.nn.Dropout(p_dropout) if p_dropout else identity
 

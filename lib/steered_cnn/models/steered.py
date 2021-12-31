@@ -157,12 +157,12 @@ class SteeredHemelingNet(HemelingNet):
     def __init__(self, n_in, n_out, nfeatures=6, depth=2, nscale=5, padding='same',
                  p_dropout=0, batchnorm=True, downsampling='maxpooling', upsampling='conv',
                  base=DEFAULT_STEERABLE_BASE, attention_base=False, attention_mode='shared', rho_nonlinearity=False):
+        self.base = SteerableKernelBase.parse(base, default=DEFAULT_STEERABLE_BASE)
+        self.attention_base = OrthoKernelBase.parse(attention_base, default=DEFAULT_ATTENTION_BASE)
         super(SteeredHemelingNet, self).__init__(n_in, n_out, nfeatures=nfeatures, depth=depth,
                                           nscale=nscale, padding=padding, p_dropout=p_dropout, batchnorm=batchnorm,
                                           downsampling=downsampling, upsampling=upsampling,
                                           attention_mode=attention_mode, rho_nonlinearity=rho_nonlinearity)
-        self.base = SteerableKernelBase.parse(base, default=DEFAULT_STEERABLE_BASE)
-        self.attention_base = OrthoKernelBase.parse(attention_base, default=DEFAULT_ATTENTION_BASE)
 
     def setup_convbn(self, n_in, n_out, kernel, stride=1):
         opts = dict(attention_mode=self.attention_mode, rho_nonlinearity=self.rho_nonlinearity, stride=stride,
@@ -225,7 +225,9 @@ class SteeredHemelingNet(HemelingNet):
         x = self.dropout(x)
 
         for conv_stack, upsample in zip(self.up_conv, self.upsample):
-            x = cat_crop(xscale.pop(), upsample(x))
+            x = upsample(x, alpha=alpha_pyramid[i], rho=rho_pyramid[i]) \
+                if self.upsampling == 'conv' else upsample(x)
+            x = cat_crop(xscale.pop(), x)
             x = self.reduce_stack(conv_stack, x, alpha=alpha_pyramid[-i], rho=rho_pyramid[-i])
 
         return self.final_conv(x)

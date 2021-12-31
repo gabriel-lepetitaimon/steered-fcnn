@@ -26,8 +26,11 @@ def parse_config(cfg_file):
     default_cfg = default_config()
     if cfg_file is None:
         return default_cfg
-    with open(cfg_file, 'r') as f:
-        exp_config = AttributeDict.from_yaml(f)
+    try:
+        with open(cfg_file, 'r') as f:
+            exp_config = AttributeDict.from_yaml(f)
+    except:
+        exp_config = AttributeDict.from_yaml(cfg_file)
 
     # --- Preprocess cfg file
     if "sub-experiment" not in exp_config.experiment:

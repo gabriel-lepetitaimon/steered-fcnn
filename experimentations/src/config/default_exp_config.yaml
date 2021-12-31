@@ -4,9 +4,10 @@ experiment:
     sub-experiment-id: 0
     tags: {}
 
+
 model:
     backbone: 'unet'
-    steered: False
+    steered: 'all'
         # steering: 'attention' # 'attention' / 'angle' / 'vec' / 'vec_norm'
         # rho_nonlinearity: None # None / 'tanh' / 'normalized'
         # base: None # kernel_size / {k: [r0, r1], ...} / {'kr': ..., 'max_k': k, 'phase': 0}
