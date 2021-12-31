@@ -171,7 +171,7 @@ class SteerableKernelBase(KernelBase):
 
     @staticmethod
     def create_radial(kr: Union[int, Dict[int, List[int]]], std=.5, size=-1, oversample=16,
-                      phase=None, max_k=None):
+                      phase=None, max_k=None, cap_k=True):
         """
 
 
@@ -192,7 +192,11 @@ class SteerableKernelBase(KernelBase):
 
         """
         from ..utils.rotequivariance_toolbox import polar_space
-        
+
+        if size == -1:
+            r_max = np.sqrt(2)*kr if isinstance(kr, int) else max(R if np.isscalar(R) else max(R) for R in kr.values())
+            size = int(np.ceil(2*(r_max+std)))
+
         if isinstance(kr, int):
             # --- Automatically generate kr to cover a kernel of size kr ---
             if not kr % 2 and phase is None:
@@ -203,7 +207,7 @@ class SteerableKernelBase(KernelBase):
                 if (size % 2) ^ (kr % 2):
                     size += 1
             
-            r, _ = polar_space(kr)
+            r, _ = polar_space(kr) if cap_k else polar_space(size)
             r = r.flatten()
             rk = {}
             for i in np.arange(1, kr/np.sqrt(2)+1):
@@ -224,9 +228,6 @@ class SteerableKernelBase(KernelBase):
 
         if phase is None:
             phase = 0
-        if size == -1:
-                r_max = max(R if np.isscalar(R) else max(R) for R in kr.values())
-                size = int(np.ceil(2*(r_max+std)))
         
         kernels_real, kernels_imag = [], []
         labels_real, labels_imag = [], []
