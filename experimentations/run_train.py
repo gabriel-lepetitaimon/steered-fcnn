@@ -13,6 +13,8 @@ from src.datasets import load_dataset
 from src.trainer import Binary2DSegmentation, ExportValidation
 from src.trainer.loggers import Logs
 from steered_cnn.models import setup_model
+from steered_cnn.steered_conv import SteeredConvBN
+from steered_cnn.utils import ConvBN
 
 
 def run_train(**opt):
@@ -49,6 +51,7 @@ def run_train(**opt):
     sample = validD.dataset[0]
     model = setup_model(cfg['model'], n_in=sample['x'].shape[0], 
                         n_out=1 if sample['y'].ndim==2 else sample['y'].shape[0])
+    
     sample = None
     hyper_params = cfg['hyper-parameters']
     net = Binary2DSegmentation(model=model, loss=hyper_params['loss'], 

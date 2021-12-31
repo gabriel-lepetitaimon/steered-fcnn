@@ -53,8 +53,6 @@ class UNet(Model):
             nf_scale = nfeatures[i]
             conv_stack = [self.setup_convbn(nf_prev, nf_scale)]
             conv_stack += [self.setup_convbn(nf_scale, nf_scale) for _ in range(depth-1)]
-            if downsampling == 'conv':
-                conv_stack[-1].stride = 2
             self.down_conv += [conv_stack]
             for j, mod in enumerate(conv_stack):
                 self.add_module(f'downconv{i}-{j}', mod)
