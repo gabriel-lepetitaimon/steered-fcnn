@@ -194,19 +194,19 @@ class SteerableKernelBase(KernelBase):
         from ..utils.rotequivariance_toolbox import polar_space
 
         if size == -1:
-            r_max = np.sqrt(2)*kr if isinstance(kr, int) else max(R if np.isscalar(R) else max(R) for R in kr.values())
-            size = int(np.ceil(2*(r_max+std)))
+            if isinstance(kr, int):
+                size = int(np.round(kr*np.sqrt(2)))
+                if (size % 2) ^ (kr % 2):
+                    size += 1
+            else:
+                r_max = max(R if np.isscalar(R) else max(R) for R in kr.values())
+                size = int(np.ceil(2*(r_max+std)))
 
         if isinstance(kr, int):
             # --- Automatically generate kr to cover a kernel of size kr ---
             if not kr % 2 and phase is None:
                 phase = np.pi/4  # Shift phase by 45° when kernel size is even.
                 
-            if size == -1:
-                size = int(np.round(kr*np.sqrt(2)))
-                if (size % 2) ^ (kr % 2):
-                    size += 1
-            
             r, _ = polar_space(kr) if cap_k else polar_space(size)
             r = r.flatten()
             rk = {}
