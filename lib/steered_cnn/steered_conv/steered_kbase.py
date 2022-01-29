@@ -411,7 +411,11 @@ class SteerableKernelBase(KernelBase):
         conv_opts, shapes = self._prepare_conv(input=input, weight=weight, transpose=transpose, stride=stride,
                                                padding=padding, output_padding=output_padding, dilation=dilation)
         b, n_in, n_out, k, h, w = shapes
-        if isinstance(alpha, (int, float)):
+
+        if not self.K_steer:
+            alpha = None
+            rho = None
+        elif isinstance(alpha, (int, float)):
             if alpha == 0:
                 alpha = None
             else:
