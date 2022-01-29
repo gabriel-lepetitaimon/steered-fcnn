@@ -131,28 +131,39 @@ class SteerableKernelBase(KernelBase):
         from torch.nn.init import calculate_gain
         import math
 
-        w_equi = torch.empty((n_out, n_in, self.K_equi))
+        if self.K_equi:
+            w_equi = torch.empty((n_out, n_in, self.K_equi))
 
-        w_steer_theta = self.expand_r(torch.rand((n_out, n_in, self.k_len))*(2*math.pi), dim=2)
-        if std_theta:
-            w_steer_theta += torch.normal(0, std=std_theta, size=(n_out, n_in, self.K_steer))
+        if self.K_steer:
+            w_steer_theta = self.expand_r(torch.rand((n_out, n_in, self.k_len))*(2*math.pi), dim=2)
+            if std_theta:
+                w_steer_theta += torch.normal(0, std=std_theta, size=(n_out, n_in, self.K_steer))
 
         gain = calculate_gain(nonlinearity, nonlinearity_param)
         std = gain*math.sqrt(1/(n_in*(self.K_equi+self.K_steer)))
 
         if dist == 'normal':
-            nn.init.normal_(w_equi, std=std)
-            w_steer_rho = torch.abs(torch.randn((n_out, n_in, self.K_steer)))*std*math.sqrt(2)
-            w_steer = w_steer_rho * torch.exp(1j*w_steer_theta)
+            if self.K_equi:
+                nn.init.normal_(w_equi, std=std)
+            if self.K_steer:
+                w_steer_rho = torch.abs(torch.randn((n_out, n_in, self.K_steer)))*std*math.sqrt(2)
+                w_steer = w_steer_rho * torch.exp(1j*w_steer_theta)
         elif dist == 'uniform':
             bound = std * math.sqrt(3)
-            nn.init.uniform_(w_equi, 0, bound)
-            w_steer_rho = torch.rand((n_out, n_in, self.K_steer))*bound*math.sqrt(2)
-            w_steer = w_steer_rho * torch.exp(1j*w_steer_theta)
+            if self.K_equi:
+                nn.init.uniform_(w_equi, 0, bound)
+            if self.K_steer:
+                w_steer_rho = torch.rand((n_out, n_in, self.K_steer))*bound*math.sqrt(2)
+                w_steer = w_steer_rho * torch.exp(1j*w_steer_theta)
         else:
             raise NotImplementedError(f'Unsupported distribution for the random initialization of weights: "{dist}". \n'
                                       f'(Supported distribution are "normal" or "uniform"')
-        w = torch.cat((w_equi, w_steer.real, w_steer.imag), dim=2).contiguous()
+        w = []
+        if self.K_equi:
+            w += [w_equi]
+        if self.K_steer:
+            w += [w_steer.real, w_steer.imag]
+        w = torch.cat(w, dim=2).contiguous()
         return w
 
     @staticmethod
@@ -566,7 +577,7 @@ class SteerableKernelBase(KernelBase):
                                                                                       rho, rho_nonlinearity,
                                                                                       stride, padding, dilation,
                                                                                       transpose, output_padding)
-        if alpha is None:
+        if alpha is None or not self.K_steer:
             return super(SteerableKernelBase, self).composite_kernels_conv2d(input, weight, transpose=transpose,
                                                                              **conv_opts)
         
@@ -615,7 +626,7 @@ class SteerableKernelBase(KernelBase):
                                                                                       rho, rho_nonlinearity,
                                                                                       stride, padding, dilation,
                                                                                       transpose, output_padding)
-        if alpha is None:
+        if alpha is None or not self.K_steer:
             return super(SteerableKernelBase, self).preconvolved_base_conv2d(input, weight, transpose=transpose, **conv_opts)
 
         # alpha shape: (2, [k_max], b, n_out, ~h, ~w)
