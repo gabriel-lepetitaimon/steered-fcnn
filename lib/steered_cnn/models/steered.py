@@ -235,6 +235,8 @@ class SteeredHemelingNet(HemelingNet):
 
 def attention_pyramid(alpha, rho, module, device=None):
     k_max = module.base.k_max
+    if getattr(module, 'downsampling', None) == 'conv':
+        k_max = max(k_max, DEFAULT_STEERABLE_RESAMPLING_BASE.k_max)
     N = module.nscale
     if alpha is None:
         if module.attention_base is None:
