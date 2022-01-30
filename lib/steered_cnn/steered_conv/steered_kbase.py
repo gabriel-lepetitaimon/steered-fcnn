@@ -710,7 +710,7 @@ class SteerableKernelBase(KernelBase):
                     break
             else:
                 couples += [(i1, None)]
-            couples_info += [{'r_name': info1['r'], 'k':info1['k'], 'r': info1['r'],
+            couples_info += [{'r_name': round(info1['r']*1e4)/1e4, 'k':info1['k'], 'r': info1['r'],
                               'name': f'k={info1["k"]} r={info1["r"]}'}]
         return tuple(reversed(couples)), tuple(reversed(couples_info))
 
@@ -719,7 +719,7 @@ class SteerableKernelBase(KernelBase):
         if complex:
             complex_couples, w_infos = self.complex_kernels_couple()
         else:
-            w_infos = [{'r_name': f'r={_["r"]} {("R" if _["type"]=="R" else " I") if _["k"]>0 else ""}',
+            w_infos = [{'r_name': f'r={_["r"]:.4g} {("R" if _["type"]=="R" else " I") if _["k"]>0 else ""}',
                         'name': f'k={_["k"]} r={_["r"]} {("R" if _["type"]=="R" else " I") if _["k"]>0 else ""}',
                         'k': _['k'], 'r': _['r']} for _ in self.kernels_info]
             complex_couples = None

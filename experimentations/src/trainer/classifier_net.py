@@ -11,7 +11,7 @@ from steered_cnn.utils import clip_pad_center
 
 
 class Binary2DSegmentation(pl.LightningModule):
-    def __init__(self, model, loss='BCE', optimizer=None, lr=1e-3, p_dropout=0, soft_label=0):
+    def __init__(self, model, loss='binaryCE', optimizer=None, lr=1e-3, p_dropout=0, soft_label=0):
         super().__init__()
         self.model = model
 
@@ -33,7 +33,6 @@ class Binary2DSegmentation(pl.LightningModule):
         elif loss == 'focalLoss':
             from .losses import focal_loss
             _loss = partial(focal_loss, gamma=loss_kwargs.get('gamma',2))
-            print('FocalLoss.Gamma=', loss_kwargs.get('gamma',2))
             self._loss = lambda y_hat, y: _loss(torch.sigmoid(y_hat), y)
         elif loss == 'binaryCE':
             self._loss = lambda y_hat, y: F.binary_cross_entropy_with_logits(y_hat, y.float())
