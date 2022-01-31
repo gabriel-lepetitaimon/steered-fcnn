@@ -56,6 +56,8 @@ hyper-parameters:
         beta_sqr: 0.999 # and its square
         amsgrad: True
 
+        lr-decay-factor: 0
+
     # optimizer:
     #     type: 'ASGD' 
     #     weight_decay: 0

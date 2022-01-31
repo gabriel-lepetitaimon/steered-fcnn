@@ -56,6 +56,7 @@ def run_train(**opt):
     hyper_params = cfg['hyper-parameters']
     net = Binary2DSegmentation(model=model, loss=hyper_params['loss'], 
                                soft_label=hyper_params['smooth-label'],
+                               earlystop_cfg=cfg['training']['early-stopping'],
                                optimizer=hyper_params['optimizer'],
                                lr=hyper_params['lr'] / hyper_params['accumulate-gradient-batch'],
                                p_dropout=hyper_params['drop-out'])

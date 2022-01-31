@@ -8,10 +8,11 @@ from torchmetrics import functional as metricsF
 import torchmetrics
 
 from steered_cnn.utils import clip_pad_center
+from ..config import default_config
 
 
 class Binary2DSegmentation(pl.LightningModule):
-    def __init__(self, model, loss='binaryCE', optimizer=None, lr=1e-3, p_dropout=0, soft_label=0):
+    def __init__(self, model, loss='binaryCE', optimizer=None, earlystop_cfg=None, lr=1e-3, p_dropout=0, soft_label=0):
         super().__init__()
         self.model = model
 
@@ -36,9 +37,13 @@ class Binary2DSegmentation(pl.LightningModule):
             self._loss = lambda y_hat, y: _loss(torch.sigmoid(y_hat), y)
         elif loss == 'binaryCE':
             self._loss = lambda y_hat, y: F.binary_cross_entropy_with_logits(y_hat, y.float())
+
         if optimizer is None:
             optimizer = {'type': 'Adam'}
         self.optimizer = optimizer
+        if earlystop_cfg is None:
+            earlystop_cfg= default_config()['training']['early-stopping']
+        self.earlystop_cfg = earlystop_cfg
 
         self.testset_names = None
         
@@ -143,7 +148,22 @@ class Binary2DSegmentation(pl.LightningModule):
             optimizer = torch.optim.SGD(self.parameters(), lr=self.lr, **kwargs)
         else:
             optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
-        return optimizer
+
+        if opt['lr-decay-factor']:
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode=self.earlystop_cfg['mode'],
+                                                                   factor=opt['lr-decay-factor'],
+                                                                   patience=self.earlystop_cfg['patience']/2,
+                                                                   threshold=self.earlystop_cfg['threshold'],
+                                                                   min_lr=self.lr/opt['lr-decay-factor']**5)
+            return {'optimizer': optimizer,
+                    'lr_scheduler': {
+                        'scheduler': scheduler,
+                        'frequency': 1, 'interval': 'epoch',
+                        'monitor': self.earlystop_cfg['monitor'],
+
+                    }}
+        else:
+            return optimizer
 
     def forward(self, *args, **kwargs):
         return torch.sigmoid(self.model(*args, **kwargs))
