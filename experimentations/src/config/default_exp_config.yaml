@@ -26,6 +26,7 @@ model:
 training:
     seed: 1234
     dataset-file: 'vessels.h5'
+    use-preprocessing: True
     dataset-path: 'default'
     training-dataset: 'DRIVE'
     training-dataset-factor: 8
@@ -67,6 +68,10 @@ hyper-parameters:
     #    momentum: 0,
     #    dampening: 0
     #    nesterov: False
+
+    #lr-scheduler:
+    #    type: 'reduceOnPlateau'
+    #
 
 
 data-augmentation:

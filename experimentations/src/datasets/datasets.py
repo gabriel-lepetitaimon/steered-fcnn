@@ -26,22 +26,24 @@ def load_dataset(cfg=None):
     dataset_file = P.join(data_path, cfg.training['dataset-file'])
     trainD = DataLoader(TrainDataset('train/'+train_dataset, file=dataset_file,
                                      factor=cfg.training['training-dataset-factor'],
-                                     steered=steered,
+                                     steered=steered, use_preprocess=cfg.training['use-preprocess'],
                                      data_augmentation_cfg=cfg['data-augmentation']),
                         pin_memory=True, shuffle=True,
                         batch_size=batch_size,
                         num_workers=cfg.training['num-worker']
                         )
-    validD = DataLoader(TestDataset('val/'+train_dataset, file=dataset_file, steered=steered),
+    validD = DataLoader(TestDataset('val/'+train_dataset, file=dataset_file, steered=steered,
+                                    use_preprocess=cfg.training['use-preprocess'],),
                         pin_memory=True, num_workers=6, batch_size=6)
-    testD = {_: DataLoader(TestDataset('test/'+_, file=dataset_file, steered=steered),
+    testD = {_: DataLoader(TestDataset('test/'+_, file=dataset_file, steered=steered,
+                                       use_preprocess=cfg.training['use-preprocess'],),
                            pin_memory=True, num_workers=6, batch_size=6)
              for _ in ('MESSIDOR', 'HRF', 'DRIVE')}
     return trainD, validD, testD
 
 
 class TrainDataset(Dataset):
-    def __init__(self, dataset, file, factor=1, steered=True, data_augmentation_cfg=None):
+    def __init__(self, dataset, file, factor=1, steered=True, use_preprocess=True, data_augmentation_cfg=None):
         super(TrainDataset, self).__init__()
 
         if data_augmentation_cfg is None:
@@ -49,6 +51,8 @@ class TrainDataset(Dataset):
 
         with h5py.File(file, 'r') as DATA:
             self.x = DATA.get(f'{dataset}/data')[:]
+            if not use_preprocess:
+                self.x = self.x[:, 3:]
             self.y = DATA.get(f'{dataset}/av')[:]
             self.mask = DATA.get(f'{dataset}/mask')[:]
             data_fields = dict(images='x', labels='y,mask')
@@ -117,11 +121,13 @@ class TrainDataset(Dataset):
 
 
 class TestDataset(Dataset):
-    def __init__(self, dataset, file, steered=True):
+    def __init__(self, dataset, file, steered=True, use_preprocess=True):
         super(TestDataset, self).__init__()
         with h5py.File(file, 'r') as DATA:
 
             self.x = DATA.get(f'{dataset}/data')[:]
+            if not use_preprocess:
+                self.x = self.x[:, 3:]
             self.y = DATA.get(f'{dataset}/av')[:]
             self.mask = DATA.get(f'{dataset}/mask')[:]
             data_fields = dict(images='x', labels='y,mask')
