@@ -84,7 +84,7 @@ def run_train(**opt):
         if cfg.training['early-stopping']['monitor'].lower() == 'auto':
             cfg.training['early-stopping']['monitor'] = cfg.training['optimize']
         callbacks += [EarlyStopping(verbose=False, strict=False, **cfg.training['early-stopping'])]
-    callbacks += [LearningRateMonitor()]
+    callbacks += [LearningRateMonitor(logging_interval='epoch')]
 
     checkpointed_metrics = ['val-acc', 'val-roc', 'val-iou']
     modelCheckpoints = {}
