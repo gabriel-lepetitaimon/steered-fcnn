@@ -93,13 +93,13 @@ def run_train(**opt):
         modelCheckpoints[metric] = checkpoint
         callbacks.append(checkpoint)
         
-    trainer = pl.Trainer(gpus=args.gpus, callbacks=callbacks,
+    trainer = pl.Trainer(gpus=args.gpus, callbacks=callbacks, logger=logs.loggers,
                          max_epochs=int(np.ceil(max_epoch / val_n_epoch) * val_n_epoch),
                          check_val_every_n_epoch=val_n_epoch,
                          accumulate_grad_batches=cfg['hyper-parameters']['accumulate-gradient-batch'],
                          progress_bar_refresh_rate=1 if args.debug else 0,
                          **trainer_kwargs)
-    net.log(cfg.training['optimize'], 0)
+    # net.log(cfg.training['optimize'], 0)
     try:
         trainer.fit(net, trainD, validD)
     except KeyboardInterrupt:
@@ -127,7 +127,7 @@ def run_train(**opt):
         cmap = {(0, 0): 'black', (1, 1): 'white', (1, 0): 'orange', (0, 1): 'greenyellow', 'default': 'lightgray'}
 
     net.testset_names, testD = list(zip(*testD.items()))
-    tester = pl.Trainer(gpus=args.gpus,
+    tester = pl.Trainer(gpus=args.gpus, logger=logs.loggers,
                         callbacks=[ExportValidation(cmap, path=tmp_path + '/samples', dataset_names=net.testset_names)],
                         progress_bar_refresh_rate=1 if args.debug else 0,)
     tester.test(net, testD, ckpt_path=best_ckpt.best_model_path)

@@ -4,28 +4,37 @@ import shutil
 from os.path import join
 import os
 from mlflow.tracking import MlflowClient
+from mlflow.utils.mlflow_tags import MLFLOW_RUN_NAME
+import pytorch_lightning.loggers as pl_loggers
 
 
 class Logs:
     def __init__(self):
         self.tmp = None
         self.misc = {}
+        self.loggers = []
 
     @property
     def tmp_path(self):
         return self.tmp.name
 
     def setup_log(self, cfg):
+
+        EXP = cfg['experiment']['name'] if not cfg['script-arguments'].debug else 'DEBUG_RUNS'
+        RUN = f"{cfg.experiment['sub-experiment']} ({cfg.experiment['sub-experiment-id']}:{cfg.trial.ID:02})"
+        URI = cfg['mlflow']['uri']
+
         # --- SETUP MLFOW ---
-        mlflow.set_tracking_uri(cfg['mlflow']['uri'])
-        mlflow.set_experiment(cfg['experiment']['name'] if not cfg['script-arguments'].debug else 'DEBUG_RUNS')
-        mlflow.pytorch.autolog(log_models=False)
+        mlflow.set_tracking_uri(URI)
+        mlflow.set_experiment(EXP)
+        # mlflow.pytorch.autolog(log_models=False)
         tags = cfg.experiment.tags.to_dict()
         tags['subexp'] = cfg.experiment['sub-experiment']
         tags['subexpID'] = str(cfg.experiment['sub-experiment-id'])
         tags['git-hash'] = get_git_revision_hash()
-        run_name = f"{cfg.experiment['sub-experiment']} ({cfg.experiment['sub-experiment-id']}:{cfg.trial.ID:02})"
-        mlflow.start_run(run_name=run_name, tags=tags)
+        mlflow.start_run(run_name=RUN, tags=tags)
+
+        self.loggers = [pl_loggers.MLFlowLogger(experiment_name=EXP, tracking_uri=URI, tags={MLFLOW_RUN_NAME: RUN})]
 
         # --- CREATE TMP ---
         os.makedirs(os.path.dirname(cfg['script-arguments']['tmp-dir']), exist_ok=True)
@@ -82,6 +91,14 @@ class Logs:
 
     def log_miscs(self, misc):
         self.misc.update(misc)
+
+    def log_metrics(self, metrics, step=None):
+        for logger in self.loggers:
+            logger.log_metrics(metrics, step)
+
+    def log_hyperparams(self, params):
+        for logger in self.loggers:
+            logger.log_hyperparams(params)
 
     def save_cleanup(self):
         # --- NORMALIZE CHECKPOINT FILE NAME ---
