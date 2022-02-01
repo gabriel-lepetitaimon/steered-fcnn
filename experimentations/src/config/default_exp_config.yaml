@@ -26,7 +26,7 @@ model:
 training:
     seed: 1234
     dataset-file: 'vessels.h5'
-    use-preprocessing: True
+    use-preprocess: True
     dataset-path: 'default'
     training-dataset: 'DRIVE'
     training-dataset-factor: 8
