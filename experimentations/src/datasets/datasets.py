@@ -51,8 +51,10 @@ class TrainDataset(Dataset):
 
         with h5py.File(file, 'r') as DATA:
             self.x = DATA.get(f'{dataset}/data')[:]
-            if not use_preprocess:
+            if use_preprocess is False:
                 self.x = self.x[:, 3:]
+            elif use_preprocess == 'only':
+                self.x = self.x[:, :3]
             self.y = DATA.get(f'{dataset}/av')[:]
             self.mask = DATA.get(f'{dataset}/mask')[:]
             data_fields = dict(images='x', labels='y,mask')
