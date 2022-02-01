@@ -2,7 +2,7 @@ import numpy as np
 import mlflow
 import torch
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
 from orion.client import report_objective
 import os
 import os.path as P
@@ -84,6 +84,7 @@ def run_train(**opt):
         if cfg.training['early-stopping']['monitor'].lower() == 'auto':
             cfg.training['early-stopping']['monitor'] = cfg.training['optimize']
         callbacks += [EarlyStopping(verbose=False, strict=False, **cfg.training['early-stopping'])]
+    callbacks += [LearningRateMonitor()]
 
     checkpointed_metrics = ['val-acc', 'val-roc', 'val-iou']
     modelCheckpoints = {}
