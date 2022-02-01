@@ -153,7 +153,7 @@ class Binary2DSegmentation(pl.LightningModule):
             scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode=self.earlystop_cfg['mode'],
                                                                    factor=opt['lr-decay-factor'],
                                                                    patience=self.earlystop_cfg['patience']/2,
-                                                                   threshold=self.earlystop_cfg['threshold'],
+                                                                   threshold=self.earlystop_cfg['min_delta'],
                                                                    min_lr=self.lr/opt['lr-decay-factor']**5)
             return {'optimizer': optimizer,
                     'lr_scheduler': {
