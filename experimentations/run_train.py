@@ -1,5 +1,4 @@
 import numpy as np
-import mlflow
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
@@ -115,8 +114,8 @@ def run_train(**opt):
         reported_metric = reported_metric[0]
     for metric_name, checkpoint in modelCheckpoints.items():
         metric_value = float(checkpoint.best_model_score.cpu().numpy())
-        mlflow.log_metric('best-' + metric_name, metric_value)
-        mlflow.log_metric(f'best-{metric_name}-epoch', float(checkpoint.best_model_path[:-5].rsplit('-', 1)[1][6:]))
+        logs.mlflow.log_metric('best-' + metric_name, metric_value)
+        logs.mlflow.log_metric(f'best-{metric_name}-epoch', float(checkpoint.best_model_path[:-5].rsplit('-', 1)[1][6:]))
         if metric_name == reported_metric:
             best_ckpt = checkpoint
             reported_value = -metric_value

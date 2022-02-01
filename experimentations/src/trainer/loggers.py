@@ -1,4 +1,4 @@
-import mlflow
+#import mlflow
 import tempfile
 import shutil
 from os.path import join
@@ -8,11 +8,64 @@ from mlflow.utils.mlflow_tags import MLFLOW_RUN_NAME
 import pytorch_lightning.loggers as pl_loggers
 
 
+class MlflowClientRunProxy:
+    def __init__(self, mlflow_client: MlflowClient, run_id):
+        self._client = mlflow_client
+        self._run_id = run_id
+
+    def log_artifact(self, path):
+        self._client.log_artifact(self._run_id, path)
+
+    def log_artifacts(self, path):
+        self._client.log_artifacts(self._run_id, path)
+
+    def log_param(self, key, value):
+        self._client.log_param(self._run_id, key, value)
+
+    def log_metric(self, key, value, timestamp=None, step=None):
+        return self._client.log_metric(self._run_id, key, value, timestamp=timestamp, step=step)
+
+    def log_text(self, text, artifact_file):
+        return self._client.log_text(self._run_id, text, artifact_file)
+
+    def log_dict(self, dictionary, artifact_file):
+        return self._client.log_dict(self._run_id, dictionary, artifact_file)
+
+    def log_batch(self, metrics=(), params=(), tags=()):
+        return self._client.log_batch(self._run_id, metrics, params, tags)
+
+    def log_figure(self, figure, artifact_file):
+        return self._client.log_figure(self._run_id, figure, artifact_file)
+
+    def log_image(self, image, artifact_file):
+        return self._client.log_image(self._run_id, image, artifact_file)
+
+    def download_artifacts(self, path, dst_path=None):
+        return self._client.download_artifacts(self._run_id, path, dst_path=dst_path)
+
+    def list_artifacts(self, path=None):
+        return self._client.list_artifacts(self._run_id, path)
+
+
 class Logs:
     def __init__(self):
         self.tmp = None
         self.misc = {}
-        self.loggers = []
+        self._mlflow_logger = None
+
+    @property
+    def mlflow(self) -> MlflowClientRunProxy:
+        if self._mlflow_logger is None:
+            return None
+        return MlflowClientRunProxy(self._mlflow_logger.experiment, self.mlflow_run_id)
+
+    @property
+    def mlflow_run_id(self):
+        return self._mlflow_logger._run_id
+
+    @property
+    def loggers(self):
+        return [self._mlflow_logger]
 
     @property
     def tmp_path(self):
@@ -25,16 +78,14 @@ class Logs:
         URI = cfg['mlflow']['uri']
 
         # --- SETUP MLFOW ---
-        mlflow.set_tracking_uri(URI)
-        mlflow.set_experiment(EXP)
         # mlflow.pytorch.autolog(log_models=False)
         tags = cfg.experiment.tags.to_dict()
         tags['subexp'] = cfg.experiment['sub-experiment']
         tags['subexpID'] = str(cfg.experiment['sub-experiment-id'])
         tags['git-hash'] = get_git_revision_hash()
-        mlflow.start_run(run_name=RUN, tags=tags)
+        tags[MLFLOW_RUN_NAME] = RUN
 
-        self.loggers = [pl_loggers.MLFlowLogger(experiment_name=EXP, tracking_uri=URI, tags={MLFLOW_RUN_NAME: RUN})]
+        self._mlflow_logger = pl_loggers.MLFlowLogger(experiment_name=EXP, tracking_uri=URI, tags=tags)
 
         # --- CREATE TMP ---
         os.makedirs(os.path.dirname(cfg['script-arguments']['tmp-dir']), exist_ok=True)
@@ -43,10 +94,9 @@ class Logs:
 
         # --- SAVE CFG ---
         shutil.copy(cfg['script-arguments'].config, join(tmp.name, 'cfg.yaml'))
-        mlflow.log_artifact(join(tmp.name, 'cfg.yaml'))
+        self.mlflow.log_artifact(join(tmp.name, 'cfg.yaml'))
         # Sanity check of artifact saving
-        client = MlflowClient()
-        artifacts = client.list_artifacts(mlflow.active_run().info.run_id)
+        artifacts = self.mlflow.list_artifacts()
         if len(artifacts) != 1 or artifacts[0].path != 'cfg.yaml':
             raise RuntimeError('The sanity check for storing artifacts failed.'
                                'Interrupting the script before the training starts.')
@@ -54,29 +104,29 @@ class Logs:
         exp_cfg_path = cfg.get('trial.cfg_path', None)
         if exp_cfg_path is not None:
             shutil.copy(exp_cfg_path, join(tmp.name, 'cfg_original.yaml'))
-            mlflow.log_artifact(join(tmp.name, 'cfg_original.yaml'))
+            self.mlflow.log_artifact(join(tmp.name, 'cfg_original.yaml'))
 
         with open(join(tmp.name, 'cfg_extended.yaml'), 'w') as f:
             cfg.to_yaml(f)
 
         # --- LOG PARAMS ---
-        mlflow.log_param('sub-experiment', cfg.experiment['sub-experiment'])
+        self.mlflow.log_param('sub-experiment', cfg.experiment['sub-experiment'])
         if cfg.experiment['sub-experiment-id']:
-            mlflow.log_param('sub-experiment-id', cfg.experiment['sub-experiment-id'])
+            self.mlflow.log_param('sub-experiment-id', cfg.experiment['sub-experiment-id'])
         for k, v in cfg.trial.items():
-            mlflow.log_param('trial.' + k, v)
+            self.mlflow.log_param('trial.' + k, v)
 
         for k, v in cfg['model'].items():
-            mlflow.log_param(f'model.{k}', v)
+            self.mlflow.log_param(f'model.{k}', v)
         for k, v in cfg['data-augmentation'].items():
             if isinstance(v, dict):
                 for k1, v1 in v.items():
-                    mlflow.log_param(f'DA.{k} {k1}', v1)
+                    self.mlflow.log_param(f'DA.{k} {k1}', v1)
             else:
-                mlflow.log_param(f'DA.{k}', v)
-        mlflow.log_param('dropout', cfg['hyper-parameters']['drop-out'])
-        mlflow.log_param('training.file', cfg.training['dataset-file'])
-        mlflow.log_param('training.dataset', cfg.training['training-dataset'])
+                self.mlflow.log_param(f'DA.{k}', v)
+        self.mlflow.log_param('dropout', cfg['hyper-parameters']['drop-out'])
+        self.mlflow.log_param('training.file', cfg.training['dataset-file'])
+        self.mlflow.log_param('training.dataset', cfg.training['training-dataset'])
 
     def log_misc(self, key, value):
         if isinstance(key, (list, tuple)):
@@ -114,8 +164,10 @@ class Logs:
         with open(join(self.tmp.name, 'misc.json'), 'w') as json_file:
             dump(self.misc, json_file)
 
-        mlflow.log_artifacts(self.tmp.name)
-        mlflow.end_run()
+        self.mlflow.log_artifacts(self.tmp.name)
+
+        for logger in self.loggers:
+            logger.finalize()
         self.tmp.cleanup()
 
 

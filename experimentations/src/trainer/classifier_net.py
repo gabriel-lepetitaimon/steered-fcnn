@@ -1,6 +1,6 @@
 from functools import partial
 
-import mlflow
+# import mlflow
 import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
@@ -112,8 +112,8 @@ class Binary2DSegmentation(pl.LightningModule):
             prefix += '-'
         for k, v in metrics.items():
             self.log(prefix + k, v.cpu().item())
-            if force_mlflow:
-                mlflow.log_metric(prefix+k, float(v.cpu().item()))
+            # if force_mlflow:
+                # mlflow.log_metric(prefix+k, float(v.cpu().item()))
 
     def validation_step(self, batch, batch_idx):
         result = self._validate(batch)
