@@ -41,6 +41,8 @@ def recursive_dict_map(dictionnary, function):
 class AttributeDict(OrderedDict):
     @staticmethod
     def from_dict(d, recursive=False):
+        if isinstance(d, AttributeDict):
+            return d
         r = AttributeDict()
         for k, v in d.items():
             if is_dict(v) and recursive:
@@ -150,6 +152,14 @@ class AttributeDict(OrderedDict):
                 else:
                     self[k] = r
         return self
+
+    def walk(self):
+        for k, v in self.items():
+            if isinstance(v, AttributeDict):
+                for s in v.walk():
+                    yield f"{k}.{s}"
+            else:
+                yield k
 
     def copy(self):
         from copy import deepcopy

@@ -6,6 +6,7 @@ import os
 from mlflow.tracking import MlflowClient
 from mlflow.utils.mlflow_tags import MLFLOW_RUN_NAME
 import pytorch_lightning.loggers as pl_loggers
+from ..config.attribute_dict import AttributeDict
 
 
 class MlflowClientRunProxy:
@@ -71,18 +72,21 @@ class Logs:
     def tmp_path(self):
         return self.tmp.name
 
-    def setup_log(self, cfg):
+    def setup_log(self, cfg: AttributeDict):
+        cfg = AttributeDict.from_dict(cfg, True)
 
         EXP = cfg['experiment']['name'] if not cfg['script-arguments'].debug else 'DEBUG_RUNS'
         RUN = f"{cfg.experiment['sub-experiment']} ({cfg.experiment['sub-experiment-id']}:{cfg.trial.ID:02})"
         URI = cfg['mlflow']['uri']
 
         # --- SETUP MLFOW ---
-        # mlflow.pytorch.autolog(log_models=False)
         tags = cfg.experiment.tags.to_dict()
         tags['subexp'] = cfg.experiment['sub-experiment']
         tags['subexpID'] = str(cfg.experiment['sub-experiment-id'])
-        tags['git-hash'] = get_git_revision_hash()
+        tags['trial.ID'] = cfg.trial.ID
+        tags['trial.name'] = cfg.trial.name
+        tags['trial.version'] = cfg.trial.version
+        tags['trial.githash'] = get_git_revision_hash()
         tags[MLFLOW_RUN_NAME] = RUN
 
         self._mlflow_logger = pl_loggers.MLFlowLogger(experiment_name=EXP, tracking_uri=URI, tags=tags)
@@ -110,21 +114,15 @@ class Logs:
             cfg.to_yaml(f)
 
         # --- LOG PARAMS ---
-        self.mlflow.log_param('sub-experiment', cfg.experiment['sub-experiment'])
-        if cfg.experiment['sub-experiment-id']:
-            self.mlflow.log_param('sub-experiment-id', cfg.experiment['sub-experiment-id'])
-        for k, v in cfg.trial.items():
-            self.mlflow.log_param('trial.' + k, v)
+        for k in cfg.model.walk():
+            self.mlflow.log_param(f'model.{k}', cfg.model[k])
+        for k in cfg['data-augmentation'].walk():
+            self.mlflow.log_param(f'DA.{k}', cfg['data-augmentation'][k])
 
-        for k, v in cfg['model'].items():
-            self.mlflow.log_param(f'model.{k}', v)
-        for k, v in cfg['data-augmentation'].items():
-            if isinstance(v, dict):
-                for k1, v1 in v.items():
-                    self.mlflow.log_param(f'DA.{k} {k1}', v1)
-            else:
-                self.mlflow.log_param(f'DA.{k}', v)
-        self.mlflow.log_param('dropout', cfg['hyper-parameters']['drop-out'])
+        self.mlflow.log_param('training.lr', cfg['hyper-parameters.lr'])
+        self.mlflow.log_param('training.lr-decay', cfg['hyper-parameters.optimizer.lr-decay-factor'])
+        self.mlflow.log_param('training.dropout', cfg['hyper-parameters.drop-out'])
+        self.mlflow.log_param('training.batch-size', cfg['hyper-parameters.batch-size'])
         self.mlflow.log_param('training.file', cfg.training['dataset-file'])
         self.mlflow.log_param('training.dataset', cfg.training['training-dataset'])
 
