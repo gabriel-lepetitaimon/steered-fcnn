@@ -107,19 +107,22 @@ class Binary2DSegmentation(pl.LightningModule):
             'iou': metricsF.iou(y_pred, y),
         }
 
-    def log_metrics(self, metrics, prefix='', force_mlflow=False):
+    def log_metrics(self, metrics, prefix='', discard_dataloaderidx=False):
         if prefix and not prefix.endswith('-'):
             prefix += '-'
         for k, v in metrics.items():
+            if discard_dataloaderidx:
+                idx = self._current_dataloader_idx
+                self._current_dataloader_idx = None
             self.log(prefix + k, v.cpu().item())
-            # if force_mlflow:
-                # mlflow.log_metric(prefix+k, float(v.cpu().item()))
+            if discard_dataloaderidx:
+                self._current_dataloader_idx = idx
 
     def validation_step(self, batch, batch_idx):
         result = self._validate(batch)
         metrics = result['metrics']
         # metrics['acc'] = self.val_accuracy(result['y_sig'] > 0.5, result['y'])
-        self.log_metrics(metrics, 'val')
+        self.log_metrics(metrics, 'val', discard_dataloaderidx=True)
         return result['y_pred']
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
@@ -128,7 +131,7 @@ class Binary2DSegmentation(pl.LightningModule):
         prefix = 'test'
         if self.testset_names:
             prefix = self.testset_names[dataloader_idx]
-        self.log_metrics(metrics, prefix, force_mlflow=True)
+        self.log_metrics(metrics, prefix, discard_dataloaderidx=True)
         return result['y_pred']
 
     def configure_optimizers(self):
