@@ -82,7 +82,10 @@ def run_train(**opt):
     if cfg.training['early-stopping']['monitor'].lower() != 'none':
         if cfg.training['early-stopping']['monitor'].lower() == 'auto':
             cfg.training['early-stopping']['monitor'] = cfg.training['optimize']
-        callbacks += [EarlyStopping(verbose=False, strict=False, **cfg.training['early-stopping'])]
+        earlystop = EarlyStopping(verbose=False, strict=False, **cfg.training['early-stopping'])
+        callbacks += [earlystop]
+    else:
+        earlystop = None
     callbacks += [LearningRateMonitor(logging_interval='epoch')]
 
     checkpointed_metrics = ['val-acc', 'val-roc', 'val-iou']
@@ -98,11 +101,13 @@ def run_train(**opt):
                          accumulate_grad_batches=cfg['hyper-parameters']['accumulate-gradient-batch'],
                          progress_bar_refresh_rate=1 if args.debug else 0,
                          **trainer_kwargs)
-    # net.log(cfg.training['optimize'], 0)
+
     try:
         trainer.fit(net, trainD, validD)
     except KeyboardInterrupt:
         r_code = 1  # Interrupt Orion
+
+    logs.log_metric('last-epoch', earlystop.stopped_epoch if earlystop is not None else max_epoch)
 
     ################
     # --- TEST --- #
@@ -114,8 +119,8 @@ def run_train(**opt):
         reported_metric = reported_metric[0]
     for metric_name, checkpoint in modelCheckpoints.items():
         metric_value = float(checkpoint.best_model_score.cpu().numpy())
-        logs.mlflow.log_metric('best-' + metric_name, metric_value)
-        logs.mlflow.log_metric(f'best-{metric_name}-epoch', float(checkpoint.best_model_path[:-5].rsplit('-', 1)[1][6:]))
+        logs.log_metrics({'best-' + metric_name: metric_value,
+                          f'best-{metric_name}-epoch': float(checkpoint.best_model_path[:-5].rsplit('-', 1)[1][6:])})
         if metric_name == reported_metric:
             best_ckpt = checkpoint
             reported_value = -metric_value

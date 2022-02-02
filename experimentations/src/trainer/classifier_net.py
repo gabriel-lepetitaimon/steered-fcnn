@@ -157,7 +157,7 @@ class Binary2DSegmentation(pl.LightningModule):
                                                                    factor=opt['lr-decay-factor'],
                                                                    patience=self.earlystop_cfg['patience']/2,
                                                                    threshold=self.earlystop_cfg['min_delta'],
-                                                                   min_lr=self.lr/opt['lr-decay-factor']**5)
+                                                                   min_lr=self.lr*opt['lr-decay-factor']**5)
             return {'optimizer': optimizer,
                     'lr_scheduler': {
                         'scheduler': scheduler,

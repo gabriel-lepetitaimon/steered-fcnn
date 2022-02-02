@@ -140,6 +140,9 @@ class Logs:
     def log_miscs(self, misc):
         self.misc.update(misc)
 
+    def log_metric(self, metric_name, metric_value, step=None):
+        return self.log_metrics({metric_name: metric_value}, step)
+
     def log_metrics(self, metrics, step=None):
         for logger in self.loggers:
             logger.log_metrics(metrics, step)
