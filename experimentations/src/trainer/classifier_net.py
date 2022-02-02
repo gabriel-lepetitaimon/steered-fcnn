@@ -70,8 +70,9 @@ class Binary2DSegmentation(pl.LightningModule):
             y = y[mask].flatten()
 
         loss = self.loss_f(y_hat, y)
-        self.log('train-loss-step', loss.detach().cpu().item(), on_step=True, prog_bar=True)
-        self.log('train-loss', loss.detach().cpu().item(), on_epoch=True, prog_bar=False)
+        loss_value = loss.detach().cpu().item()
+        self.log('train-loss-step', loss_value, on_step=True, prog_bar=True, logger=True)
+        self.log('train-loss', loss_value, on_epoch=True, on_step=False, prog_bar=False, logger=True)
         return loss
 
     def _validate(self, batch):
