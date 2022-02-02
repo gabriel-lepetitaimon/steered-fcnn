@@ -83,12 +83,12 @@ class Logs:
         tags = cfg.experiment.tags.to_dict()
         tags['subexp'] = cfg.experiment['sub-experiment']
         tags['subexpID'] = str(cfg.experiment['sub-experiment-id'])
-        tags['trial.ID'] = cfg.trial.ID
+        tags['trial.ID'] = str(cfg.trial.ID)
         tags['trial.name'] = cfg.trial.name
-        tags['trial.version'] = cfg.trial.version
+        tags['trial.version'] = str(cfg.trial.version)
         tags['trial.githash'] = get_git_revision_hash()
-        tags[MLFLOW_RUN_NAME] = RUN
 
+        tags[MLFLOW_RUN_NAME] = RUN
         self._mlflow_logger = pl_loggers.MLFlowLogger(experiment_name=EXP, tracking_uri=URI, tags=tags)
 
         # --- CREATE TMP ---
