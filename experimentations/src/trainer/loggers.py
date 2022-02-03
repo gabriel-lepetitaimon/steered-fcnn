@@ -125,6 +125,7 @@ class Logs:
         self.mlflow.log_param('training.batch-size', cfg['hyper-parameters.batch-size'])
         self.mlflow.log_param('training.file', cfg.training['dataset-file'])
         self.mlflow.log_param('training.dataset', cfg.training['training-dataset'])
+        self.mlflow.log_param('training.seed', cfg.training['seed'])
 
     def log_misc(self, key, value):
         if isinstance(key, (list, tuple)):
