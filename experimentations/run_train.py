@@ -53,7 +53,8 @@ def run_train(**opt):
     
     sample = None
     hyper_params = cfg['hyper-parameters']
-    net = Binary2DSegmentation(model=model, loss=hyper_params['loss'], 
+    net = Binary2DSegmentation(model=model, loss=hyper_params['loss'],
+                               pos_weighted_loss=hyper_params['pos-weighted-loss'],
                                soft_label=hyper_params['smooth-label'],
                                earlystop_cfg=cfg['training']['early-stopping'],
                                optimizer=hyper_params['optimizer'],

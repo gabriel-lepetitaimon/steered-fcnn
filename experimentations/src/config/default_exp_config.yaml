@@ -48,6 +48,7 @@ hyper-parameters:
     accumulate-gradient-batch: 1
     drop-out: 0
     loss: 'binaryCE'  # 'focalLoss' / 'binaryCE' / 'dice'
+    pos-weighted-loss: False
     smooth-label: 0
     optimizer:
         type: 'Adam' # also supported: AdamW and Adammax

@@ -12,7 +12,7 @@ from ..config import default_config
 
 
 class Binary2DSegmentation(pl.LightningModule):
-    def __init__(self, model, loss='binaryCE', optimizer=None, earlystop_cfg=None, lr=1e-3, p_dropout=0, soft_label=0):
+    def __init__(self, model, loss='binaryCE', pos_weighted_loss=False, optimizer=None, earlystop_cfg=None, lr=1e-3, p_dropout=0, soft_label=0):
         super().__init__()
         self.model = model
 
@@ -27,16 +27,27 @@ class Binary2DSegmentation(pl.LightningModule):
             del loss_kwargs['type']
         else:
             loss_kwargs = {}
-        
-        if loss == 'dice':
-            from .losses import binary_dice_loss
-            self._loss = lambda y_hat, y: binary_dice_loss(torch.sigmoid(y_hat), y)
-        elif loss == 'focalLoss':
-            from .losses import focal_loss
-            _loss = partial(focal_loss, gamma=loss_kwargs.get('gamma',2))
-            self._loss = lambda y_hat, y: _loss(torch.sigmoid(y_hat), y)
-        elif loss == 'binaryCE':
-            self._loss = lambda y_hat, y: F.binary_cross_entropy_with_logits(y_hat, y.float())
+
+        self.pos_weighted_loss = pos_weighted_loss
+        if pos_weighted_loss:
+            if loss == 'binaryCE':
+                self._loss = lambda y_hat, y, weight: F.binary_cross_entropy_with_logits(y_hat, y.float(),
+                                                                                         pos_weight=weight)
+            else:
+                raise ValueError(f'Invalid weighted loss function: "{loss}". (Only "binaryCE" is supported.)')
+        else:
+            if loss == 'dice':
+                from .losses import binary_dice_loss
+                self._loss = lambda y_hat, y: binary_dice_loss(torch.sigmoid(y_hat), y)
+            elif loss == 'focalLoss':
+                from .losses import focal_loss
+                _loss = partial(focal_loss, gamma=loss_kwargs.get('gamma',2))
+                self._loss = lambda y_hat, y: _loss(torch.sigmoid(y_hat), y)
+            elif loss == 'binaryCE':
+                self._loss = lambda y_hat, y: F.binary_cross_entropy_with_logits(y_hat, y.float())
+            else:
+                raise ValueError(f'Unkown loss function: "{loss}". \n'
+                                 f'Should be one of "dice", "focalLoss", "binaryCE".')
 
         if optimizer is None:
             optimizer = {'type': 'Adam'}
@@ -47,12 +58,15 @@ class Binary2DSegmentation(pl.LightningModule):
 
         self.testset_names = None
         
-    def loss_f(self, pred, target):
+    def loss_f(self, pred, target, weight=None):
         if self.soft_label:
             target = target.float()
             target *= 1-2*self.soft_label
             target += self.soft_label
-        return self._loss(pred, target)
+        if self.pos_weighted_loss:
+            return self._loss(pred, target, weight)
+        else:
+            return self._loss(pred, target)
 
     def compute_y_yhat(self, batch):
         x = batch['x']
@@ -64,12 +78,17 @@ class Binary2DSegmentation(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         y, y_hat = self.compute_y_yhat(batch)
 
+        mask = None
         if 'mask' in batch:
             mask = clip_pad_center(batch['mask'], y_hat.shape) != 0
             y_hat = y_hat[mask].flatten()
             y = y[mask].flatten()
-
-        loss = self.loss_f(y_hat, y)
+            if self.pos_weighted_loss:
+                mask = mask[mask != 0]
+        if self.pos_weighted_loss:
+            loss = self.loss_f(y_hat, y, mask)
+        else:
+            loss = self.loss_f(y_hat, y)
         loss_value = loss.detach().cpu().item()
         self.log('train-loss-step', loss_value, on_step=True, prog_bar=True, logger=True)
         self.log('train-loss', loss_value, on_epoch=True, on_step=False, prog_bar=False, logger=True)
