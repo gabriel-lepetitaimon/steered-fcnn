@@ -80,11 +80,12 @@ class Binary2DSegmentation(pl.LightningModule):
 
         mask = None
         if 'mask' in batch:
-            mask = clip_pad_center(batch['mask'], y_hat.shape) != 0
-            y_hat = y_hat[mask].flatten()
-            y = y[mask].flatten()
+            mask = clip_pad_center(batch['mask'], y_hat.shape)
+            thr_mask = mask!=0
+            y_hat = y_hat[thr_mask].flatten()
+            y = y[thr_mask].flatten()
             if self.pos_weighted_loss:
-                mask = mask[mask != 0]
+                mask = mask[thr_mask].flatten()
         if self.pos_weighted_loss:
             loss = self.loss_f(y_hat, y, mask)
         else:
