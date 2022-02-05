@@ -116,8 +116,10 @@ def run_train(**opt):
     reported_metric = cfg.training['optimize']
     best_ckpt = None
     if reported_metric not in modelCheckpoints:
-        print(f'Invalid optimized metric {reported_metric}, optimizing {checkpointed_metrics[0]} instead.')
-        reported_metric = reported_metric[0]
+        print('\n!!!!!!!!!!!!!!!!!!!!')
+        print(f'>> Invalid optimized metric {reported_metric}, optimizing {checkpointed_metrics[0]} instead.')
+        print('')
+        reported_metric = checkpointed_metrics[0]
     for metric_name, checkpoint in modelCheckpoints.items():
         metric_value = float(checkpoint.best_model_score.cpu().numpy())
         logs.log_metrics({'best-' + metric_name: metric_value,
