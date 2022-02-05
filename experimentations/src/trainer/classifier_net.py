@@ -91,7 +91,6 @@ class Binary2DSegmentation(pl.LightningModule):
         else:
             loss = self.loss_f(y_hat, y)
         loss_value = loss.detach().cpu().item()
-        self.log('train-loss-step', loss_value, on_step=True, prog_bar=True, logger=True)
         self.log('train-loss', loss_value, on_epoch=True, on_step=False, prog_bar=False, logger=True)
         return loss
 
