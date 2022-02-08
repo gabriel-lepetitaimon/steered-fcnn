@@ -263,11 +263,12 @@ def attention_pyramid(alpha, rho, module, device=None):
                                  f'but provided tensor shape is {alpha.shape}.')
             cos_sin_kalpha = cos_sin_kalpha.unsqueeze(3)
             alpha_pyramid = pyramid_pool2d(cos_sin_kalpha, n=N)
+            alpha_pyramid, _ = normalize_vector(alpha_pyramid)
 
             if rho is None:
                 rho = alpha_rho
             elif isinstance(rho, (int, float)):
-                rho = torch.Tensor([rho]).to(device=x.device)
+                rho = torch.Tensor([rho]).to(device=device)
                 rho = torch.stack((torch.cos(rho), torch.sin(rho)))[:, None, None, None]
 
             if module.rho_nonlinearity == 'normalize':
@@ -276,7 +277,6 @@ def attention_pyramid(alpha, rho, module, device=None):
                 rho = torch.tanh(rho)
             rho_pyramid = [rho]*N if not isinstance(rho, torch.Tensor) else pyramid_pool2d(rho, n=N)
         return alpha_pyramid, rho_pyramid
-
 
 
 class SteeredHemelingNetOld(nn.Module):

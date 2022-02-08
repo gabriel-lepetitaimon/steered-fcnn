@@ -40,7 +40,6 @@ training:
         min_delta: 0.0005
         patience: 10
         mode: 'min'
-
     
 hyper-parameters:
     lr: 1.e-2
@@ -75,7 +74,27 @@ hyper-parameters:
     #lr-scheduler:
     #    type: 'reduceOnPlateau'
     #
+datasets:
+    type: GenericHDF
+    file: 'vessels.hf5'
 
+    data:
+        x: "{{raw}}[:3]"
+        y: "{{av}}!=0"
+        mask: "{{mask}}"
+
+    training:
+        dataset: 'DRIVE'
+        data-augment: True
+    validation:
+
+    data-augmentation:
+        rotation: False
+        elastic: False
+            # alpha: 10
+            # sigma: 20
+            # alpha-affine: 50
+        # crop-size: 758
 
 data-augmentation:
     rotation: True

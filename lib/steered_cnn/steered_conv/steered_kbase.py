@@ -181,7 +181,7 @@ class SteerableKernelBase(KernelBase):
                 return SteerableKernelBase.create_radial(info)
 
     @staticmethod
-    def create_radial(kr: Union[int, Dict[int, List[int]]], std=.5, size=-1, oversample=16,
+    def create_radial(kr: Union[int, Dict[int, List[int]]], std=.5, size=None, oversample=16,
                       phase=None, max_k=None, cap_k=True):
         """
 
@@ -195,16 +195,17 @@ class SteerableKernelBase(KernelBase):
                       for every r <= kr/2, k will be set to be the maximum number of harmonics
                       before the apparition of aliasing artefact
             std: The standard deviation of the gaussian distribution which weights the kernels radially.
-            size:
-            oversample:
-            max_k:
+            size: Kernel effective size. (If None: kr*√2 if kr is int else 2*(max(r in kr)+std))
+            oversample: Oversampling factor use to compute steerable kernels and limit numerical instability.
+            phase: phase offset (If None: 0 if the kernel equivalent size is odd, 45 otherwise.)
+            max_k: If kr is an equivalent kernel size (int), specifies the maximum polar harmonic rank.
 
         Returns: A SteerableKernelBase parametrized by the corresponding kernels.
 
         """
         from ..utils.rotequivariance_toolbox import polar_space
 
-        if size == -1:
+        if size is None:
             if isinstance(kr, int):
                 size = int(np.round(kr*np.sqrt(2)))
                 if (size % 2) ^ (kr % 2):
