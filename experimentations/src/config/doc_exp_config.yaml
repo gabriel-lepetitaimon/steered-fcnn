@@ -135,29 +135,62 @@ hyper-parameters:
     #lr-scheduler:
     #    type: 'reduceOnPlateau'
     #
-datasets:
-    type: GenericHDF
-    file: 'vessels.hf5'
 
+## Define datasets use for training, validation and testing.
+datasets:
+    ## Set datasets type.
+    # - GenericHDF: generic hdf5 file
+    type: GenericHDF
+    ## Set the path to the hdf file.
+    path: 'vessels.hf5'
+
+    ## Set the data mapping. Associate data name (used by the model) to a hdf array name or
+    ## a python expression containing hdf array names under double brackets (e.g. "{{raw}}").
     data:
         x: "{{raw}}[:3]"
         y: "{{av}}!=0"
         mask: "{{mask}}"
 
+    ## Define training dataset option.
     training:
+        ## Limit the training dataset to named subsets.
         dataset: 'DRIVE'
-        data-augment: True
-    validation:
 
+        ## Enable or disable data-augment during training.
+        # - True / False: Enable / Disable data-augmentation defined in this dataset data-augmentation field.
+        # - A custom data-augmentation definition.
+        data-augment: True
+
+        ## Enable or disable preloading all the dataset in RAM.
+        preload-in-RAM: False
+
+        ## Repeat each sample n times.
+        repeat-factor: 1
+
+    ## Define validation dataset option (Similar to training).
+    validation:
+        dataset: 'DRIVE'
+        preload-in-RAM: True
+
+    ## Define validation dataset option (Similar to training).
+    testing:
+        dataset: 'DRIVE'
+        preload-in-RAM: True
+
+    ## Define validation dataset option (Similar to training).
     data-augmentation:
+        ## Specify which data should be augmented and what is their type.
+        data:
+            x: 'image'
+            y: 'label'
+            mask: 'label'
         rotation: False
         elastic: False
             # alpha: 10
             # sigma: 20
             # alpha-affine: 50
-        # crop-size: 758
 
-
+## Deprecated use datasets.data-augmentation instead.
 data-augmentation:
     rotation: True
     elastic: True

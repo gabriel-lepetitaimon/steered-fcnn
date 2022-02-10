@@ -11,7 +11,7 @@ def create_generic_hdf_datasets(dataset_cfg: AttributeDict, file_path=None):
     from datasets import DEFAULT_DATA_PATH
     if file_path is None:
         file_path = DEFAULT_DATA_PATH
-    hdf_path = P.join(file_path, dataset_cfg.file)
+    hdf_path = P.join(file_path, dataset_cfg.path)
 
     # --- Sanity Check of cfg ---
     data_names = set()
@@ -48,40 +48,121 @@ def create_generic_hdf_datasets(dataset_cfg: AttributeDict, file_path=None):
             check_dataset_exist(hf, '/test/' if d == "" else f'/test/{d}/', data_names, hdf_path)
 
 
-def create_generic_hdf_dataset(datasets_cfg: AttributeDict, prefix: str, hdf_path: str):
+def create_generic_hdf_dataset(datasets_cfg: AttributeDict, prefix: str, hdf_path: str, dataaugment_cfg: AttributeDict=None):
+    cfg = AttributeDict.from_dict({
+        'dataset': 'all',
+        'data-augment': prefix == 'training',
+        'preload-in-RAM': prefix == 'validation',
+        'factor': 1
+    })
+    if prefix in datasets_cfg:
+        cfg.update(datasets_cfg[prefix])
+    dataset_names = cfg.dataset
+    if cfg['data-augment'] is False:
+        data_augment = False
+    elif cfg['data-augment'] is True:
+        if dataaugment_cfg is None:
+            raise ValueError(f'Data-Augment info was not provided for dataset {prefix}, using file {hdf_path}.')
+        data_augment = dataaugment_cfg
+    elif isinstance(cfg['data-augment'], (AttributeDict, dict)):
+        data_augment = dataaugment_cfg.copy().update(cfg['data-augment'])
+    else:
+        raise ValueError(f'Invalid data-augment value for dataset {prefix} using file {hdf_path}.')
 
-    names = 'any'
-    dataaugment_enabled = prefix == 'train'
-    if prefix not in datasets_cfg:
+    data_mapping = datasets_cfg.data
+    data_names = set()
+    for m in data_mapping.values():
+        data_names.update(extract_variable_from_expr(m))
 
+    ## For backward compatibility.
+    PREFIX_FALLBACKS = {'training': 'train', 'validation': 'val', 'testing': 'test'}
 
+    ## Check dataset structure
     with h5py.File(hdf_path, 'r') as hf:
-        if prefix not in hf:
-            raise TypeError(f'Invalid GenericHDF archive: the hdf file should contain a group "{prefix}".')
+        if prefix in hf:
+            prefix_node = hf[prefix]
+        elif PREFIX_FALLBACKS[prefix] in hf:
+            prefix_node = hf[PREFIX_FALLBACKS[prefix]]
+        else:
+            raise ValueError(f'Unkown prefix /{prefix}/ in hdf file: {hdf_path}')
+
+        if dataset_names == 'all':
+            if any(data_names in prefix_node):
+                dataset_names = None
+            else:
+                dataset_names = tuple(prefix_node.keys())
+        if isinstance(dataset_names, str):
+            dataset_names = (dataset_names,)
+        if isinstance(dataset_names, (list, tuple)):
+            dataset_names = tuple(dataset_names)
+            missing_datasets = [n for n in dataset_names if n not in prefix_node]
+            if missing_datasets:
+                raise ValueError(f'Missing dataset {[prefix_node.name+"/"+n for n in missing_datasets]}'
+                                 f'in hdf file: {hdf_path}.')
+            for dataset_name in dataset_names:
+                check_dataset_exist(prefix_node[dataset_name], data_names, hdf_path)
+        elif dataset_names is None:
+            check_dataset_exist(prefix_node, data_names, hdf_path)
+        else:
+            raise ValueError(f'Invalid dataset value: {dataset_names}.\n'
+                             f'Should be either "all", or a dataset name ')
+
+    return GenericHRF(dataset_names, path=hdf_path, mapping=data_mapping, cache=cfg['preload-in-RAM'],
+                      factor=cfg.factor, data_aug_cfg=data_augment)
 
 
-def check_dataset_exist(hf, prefix, data_names, hdf_path):
-    for p in prefix.split('/'):
-        if p:
-            hf = hf[p]
-
-    missing_data_names = {n for n in data_names if n not in hf}
+def check_dataset_exist(hf_node, data_names, hdf_path):
+    missing_data_names = {n for n in data_names if n not in hf_node}
     if missing_data_names:
-        raise ValueError(f'Thw following dataset were not found in the hdf archive "{hdf_path}":\n'
+        raise ValueError(f'Thw following dataset were not found in the hdf archive "{hdf_path}:{hf_node.name}":\n'
                          f' {missing_data_names}')
 
-    invalid_data_names = {n for n in data_names if not isinstance(hf[n], h5py.Dataset)}
+    invalid_data_names = {n for n in data_names if not isinstance(hf_node[n], h5py.Dataset)}
     if invalid_data_names:
-        raise ValueError(f'Thw following node are not dataset in the hdf archive "{hdf_path}":\n'
+        raise ValueError(f'Thw following node are not dataset in the hdf archive "{hdf_path}:{hf_node.name}":\n'
                          f' {invalid_data_names}')
 
 
+def extract_variable_from_expr(expr):
+    if '{{' not in expr and '}}' not in expr:
+        return {expr}
+    else:
+        return {_.split('}}')[0].strip() for _ in expr.split('{{')}
+
 class GenericHRF(Dataset):
-    def __init__(self, dataset, file, mapping, cache=False, factor=1, data_augmentation_cfg=None):
+    def __init__(self, datasets, path, mapping, cache=False, factor=1, data_aug_cfg=None):
         super(GenericHRF, self).__init__()
 
-        with h5py.File(file, 'r') as DATA:
-            self.x = DATA.get(f'{dataset}/data')[:]
+        self.datasets = datasets
+        self.path = path
+        self.mapping = mapping
+        self._variable_mapping =
+        self.cache = cache
+        self.factor = factor
+
+        self.data_aug_cfg = data_aug_cfg
+        if data_aug_cfg:
+            DA = DataAugment().flip()
+            if data_aug_cfg['rotation']:
+                DA.rotate()
+            if data_aug_cfg['elastic']:
+                DA.elastic_distortion(alpha=data_aug_cfg['elastic'].get('alpha', 10),
+                                      sigma=data_aug_cfg['elastic'].get('alpha', 20),
+                                      alpha_affine=data_aug_cfg['elastic'].get('alpha', 50))
+            data_fields = {'images': [], 'labels': [], 'angles': [], 'vectors': []}
+            for k, v in data_aug_cfg['data'].items():
+                if v+'s' not in data_fields:
+                    raise ValueError(f'Invalid data type "{v}" for data-augmentation.')
+                data_fields[v+'s'].append(k)
+            self.geo_aug = DA.compile(**data_fields, to_torch=True)
+
+        self._data_length = []
+        with h5py.File(path, 'r') as f:
+            probed_variable = mapping
+            if datasets is None:
+                self._data_length = f.get()
+            for d in datasets:
+            self.x = f.get(f'{dataset}/data')[:]
             if use_preprocess is False:
                 self.x = self.x[:, 3:]
             elif use_preprocess == 'only':
@@ -113,19 +194,6 @@ class GenericHRF(Dataset):
                         'steered should be one of "vec", "vec-norm", "angle" or "all".'
                         f'(Provided: "{steered}")')
 
-        DA = DataAugment().flip()
-        if data_augmentation_cfg['rotation']:
-            DA.rotate()
-        if data_augmentation_cfg['elastic']:
-            DA.elastic_distortion(alpha=data_augmentation_cfg['elastic-transform']['alpha'],
-                                  sigma=data_augmentation_cfg['elastic-transform']['sigma'],
-                                  alpha_affine=data_augmentation_cfg['elastic-transform']['alpha-affine']
-                                  )
-
-        self.geo_aug = DA.compile(**data_fields, to_torch=True)
-        self.DA = DA
-        self.steered = steered
-        self.factor = factor
         self._data_length = len(self.x)
 
     def __len__(self):
