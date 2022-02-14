@@ -2,77 +2,62 @@ import numpy as np
 import h5py
 import os.path as P
 from torch.utils.data import Dataset
+from typing import Dict, List, Tuple
 
-from ..config import default_config, AttributeDict
+from ..config import AttributeDict
 from .data_augment import DataAugment
 
 
-def create_generic_hdf_datasets(dataset_cfg: AttributeDict, file_path=None):
-    from datasets import DEFAULT_DATA_PATH
+def create_generic_hdf_datasets(dataset_cfg: AttributeDict, file_path=None, seed=1234,
+                                data_augmentations: Dict[str,DataAugment]=None):
+    from .datasets import DEFAULT_DATA_PATH
     if file_path is None:
         file_path = DEFAULT_DATA_PATH
     hdf_path = P.join(file_path, dataset_cfg.path)
 
-    # --- Sanity Check of cfg ---
-    data_names = set()
-    datamap = dataset_cfg.data
-    for specs in datamap.values():
-        if '{{' not in specs:
-            data_names.add(specs)
-        else:
-            data_names.add([_.split('}}')[0].strip() for _ in specs.split('{{')])
-
-    train_dataset = dataset_cfg.get(['training-dataset'], None)
-    train_dataset = '' if train_dataset is None or train_dataset[-1] == '/' else train_dataset+'/'
-
-    with h5py.File(hdf_path, 'r') as hf:
-        if 'train' not in hf:
-            raise TypeError('Invalid GenericHDF archive: the hdf file should contain a group "/train/".')
-        check_dataset_exist(hf, '/train/'+train_dataset, data_names, hdf_path)
-        if 'val' not in hf:
-            raise TypeError('Invalid GenericHDF archive: the hdf file should contain a group "/val/".')
-        check_dataset_exist(hf, '/val/'+train_dataset, data_names, hdf_path)
-
-        if 'test' not in hf:
-            raise TypeError('Invalid GenericHDF archive: the hdf file should contain a group "/test/".')
-
-        test_datasets = dataset_cfg.get('test-datasets', None)
-        if test_datasets is None:
-            if any(n in hf['test'] for n in data_names):
-                test_datasets = [""]
-            else:
-                test_datasets = tuple(hf['test'].keys())
-        test_datasets = [d if d == '' or d[-1] == '/' else d+'/' for d in test_datasets]
-
-        for d in test_datasets:
-            check_dataset_exist(hf, '/test/' if d == "" else f'/test/{d}/', data_names, hdf_path)
+    train = create_generic_hdf_dataset(dataset_cfg, 'training', hdf_path, seed, data_augmentations)
+    valid = create_generic_hdf_dataset(dataset_cfg, 'validation', hdf_path, seed, data_augmentations)
+    test = create_generic_hdf_dataset(dataset_cfg, 'testing', hdf_path, seed, data_augmentations)
+    return train, valid, test
 
 
-def create_generic_hdf_dataset(datasets_cfg: AttributeDict, prefix: str, hdf_path: str, dataaugment_cfg: AttributeDict=None):
+def create_generic_hdf_dataset(datasets_cfg: AttributeDict, prefix: str, hdf_path: str,
+                               seed, data_augmentations: Dict[str, DataAugment]):
     cfg = AttributeDict.from_dict({
         'dataset': 'all',
-        'data-augment': prefix == 'training',
+        'augment': False,
         'preload-in-RAM': prefix == 'validation',
-        'factor': 1
     })
     if prefix in datasets_cfg:
         cfg.update(datasets_cfg[prefix])
-    dataset_names = cfg.dataset
-    if cfg['data-augment'] is False:
-        data_augment = False
-    elif cfg['data-augment'] is True:
-        if dataaugment_cfg is None:
-            raise ValueError(f'Data-Augment info was not provided for dataset {prefix}, using file {hdf_path}.')
-        data_augment = dataaugment_cfg
-    elif isinstance(cfg['data-augment'], (AttributeDict, dict)):
-        data_augment = dataaugment_cfg.copy().update(cfg['data-augment'])
-    else:
-        raise ValueError(f'Invalid data-augment value for dataset {prefix} using file {hdf_path}.')
+    datasets = cfg.dataset
 
-    data_mapping = datasets_cfg.data
-    data_names = set()
-    for m in data_mapping.values():
-        data_names.update(extract_variable_from_expr(m))
+    fields_mapping = datasets_cfg.fields
+    hdf_vatiables = set()
+    for m in fields_mapping.values():
+        hdf_vatiables.update(extract_variable_from_expr(m))
+
+    if cfg['augment'] is False:
+        data_augmentations = None
+        factor = 1
+        augmented_fields = None
+    elif isinstance(cfg.augment, (AttributeDict, dict)):
+        unkown_fields = {k for k in cfg.augment.fields.keys() if k not in fields_mapping}
+        if unkown_fields:
+            raise ValueError(f'Unkown data field(s) {", ".join(unkown_fields)} in data augmentation specs of '
+                             f'the {prefix} dataset using file {hdf_path}.')
+        augmentation_names = cfg.augment.get('data-augmentations', 'default')
+        if isinstance(augmentation_names, str):
+            augmentation_names = [augmentation_names]
+        unkown_data_augmentation = {a for a in augmentation_names if a not in data_augmentations}
+        if unkown_data_augmentation:
+            raise ValueError(f'Unkown data field(s) {", ".join(unkown_data_augmentation)} in data augmentation specs of '
+                             f'the {prefix} dataset using file {hdf_path}.')
+        data_augmentations = [data_augmentations[a] for a in augmentation_names]
+        factor = cfg.augment.get('factor', 1)
+        augmented_fields = cfg.augment.fields
+    else:
+        raise ValueError(f'Invalid augment value for dataset {prefix} using file {hdf_path}.')
 
     ## For backward compatibility.
     PREFIX_FALLBACKS = {'training': 'train', 'validation': 'val', 'testing': 'test'}
@@ -82,33 +67,56 @@ def create_generic_hdf_dataset(datasets_cfg: AttributeDict, prefix: str, hdf_pat
         if prefix in hf:
             prefix_node = hf[prefix]
         elif PREFIX_FALLBACKS[prefix] in hf:
-            prefix_node = hf[PREFIX_FALLBACKS[prefix]]
+            prefix = PREFIX_FALLBACKS[prefix]
+            prefix_node = hf[prefix]
         else:
             raise ValueError(f'Unkown prefix /{prefix}/ in hdf file: {hdf_path}')
 
-        if dataset_names == 'all':
-            if any(data_names in prefix_node):
-                dataset_names = None
+        if datasets == 'same':
+            if prefix in ('train', 'training'):
+                raise ValueError('The flag "same" for dataset specification is only allowed for validation and test.')
+            datasets = datasets_cfg.training.dataset
+        if datasets == 'all':
+            if any(var in prefix_node for var in hdf_vatiables):
+                datasets = {'': None}
             else:
-                dataset_names = tuple(prefix_node.keys())
-        if isinstance(dataset_names, str):
-            dataset_names = (dataset_names,)
-        if isinstance(dataset_names, (list, tuple)):
-            dataset_names = tuple(dataset_names)
-            missing_datasets = [n for n in dataset_names if n not in prefix_node]
-            if missing_datasets:
-                raise ValueError(f'Missing dataset {[prefix_node.name+"/"+n for n in missing_datasets]}'
-                                 f'in hdf file: {hdf_path}.')
-            for dataset_name in dataset_names:
-                check_dataset_exist(prefix_node[dataset_name], data_names, hdf_path)
-        elif dataset_names is None:
-            check_dataset_exist(prefix_node, data_names, hdf_path)
+                datasets = {d: None for d in prefix_node.keys()}
+        elif isinstance(datasets, str):
+            if datasets in prefix_node:
+                datasets = {datasets: None}
+            else:
+                datasets = {'': datasets}
+        elif isinstance(datasets, (list, tuple)):
+            infos = datasets
+            datasets = {}
+            for info in infos:
+                if isinstance(info, dict):
+                    datasets.update(info)
+                elif isinstance(info, str):
+                    datasets[info] = None
         else:
-            raise ValueError(f'Invalid dataset value: {dataset_names}.\n'
+            raise ValueError(f'Invalid dataset value: {datasets}.\n'
                              f'Should be either "all", or a dataset name ')
 
-    return GenericHRF(dataset_names, path=hdf_path, mapping=data_mapping, cache=cfg['preload-in-RAM'],
-                      factor=cfg.factor, data_aug_cfg=data_augment)
+        missing_datasets = [n for n in datasets if n not in prefix_node]
+        if missing_datasets:
+            raise ValueError(f'Missing dataset {[prefix_node.name+"/"+n for n in missing_datasets]}'
+                             f'in hdf file: {hdf_path}.')
+        for dataset_name in datasets:
+            check_dataset_exist(prefix_node[dataset_name], hdf_vatiables, hdf_path)
+
+        probed_var = next(iter(hdf_vatiables))
+        datasets = [DatasetInfos.from_dataset_infos(prefix_node if path == '' else prefix_node[path],
+                                                    probed_var=probed_var, info=infos, rng=seed)
+                    for path, infos in datasets.items()]
+
+    generic_hrf_kwargs = dict(path=hdf_path, mapping=fields_mapping, prefix=prefix, cache=cfg['preload-in-RAM'],
+                              factor=factor, data_augmentations=data_augmentations, augmented_fields=augmented_fields)
+    if prefix in ('testing', 'test'):
+        prefix = f'/{prefix}/'
+        return {'testing' if d.path == prefix else d.path[len(prefix):]:
+                GenericHRF([d], **generic_hrf_kwargs) for d in datasets}
+    return GenericHRF(datasets, **generic_hrf_kwargs)
 
 
 def check_dataset_exist(hf_node, data_names, hdf_path):
@@ -127,160 +135,211 @@ def extract_variable_from_expr(expr):
     if '{{' not in expr and '}}' not in expr:
         return {expr}
     else:
-        return {_.split('}}')[0].strip() for _ in expr.split('{{')}
+        vars = {_.split('}}')[0].strip() for _ in expr.split('{{')}
+        if '' in vars:
+            vars.remove('')
+        return vars
+
+
+class DatasetInfos:
+    def __init__(self, path: str, mapping: List[int] = None, slice: slice = None, length: int = None):
+        self.path = path
+        self.mapping = self.slice = None
+        if mapping is not None:
+            self.mapping = mapping
+            self.length = len(mapping)
+        elif slice is not None:
+            self.slice = slice
+            self.length = (slice.stop-slice.start)//slice.step
+        else:
+            self.length = length
+
+    def map_index(self, i):
+        if self.mapping is not None:
+            return self.mapping[i]
+        elif self.slice is not None:
+            return self.slice.start + i*self.slice.step
+        else:
+            return i % self.length
+
+    def iter_index(self):
+        if self.mapping is not None:
+            return self.mapping
+        elif self.slice is not None:
+            return range(self.slice.start, self.slice.stop, self.slice.step)
+        else:
+            return range(self.length)
+
+    @property
+    def idxs(self):
+        if self.mapping is not None:
+            return self.mapping
+        elif self.slice is not None:
+            return self.slice
+        else:
+            return slice(self.length)
+
+    @staticmethod
+    def from_dataset_infos(node: h5py.Group, probed_var: str, info=None, rng: int=1234):
+        probed_node = node[probed_var]
+        max_length = probed_node.shape[0]
+        path = node.name
+        if isinstance(info, (list, tuple)):
+            idxs = list(int(round(_ % max_length)) for _ in info)
+            return DatasetInfos(path, mapping=idxs)
+        if info is None:
+            return DatasetInfos(path, length=max_length)
+        elif isinstance(info, str):
+            def to_float(s):
+                try:
+                    s = s.strip()
+                    if s.endswith('%'):
+                        s = int(round(float(s[:-1].strip())/100 * max_length))
+                    return float(s)
+                except ValueError:
+                    return None
+
+            proportion = to_float(info)
+            if proportion is None:
+                info = slice(*(to_float(_) for _ in info.split(':')))
+            else:
+                info = proportion
+
+        if isinstance(info, (float, int)):
+            rng = np.random.RandomState(seed=rng)
+            idxs = np.arange(max_length)
+            rng.shuffle(idxs)
+            idxs = list(int(_) for _ in idxs)
+
+            if info != 0 and -1 < info < 1:
+                length = int(round(max_length*info))
+            else:
+                length = int(round(info) if info>=0 else round(info) % max_length)
+            return DatasetInfos(path, mapping=idxs[:length])
+
+        elif isinstance(info, slice):
+            start, stop, step = info.start, info.stop, info.step
+            if start is None:
+                start = 0
+            elif start != 0 and -1 < start < 1:
+                start = int(round(start * max_length))
+            start = int(round(start % max_length))
+
+            if stop is None:
+                stop = max_length
+            elif stop != 0 and -1 < stop < 1:
+                stop = int(round(stop*max_length))
+            stop = int(round(stop % max_length))
+            if stop == 0:
+                stop = max_length
+
+            step = 1 if step is None else int(round(step))
+
+            return DatasetInfos(path, slice=slice(start % max_length, stop % max_length, step))
+
 
 class GenericHRF(Dataset):
-    def __init__(self, datasets, path, mapping, cache=False, factor=1, data_aug_cfg=None):
+    def __init__(self, datasets: List[DatasetInfos], path: str, mapping: Dict[str, str], prefix: str = None,
+                 cache=False,
+                 factor=1, data_augmentations: List[DataAugment] = None, augmented_fields: Dict[str, str]=None):
         super(GenericHRF, self).__init__()
 
         self.datasets = datasets
         self.path = path
-        self.mapping = mapping
-        self._variable_mapping =
+        self.prefix = prefix
+        self.mapping = {f: expr.replace('{{', '').replace('}}', '') for f, expr in mapping.items()}
+        self._variable_mapping = {field: extract_variable_from_expr(expr) for field, expr in mapping.items()}
+        self._variables = {_ for v in self._variable_mapping.values() for _ in v}
         self.cache = cache
         self.factor = factor
 
-        self.data_aug_cfg = data_aug_cfg
-        if data_aug_cfg:
-            DA = DataAugment().flip()
-            if data_aug_cfg['rotation']:
-                DA.rotate()
-            if data_aug_cfg['elastic']:
-                DA.elastic_distortion(alpha=data_aug_cfg['elastic'].get('alpha', 10),
-                                      sigma=data_aug_cfg['elastic'].get('alpha', 20),
-                                      alpha_affine=data_aug_cfg['elastic'].get('alpha', 50))
-            data_fields = {'images': [], 'labels': [], 'angles': [], 'vectors': []}
-            for k, v in data_aug_cfg['data'].items():
-                if v+'s' not in data_fields:
-                    raise ValueError(f'Invalid data type "{v}" for data-augmentation.')
-                data_fields[v+'s'].append(k)
-            self.geo_aug = DA.compile(**data_fields, to_torch=True)
+        self.data_augmentations = data_augmentations
+        if data_augmentations:
+            self.augmented_fields = augmented_fields
+            augment_mapping = {}
+            for field, type in augmented_fields.items():
+                augmentable_data_types = data_augmentations[0].augmentable_data_types()
+                if type not in augmentable_data_types:
+                    if type+'s' in data_augmentations[0].augmentable_data_types():
+                        type = type+'s'
+                    else:
+                        raise TypeError(f'Unkown data-augmentation type {type} for field {field}.')
+                if type not in augment_mapping:
+                    augment_mapping[type] = set()
+                augment_mapping[type].add(field)
 
-        self._data_length = []
+            self._augmentations = [da.compile(**augment_mapping,
+                                              transpose_input=i == 0,   # Transpose if first
+                                              to_torch=i == len(data_augmentations)-1)  # Convert to torch if last
+                                   for i, da in enumerate(data_augmentations)]
+        else:
+            self.augmented_fields = {}
+            self._augmentations = []
+
+        self._datasets_length = []
+        if cache:
+            self._cache = {var: [] for var in self._variables}
+        else:
+            self._hdf_file = None
+
         with h5py.File(path, 'r') as f:
-            probed_variable = mapping
-            if datasets is None:
-                self._data_length = f.get()
-            for d in datasets:
-            self.x = f.get(f'{dataset}/data')[:]
-            if use_preprocess is False:
-                self.x = self.x[:, 3:]
-            elif use_preprocess == 'only':
-                self.x = self.x[:, :3]
-            self.y = DATA.get(f'{dataset}/av')[:]
-            self.mask = DATA.get(f'{dataset}/mask')[:]
-            data_fields = dict(images='x', labels='y,mask')
+            for infos in datasets:
+                self._datasets_length.append(infos.length)
 
-            if steered:
-                if steered is True:
-                    steered = 'vec-norm'
-                if steered == 'vec':
-                    self.steer = DATA.get(f'{dataset}/principal-vec-norm')[:]
-                    data_fields['vectors'] = 'alpha'
-                elif steered == 'vec-norm':
-                    self.steer = DATA.get(f'{dataset}/principal-vec')[:]
-                    data_fields['vectors'] = 'alpha'
-                elif steered == 'angle':
-                    data_fields['angles'] = 'alpha'
-                    self.steer = DATA.get(f'{dataset}/principal-angle')[:]
-                elif steered == 'all':
-                    self.angle = DATA.get(f'{dataset}/principal-angle')[:]
-                    self.vec = DATA.get(f'{dataset}/principal-vec-norm')[:]  # Through sigmoid
-                    self.vec_norm = DATA.get(f'{dataset}/principal-vec')[:]
-                    data_fields['angles'] = 'angle'
-                    data_fields['vectors'] = 'vec,vec_norm,angle_xy'
-                else:
-                    raise ValueError(
-                        'steered should be one of "vec", "vec-norm", "angle" or "all".'
-                        f'(Provided: "{steered}")')
-
-        self._data_length = len(self.x)
+                if cache:
+                    for var in self._variables:
+                        self._cache[var] += [np.stack([f[infos.path][var][i] for i in infos.iter_index()])]
 
     def __len__(self):
-        return self._data_length * self.factor
+        return sum(self._datasets_length) * self.factor
+
+    def open(self):
+        if self.cache:
+            return False
+        if self._hdf_file is None:
+            self._hdf_file = h5py.File(self.path, mode='r')
+        return self._hdf_file
+
+    def close(self):
+        if self.cache or self._hdf_file is None:
+            return
+        self._hdf_file.close()
+        self._hdf_file = None
+
+    def __del__(self):
+        self.close()
+
+    def __enter__(self):
+        self.open()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def dataset_idx(self, index):
+        start_idx = 0
+        for dataset_id, length in enumerate(self._datasets_length):
+            if index-start_idx < length*self.factor:
+                return dataset_id, (index-start_idx)//self.factor
+
+            start_idx += length*self.factor
+
+    def hdf_get_vars(self, index):
+        dataset_idx, i = self.dataset_idx(index)
+        if self.cache:
+            return {k: v[dataset_idx][i] for k, v in self._cache.items()}
+        else:
+            dataset_infos = self.datasets[dataset_idx]
+            f = self.open()
+            root_node = f[dataset_infos.path]
+            return {v: root_node[v][dataset_infos.map_index(i)] for v in self._variables}
 
     def __getitem__(self, i):
-        i = i % self._data_length
-        x = self.x[i].transpose(1, 2, 0)
-        if self.steered:
-            if isinstance(self.steered, str) and self.steered != 'all':
-                alpha = self.steer[i]
-                if self.steered != 'angle':
-                    alpha = alpha.transpose(1, 2, 0)
-                    if self.steered == 'vec-norm':
-                        alpha = alpha / (np.linalg.norm(alpha, axis=2, keepdims=True) + 1e-8)
-                return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], alpha=alpha)
-            else:
-                angle = self.angle[i]
-                vec = self.vec[i].transpose(1, 2, 0)
-                vec_norm = self.vec_norm[i].transpose(1, 2, 0)
-                vec_norm = vec_norm / (np.linalg.norm(vec_norm, axis=2, keepdims=True) + 1e-8)
-                angle_xy = np.stack([np.cos(angle), np.sin(angle)], axis=2)
-                return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], angle=angle, vec=vec, vec_norm=vec_norm, angle_xy=angle_xy)
-        else:
-            return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i])
+        vars = self.hdf_get_vars(i)
 
+        fields = {f: eval(expr, {'np': np}, vars) for f, expr in self.mapping.items()}
+        for aug in self._augmentations:
+            augmented_fields = {f: fields[f] for f in self.augmented_fields.keys()}
+            fields.update(aug(**augmented_fields))
 
-class TestDataset(Dataset):
-    def __init__(self, dataset, file, steered=True, use_preprocess=True):
-        super(TestDataset, self).__init__()
-        with h5py.File(file, 'r') as DATA:
-
-            self.x = DATA.get(f'{dataset}/data')[:]
-            if use_preprocess is False:
-                self.x = self.x[:, 3:]
-            elif use_preprocess == 'only':
-                self.x = self.x[:, :3]
-            self.y = DATA.get(f'{dataset}/av')[:]
-            self.mask = DATA.get(f'{dataset}/mask')[:]
-            data_fields = dict(images='x', labels='y,mask')
-
-            if steered:
-                if steered is True:
-                    steered = 'vec-norm'
-                if steered == 'vec':
-                    self.steer = DATA.get(f'{dataset}/principal-vec-norm')[:]
-                    data_fields['vectors'] = 'alpha'
-                elif steered == 'vec-norm':
-                    self.steer = DATA.get(f'{dataset}/principal-vec')[:]
-                    data_fields['vectors'] = 'alpha'
-                elif steered == 'angle':
-                    data_fields['angles'] = 'alpha'
-                    self.steer = DATA.get(f'{dataset}/principal-angle')[:]
-                elif steered == 'all':
-                    self.angle = DATA.get(f'{dataset}/principal-angle')[:]
-                    self.vec = DATA.get(f'{dataset}/principal-vec-norm')[:]  # Through sigmoid
-                    self.vec_norm = DATA.get(f'{dataset}/principal-vec')[:]
-                    data_fields['angles'] = 'angle'
-                    data_fields['vectors'] = 'vec,vec_norm'
-                else:
-                    raise ValueError(
-                        'steered should be one of "vec", "vec-norm", "angle" or "all".'
-                        f'(Provided: "{steered}")')
-
-        self.geo_aug = DataAugment().compile(**data_fields, to_torch=True)
-
-        self.steered = steered
-        self._data_length = len(self.x)
-
-    def __len__(self):
-        return self._data_length
-
-    def __getitem__(self, i):
-        x = self.x[i].transpose(1, 2, 0)
-        if self.steered:
-            if isinstance(self.steered, str) and self.steered != 'all':
-                alpha = self.steer[i]
-                if self.steered != 'angle':
-                    alpha = alpha.transpose(1, 2, 0)
-                    if self.steered == 'vec-norm':
-                        alpha = alpha / (np.linalg.norm(alpha, axis=2, keepdims=True) + 1e-8)
-                return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], alpha=alpha)
-            else:
-                angle = self.angle[i]
-                vec = self.vec[i].transpose(1, 2, 0)
-                vec_norm = self.vec_norm[i].transpose(1, 2, 0)
-                vec_norm = vec_norm / (np.linalg.norm(vec_norm, axis=2, keepdims=True) + 1e-8)
-                return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i], angle=angle, vec=vec, vec_norm=vec_norm)
-        else:
-            return self.geo_aug(x=x, y=self.y[i], mask=self.mask[i])
+        return fields

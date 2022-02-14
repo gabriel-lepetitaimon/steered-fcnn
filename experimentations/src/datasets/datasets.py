@@ -2,6 +2,7 @@ import os.path as P
 from torch.utils.data import DataLoader
 
 from ..config import default_config
+from .data_augment import parse_data_augmentations
 
 
 DEFAULT_DATA_PATH = P.join(P.abspath(P.dirname(__file__)), '../../DATA')
@@ -24,9 +25,11 @@ def load_dataset(cfg=None):
         steered = False
 
     if 'datasets' in cfg:
+        data_augmentations = parse_data_augmentations(cfg)
         if cfg.datasets.type == 'GenericHDF':
             from .generic_hdf import create_generic_hdf_datasets
-            return create_generic_hdf_datasets(cfg.datasets, data_path)
+            return create_generic_hdf_datasets(cfg.datasets, data_path, cfg.get('training.seed', 1234),
+                                               data_augmentations)
         else:
             raise ValueError(f'Invalid dataset type: cfg.dataset.type={cfg.dataset.type}')
     else:

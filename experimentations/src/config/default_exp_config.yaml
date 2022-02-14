@@ -25,7 +25,7 @@ model:
 
 training:
     seed: 1234
-    dataset-file: 'vessels.h5'
+    dataset-file: 'av.h5'
     use-preprocess: True
     dataset-path: 'default'
     training-dataset: 'DRIVE'
@@ -74,33 +74,22 @@ hyper-parameters:
     #lr-scheduler:
     #    type: 'reduceOnPlateau'
     #
-datasets:
-    type: GenericHDF
-    file: 'vessels.hf5'
-
-    data:
-        x: "{{raw}}[:3]"
-        y: "{{av}}!=0"
-        mask: "{{mask}}"
-
-    training:
-        dataset: 'DRIVE'
-        data-augment: True
-    validation:
-
-    data-augmentation:
-        rotation: False
-        elastic: False
-            # alpha: 10
-            # sigma: 20
-            # alpha-affine: 50
-        # crop-size: 758
 
 data-augmentation:
-    rotation: True
-    elastic: True
-    crop-size: 758
-    elastic-transform:
+    flip: True
+    rotation: # True
+        angle: [-180, 180]
+        interpolation: 'linear' # 'linear' / 'nearest' / 'are' / 'cubic' / 'max' / 'bits'
+        border-mode: # 'replicate' / 'wrap' / 'reflect' / 'reflect101'
+            constant: 0
+    elastic:
         alpha: 10
         sigma: 20
         alpha-affine: 50
+        # approximate: False
+        # interpolation: ... # same as rotation
+        # border-mode: ... # same as rotation
+    gamma: False # [-0.1, 0.1]
+    brightness: False # [-0.1, 0.1]
+    hue: False # [-20, 20]
+    saturation: False # [-20, 20]

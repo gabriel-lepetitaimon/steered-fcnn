@@ -3,12 +3,106 @@ import functools
 import inspect
 import numpy as np
 from collections import OrderedDict
+from copy import copy
+
+from ..config import AttributeDict
+from .cv2_parse import INTERPOLATIONS, BORDER_MODES
 
 _augment_methods = {}
 _augment_by_type = {}
 
 
-def augment_method(augment_type=None, cv=False):
+def parse_data_augmentations(cfg: AttributeDict, rng=None):
+    if not 'data-augmentation' in cfg:
+        return {}
+    try:
+        rng_seed = int(cfg.training.seed)
+    except (TypeError, KeyError):
+        rng_seed = rng
+    cfg = cfg['data-augmentation']
+    if any(_ in cfg for _ in ('flip', 'rotation', 'elastic', 'gamma', 'brightness', 'hue', 'saturation')):
+        return {'default': parse_data_augmentation_cfg(cfg, rng=rng_seed)}
+    else:
+        return {k: parse_data_augmentation_cfg(v, rng=rng_seed) for k, v in cfg.items()}
+
+
+def parse_data_augmentation_cfg(cfg: AttributeDict, rng=None):
+    da = DataAugment(rng=rng)
+
+    flip = cfg.get('flip', False)
+    if flip is True:
+        da.flip()
+    elif flip=='horizontal':
+        da.flip_horizontal()
+    elif flip=='vertical':
+        da.flip_vertical()
+    elif isinstance(flip, AttributeDict):
+        flip_h, flip_v = flip.get('horizontal', 0), flip.get('vertical', 0)
+        if flip_h:
+            da.flip_horizontal(flip_h)
+        if flip_v:
+            da.flip_horizontal(flip_v)
+
+    rotation = cfg.get('rotation', False)
+    if rotation is True:
+        da.rotate()
+    elif isinstance(rotation, (list, tuple)):
+        if len(rotation) != 2:
+            raise ValueError(f'Expected min and max value for gamma but got: {rotation}.')
+        da.rotate(angle=(rotation[0], rotation[1]))
+    elif isinstance(rotation, AttributeDict):
+        angle = rotation.get('angle', (-180, 180))
+        interpolation = INTERPOLATIONS[rotation.get('interpolation', 'linear')]
+        border_mode = rotation.get('border-mode', 'constant')
+        if isinstance(border_mode, (dict, AttributeDict)):
+            border_value = list(border_mode.values())[0]
+            border_mode = list(border_mode.keys())[0]
+        else:
+            border_value = 0
+        border_mode = BORDER_MODES[border_mode]
+        da.rotate(angle=angle, interpolation=interpolation, border_mode=border_mode, border_value=border_value)
+
+    elastic = cfg.get('elastic', False)
+    if elastic is True:
+        da.elastic_distortion(alpha=10, sigma=20, alpha_affine=50)
+    elif isinstance(elastic, AttributeDict):
+        alpha = elastic.get('alpha', 10)
+        sigma = elastic.get('sigma', 20)
+        sigma_affine = elastic.get('sigma_affine', 20)
+        approximate = elastic.get('approximate', False)
+        interpolation = INTERPOLATIONS[elastic.get('interpolation', 'linear')]
+        border_mode = elastic.get('border-mode', 'constant')
+        if isinstance(border_mode, (dict, AttributeDict)):
+            border_value = list(border_mode.values())[0]
+            border_mode = list(border_mode.keys())[0]
+        else:
+            border_value = 0
+        border_mode = BORDER_MODES[border_mode]
+        da.elastic_distortion(alpha=alpha, sigma=sigma, sigma_affine=sigma_affine, approximate=approximate,
+                              interpolation=interpolation, border_mode=border_mode, border_value=border_value)
+
+    gamma = cfg.get('gamma', None)
+    if gamma is True:
+        gamma = (-0.1, 0.1)
+    brightness = cfg.get('brightness', None)
+    if brightness is True:
+        brightness = (-0.1, 0.1)
+    if brightness or gamma:
+        da.color(brightness=brightness, gamma=gamma)
+
+    hue = cfg.get('hue', None)
+    if hue is True:
+        hue = (-20, 20)
+    saturation = cfg.get('saturation', None)
+    if saturation is True:
+        saturation = (-20, 20)
+    if hue or saturation:
+        da.hsv(hue=hue, saturation=saturation)
+
+    return da
+
+
+def augment_method(augment_type=None):
     def decorator(func):
         @functools.wraps(func)
         def register_augment(self, *params, **kwargs):
@@ -26,8 +120,11 @@ def augment_method(augment_type=None, cv=False):
 class DataAugment:
     def __init__(self, rng=None):
         self._augment_stack = []
+        self._rng = rng
 
-    def compile(self, images='', labels='', angles='', vectors='', to_torch=False):
+    def compile(self, images='', labels='', angles='', vectors='', to_torch=False, transpose_input=False, rng=None):
+        if rng is None:
+            rng = copy(self._rng)
         if isinstance(images, str):
             images = [_.strip() for _ in images.split(',') if _.strip()]
         if isinstance(labels, str):
@@ -55,23 +152,28 @@ class DataAugment:
             fields_f = self.compile_stack(rng_states=rng_states_def,
                                           except_type={'color'}, value_type='vec')
 
-        def augment(rng=np.random.RandomState(1234), **kwargs):
+        def augment(rng=rng, **kwargs):
             rng_states = [[s(rng) for s in states.values()] for states in rng_states_def]
-            
-            d = {}
-            for image in images:
-                d[image] = images_f(kwargs[image], rng_states)
 
-            mixed_label = sum(kwargs[label]*(4**i) for i, label in enumerate(labels))
-            mixed_label = labels_f(mixed_label, rng_states)
-            for i, label in enumerate(labels):
-                d[label] = (mixed_label//(4**i)) % 4
+            data = copy(kwargs)
+            for k, v in data.items():
+                if transpose_input and v.ndim == 3:
+                    data[k] = v.transpose(1, 2, 0)
+
+            for image in images:
+                data[image] = images_f(data[image], rng_states)
+
+            if labels:
+                mixed_label = sum(data[label]*(4**i) for i, label in enumerate(labels))
+                mixed_label = labels_f(mixed_label, rng_states)
+                for i, label in enumerate(labels):
+                    data[label] = (mixed_label//(4**i)) % 4
 
             for angle in angles:
-                d[angle] = angles_f(kwargs[angle], rng_states)
+                data[angle] = angles_f(data[angle], rng_states)
 
             for field in vectors:
-                d[field] = fields_f(kwargs[field], rng_states)
+                data[field] = fields_f(data[field], rng_states)
 
             if to_torch:
                 def to_tensor(x):
@@ -79,12 +181,29 @@ class DataAugment:
                     if x.ndim == 3:
                         x = x.transpose(2, 0, 1)
                     return torch.from_numpy(x)
-                return {k: to_tensor(v) for k, v in d.items()}
-            return d
+                return {k: to_tensor(v) for k, v in data.items()}
+
+            return data
 
         return augment
 
-    def compile_stack(self, only_type='', except_type='', rng_states=None, **kwargs):
+    @staticmethod
+    def augmentable_data_types():
+        from inspect import signature
+        return {arg for arg in signature(DataAugment.compile).parameters if arg not in ('to_str', 'rng')}
+
+    def compile_stack(self, rng_states, only_type='', except_type='', **kwargs):
+        """
+
+        Args:
+            rng_states: reference to the global rng_states.
+            only_type:
+            except_type:
+            **kwargs:
+
+        Returns:
+
+        """
 
         only_type = str2tuple(only_type)
         except_type = str2tuple(except_type)
@@ -344,7 +463,11 @@ class RandomDistribution:
         Generate a RandomDistribution according to the value of an argument
         :rtype: RandomDistribution
         """
-        if isinstance(info, tuple):
+        if isinstance(info, str):
+            if '±' in info:
+                mean, std = info.split('±')
+                return RandomDistribution.normal(float(mean), float(std))
+        elif isinstance(info, (tuple, list)):
             if len(info) == 2:
                 return RandomDistribution.uniform(*info)
             elif len(info) == 1:

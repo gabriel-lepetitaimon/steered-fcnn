@@ -50,9 +50,10 @@ class TrainDataset(Dataset):
         if data_augmentation_cfg['rotation']:
             DA.rotate()
         if data_augmentation_cfg['elastic']:
-            DA.elastic_distortion(alpha=data_augmentation_cfg['elastic-transform']['alpha'],
-                                  sigma=data_augmentation_cfg['elastic-transform']['sigma'],
-                                  alpha_affine=data_augmentation_cfg['elastic-transform']['alpha-affine']
+            e = 'elastic-transform' if isinstance(data_augmentation_cfg['elastic'], bool) else 'elastic'    # Legacy
+            DA.elastic_distortion(alpha=data_augmentation_cfg[e]['alpha'],
+                                  sigma=data_augmentation_cfg[e]['sigma'],
+                                  alpha_affine=data_augmentation_cfg[e]['alpha-affine']
                                   )
 
         self.geo_aug = DA.compile(**data_fields, to_torch=True)

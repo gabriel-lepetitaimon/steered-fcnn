@@ -138,34 +138,73 @@ hyper-parameters:
 
 ## Define datasets use for training, validation and testing.
 datasets:
-    ## Set datasets type.
-    # - GenericHDF: generic hdf5 file
+    ## GenericHDF: a hdf5 file within which all the data are organised as follows:
+    ##       /train[ing]/[DATASET_PATH]/VARS
+    ##       /val[idation]/[DATASET_PATH]/VARS
+    ##       /test[ing]/[DATASET_PATH]/VARS
+    ## where DATASET_PATH are optional sub-folders to distinguish several datasets for training or testing,
+    ## and where VARS are hdf variables from which are computed the data fields fed to the model.
+    ## All the VARS should exists in every DATASET_PATH sub-folders and the first dimension of the all
+    ## the VARS in a DATASET_PATH must be equals (e.g. the length of the dataset).
+    ## For example:
+    ##      /train/x        (shape: [5000, 1024, 1024])
+    ##      /train/y        (shape: [5000])
+    ##      /val/x        (shape: [1000, 1024, 1024])
+    ##      /val/y        (shape: [1000])
+    ##      /test/dataset-1/x        (shape: [3000, 1024, 1024])
+    ##      /test/dataset-1/y        (shape: [3000])
+    ##      /test/dataset-2/x        (shape: [200, 1024, 1024])
+    ##      /test/dataset-2/y        (shape: [200])
     type: GenericHDF
+
     ## Set the path to the hdf file.
     path: 'vessels.hf5'
 
-    ## Set the data mapping. Associate data name (used by the model) to a hdf array name or
-    ## a python expression containing hdf array names under double brackets (e.g. "{{raw}}").
-    data:
+    ## Set the data mapping. Associate field name (used by the model) to name of hdf variables or
+    ## a python expression containing hdf variables names under double brackets (e.g. "{{gt}}!=0").
+    ## (Numpy namespace is exposed as np. Hdf variables are numpy arrays.)
+    fields:
         x: "{{raw}}[:3]"
         y: "{{av}}!=0"
         mask: "{{mask}}"
 
     ## Define training dataset option.
     training:
-        ## Limit the training dataset to named subsets.
-        dataset: 'DRIVE'
+        ## Specify the path of the hdf folder containing all hdf variables required to compute the data fields.
+        ## This option also allows to take a subpart of the samples contained in the hdf variables:
+        ##  - float or percentage: only a proportion of the available samples will be randomly selected (accordingly to training.seed).
+        ##  - list of int (e.g. [0, 1, 2, -2, -1]): only the provided indexes will be selected.
+        ##  - slice (eg. "20%:60%"): only the indexes corresponding to the slice will be selected.
+        #
+        # If the hdf file is organised as /training/DATASETS_PATH/VARS
+        # - dataset path or a list of dataset paths
+        # - 'all': all available datasets inside /training/*/ will be used.
+        # - a dictionary with a unique dataset path as the key and the subset of sample as value
+        # - a list of the above dictionary (e.g. [{'DRIVE': '50%'}, {'MESSIDOR': '70%'}] )
+        #
+        # If the hdf file doesn't contains multiple dataset (/training/VARS)
+        # - ignore this option to use all
+        dataset:
+            - DRIVE: :-20%
 
         ## Enable or disable data-augment during training.
         # - True / False: Enable / Disable data-augmentation defined in this dataset data-augmentation field.
         # - A custom data-augmentation definition.
-        data-augment: True
+        augment:
+            ## Specify which data should be augmented and what is their type.
+            fields:
+                x: 'image'
+                y: 'label'
+                mask: 'label'
+
+            ## Choose which data-augmentation should be used.
+            data-augmentations: [default, ]
+
+            ## Repeat each sample n times.
+            factor: 1
 
         ## Enable or disable preloading all the dataset in RAM.
         preload-in-RAM: False
-
-        ## Repeat each sample n times.
-        repeat-factor: 1
 
     ## Define validation dataset option (Similar to training).
     validation:
@@ -177,25 +216,28 @@ datasets:
         dataset: 'DRIVE'
         preload-in-RAM: True
 
-    ## Define validation dataset option (Similar to training).
-    data-augmentation:
-        ## Specify which data should be augmented and what is their type.
-        data:
-            x: 'image'
-            y: 'label'
-            mask: 'label'
-        rotation: False
-        elastic: False
-            # alpha: 10
-            # sigma: 20
-            # alpha-affine: 50
-
-## Deprecated use datasets.data-augmentation instead.
 data-augmentation:
-    rotation: True
-    elastic: True
-    crop-size: 758
-    elastic-transform:
-        alpha: 10
-        sigma: 20
-        alpha-affine: 50
+    ## Random distribution specifiction can either be:
+    # -  [min, max]  : uniform distribution between min and max
+    # -  u (float)   : uniform distribution U(-u, u) if item value is symetric, U(0, u) otherwise.
+    # - 'MEAN ± STD' : normal distribution with the according mean and standard deviation.
+
+    - default:
+        flip: True
+        rotation: # True
+            angle: [-180, 180]
+            interpolation: 'linear' # 'linear' / 'nearest' / 'are' / 'cubic' / 'max' / 'bits'
+            border-mode: # 'replicate' / 'wrap' / 'reflect' / 'reflect101'
+                constant: 0
+        elastic:
+            alpha: 10
+            sigma: 20
+            alpha-affine: 50
+            # approximate: False
+            # interpolation: ... # same as rotation
+            # border-mode: ... # same as rotation
+        gamma: False # [-0.1, 0.1]
+        brightness: False # [-0.1, 0.1]
+        hue: False # [-20, 20]
+        saturation: False # [-20, 20]
+
