@@ -7,12 +7,7 @@ experiment:
 
 model:
     backbone: 'unet'
-    steered: 'all'
-        # steering: 'attention' # 'attention' / 'angle' / 'vec' / 'vec_norm'
-        # rho_nonlinearity: None # None / 'tanh' / 'normalized'
-        # base: None # kernel_size / {k: [r0, r1], ...} / {'kr': ..., 'max_k': k, 'phase': 0}
-        # attention_mode: 'shared' # 'shared' / 'feature' / False
-        # attention_base: ...
+    steered: False
     nfeatures: 16
     nscale: 5
     depth: 2
@@ -58,37 +53,10 @@ hyper-parameters:
 
         lr-decay-factor: 0
 
-    # optimizer:
-    #     type: 'ASGD' 
-    #     weight_decay: 0
-    #    alpha: 0.75
-    #    t0: 1000000.0
-    
-    # optimizer:
-    #     type: 'SGD' 
-    #     weight_decay: 0
-    #    momentum: 0,
-    #    dampening: 0
-    #    nesterov: False
-
-    #lr-scheduler:
-    #    type: 'reduceOnPlateau'
-    #
-
 data-augmentation:
     flip: True
-    rotation: # True
-        angle: [-180, 180]
-        interpolation: 'linear' # 'linear' / 'nearest' / 'are' / 'cubic' / 'max' / 'bits'
-        border-mode: # 'replicate' / 'wrap' / 'reflect' / 'reflect101'
-            constant: 0
-    elastic:
-        alpha: 10
-        sigma: 20
-        alpha-affine: 50
-        # approximate: False
-        # interpolation: ... # same as rotation
-        # border-mode: ... # same as rotation
+    rotation: False
+    elastic: False
     gamma: False # [-0.1, 0.1]
     brightness: False # [-0.1, 0.1]
     hue: False # [-20, 20]

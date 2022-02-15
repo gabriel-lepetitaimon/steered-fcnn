@@ -27,7 +27,7 @@ def parse_data_augmentations(cfg: AttributeDict, rng=None):
 
 
 def parse_data_augmentation_cfg(cfg: AttributeDict, rng=None):
-    da = DataAugment(rng=rng)
+    da = DataAugment(seed=rng)
 
     flip = cfg.get('flip', False)
     if flip is True:
@@ -118,13 +118,15 @@ def augment_method(augment_type=None):
 
 
 class DataAugment:
-    def __init__(self, rng=None):
+    def __init__(self, seed=1234):
         self._augment_stack = []
-        self._rng = rng
+        self._seed = seed
 
     def compile(self, images='', labels='', angles='', vectors='', to_torch=False, transpose_input=False, rng=None):
         if rng is None:
-            rng = copy(self._rng)
+            rng = self._seed
+        if isinstance(rng, int):
+            rng = np.random.default_rng(rng)
         if isinstance(images, str):
             images = [_.strip() for _ in images.split(',') if _.strip()]
         if isinstance(labels, str):
@@ -369,7 +371,7 @@ class DataAugment:
             return AF.elastic_transform(x, alpha=alpha, sigma=sigma, alpha_affine=alpha_affine, approximate=approximate,
                                         interpolation=interpolation, border_mode=border_mode, value=border_value,
                                         random_state=random_state)
-        return augment, _RD.randint(1e8)
+        return augment, _RD.integers(1e8)
 
     @augment_method('color')
     def color(self, brightness=None, contrast=None, gamma=None, r=None, g=None, b=None):
@@ -432,10 +434,6 @@ class RandomDistribution:
         self._kwargs = kwargs
 
     def __call__(self, rng, shape=None):
-        if isinstance(rng, int):
-            rng = np.random.RandomState(seed=rng)
-        elif not isinstance(rng, np.random.RandomState):
-            raise ValueError('rng is not a valid RandomState or seed')
         return self._f(rng=rng, shape=shape, **self._kwargs)
     
     def __repr__(self):
@@ -538,9 +536,9 @@ class RandomDistribution:
         return RandomDistribution(f, 'custom: '+f_dist.__name__, **kwargs)
 
     @staticmethod
-    def randint(low, high=None, dtype='i'):
+    def integers(low, high=None, dtype='i'):
         def f(rng, shape, low, high, dtype):
-            return rng.randint(low, high=high, size=shape, dtype=dtype)
+            return rng.integers(low, high=high, size=shape, dtype=dtype)
         return RandomDistribution(f, 'randint', low=low, high=high, dtype=dtype)
 
 

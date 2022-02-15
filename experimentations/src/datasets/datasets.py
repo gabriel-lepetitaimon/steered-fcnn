@@ -28,14 +28,21 @@ def load_dataset(cfg=None):
         data_augmentations = parse_data_augmentations(cfg)
         if cfg.datasets.type == 'GenericHDF':
             from .generic_hdf import create_generic_hdf_datasets
-            return create_generic_hdf_datasets(cfg.datasets, data_path, cfg.get('training.seed', 1234),
-                                               data_augmentations)
+            train, val, test = create_generic_hdf_datasets(cfg.datasets, data_path, cfg.get('training.seed', 1234),
+                                                           data_augmentations)
         else:
             raise ValueError(f'Invalid dataset type: cfg.dataset.type={cfg.dataset.type}')
+        trainD = DataLoader(train, pin_memory=True, shuffle=False, batch_size=batch_size,
+                            num_workers=cfg.training['num-worker'] )
+        validD = DataLoader(val, pin_memory=True, num_workers=6, batch_size=6)
+        testD = {k: DataLoader(v, pin_memory=True, num_workers=6, batch_size=6)
+                 for k, v in test.items()}
+        return trainD, validD, testD
     else:
         from .legacy import TrainDataset, TestDataset
         train_dataset = cfg.training['training-dataset']
         dataset_file = P.join(data_path, cfg.training['dataset-file'])
+        cfg['data-augmentation']['seed'] = cfg.get('training/seed', 1234)
         trainD = DataLoader(TrainDataset('train/'+train_dataset, file=dataset_file,
                                          factor=cfg.training['training-dataset-factor'],
                                          steered=steered, use_preprocess=cfg.training['use-preprocess'],

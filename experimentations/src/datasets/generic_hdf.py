@@ -1,6 +1,7 @@
 import numpy as np
 import h5py
 import os.path as P
+from copy import deepcopy
 from torch.utils.data import Dataset
 from typing import Dict, List, Tuple
 
@@ -122,7 +123,7 @@ def create_generic_hdf_dataset(datasets_cfg: AttributeDict, prefix: str, hdf_pat
 def check_dataset_exist(hf_node, data_names, hdf_path):
     missing_data_names = {n for n in data_names if n not in hf_node}
     if missing_data_names:
-        raise ValueError(f'Thw following dataset were not found in the hdf archive "{hdf_path}:{hf_node.name}":\n'
+        raise ValueError(f'The following dataset were not found in the hdf archive "{hdf_path}:{hf_node.name}":\n'
                          f' {missing_data_names}')
 
     invalid_data_names = {n for n in data_names if not isinstance(hf_node[n], h5py.Dataset)}
@@ -206,7 +207,7 @@ class DatasetInfos:
                 info = proportion
 
         if isinstance(info, (float, int)):
-            rng = np.random.RandomState(seed=rng)
+            rng = np.random.default_rng(seed=rng)
             idxs = np.arange(max_length)
             rng.shuffle(idxs)
             idxs = list(int(_) for _ in idxs)
@@ -247,9 +248,17 @@ class GenericHRF(Dataset):
         self.datasets = datasets
         self.path = path
         self.prefix = prefix
-        self.mapping = {f: expr.replace('{{', '').replace('}}', '') for f, expr in mapping.items()}
-        self._variable_mapping = {field: extract_variable_from_expr(expr) for field, expr in mapping.items()}
-        self._variables = {_ for v in self._variable_mapping.values() for _ in v}
+        self._field2variables = {field: extract_variable_from_expr(expr) for field, expr in mapping.items()}
+        self._variables = {_ for v in self._field2variables.values() for _ in v}
+        self._variables = {var: f'VAR{i}' for i, var in enumerate(self._variables)}
+        self.mapping = deepcopy(mapping)
+        for var, name in self._variables.items():
+            for field in self.mapping.keys():
+                if self.mapping[field].strip() == var:
+                    self.mapping[field] = name
+                else:
+                    self.mapping[field] = self.mapping[field].replace("{{"+var+"}}", name)
+
         self.cache = cache
         self.factor = factor
 
@@ -332,7 +341,7 @@ class GenericHRF(Dataset):
             dataset_infos = self.datasets[dataset_idx]
             f = self.open()
             root_node = f[dataset_infos.path]
-            return {v: root_node[v][dataset_infos.map_index(i)] for v in self._variables}
+            return {name: root_node[var][dataset_infos.map_index(i)] for var, name in self._variables.items()}
 
     def __getitem__(self, i):
         vars = self.hdf_get_vars(i)

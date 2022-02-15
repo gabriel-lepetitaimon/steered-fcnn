@@ -46,7 +46,7 @@ class TrainDataset(Dataset):
                         'steered should be one of "vec", "vec-norm", "angle" or "all".'
                         f'(Provided: "{steered}")')
 
-        DA = DataAugment().flip()
+        DA = DataAugment(seed=data_augmentation_cfg.get('seed', 1234)).flip()
         if data_augmentation_cfg['rotation']:
             DA.rotate()
         if data_augmentation_cfg['elastic']:
