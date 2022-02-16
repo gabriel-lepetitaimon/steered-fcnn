@@ -222,7 +222,7 @@ data-augmentation:
     # -  u (float)   : uniform distribution U(-u, u) if item value is symetric, U(0, u) otherwise.
     # - 'MEAN ± STD' : normal distribution with the according mean and standard deviation.
 
-    - default:
+    default:
         flip: True
         rotation: # True
             angle: [-180, 180]

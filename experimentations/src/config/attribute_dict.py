@@ -43,12 +43,14 @@ class AttributeDict(OrderedDict):
     def from_dict(d, recursive=False):
         if isinstance(d, AttributeDict):
             return d
-        r = AttributeDict()
-        for k, v in d.items():
-            if is_dict(v) and recursive:
-                v = AttributeDict.from_dict(v, True)
-            r[k] = v
-        return r
+        if isinstance(d, (OrderedDict, dict)):
+            r = AttributeDict()
+            for k, v in d.items():
+                if is_dict(v) and recursive:
+                    v = AttributeDict.from_dict(v, True)
+                r[k] = v
+            return r
+        return d
 
     @staticmethod
     def from_json(json):
@@ -110,6 +112,27 @@ class AttributeDict(OrderedDict):
                 return r
         else:
             return super(AttributeDict, self).__getitem__(str(item))
+        
+    def __delitem__(self, item):
+        if isinstance(item, int):
+            k = list(self.keys())
+            if item > len(k):
+                raise IndexError('Index %i out of range (AttributeDict length: %s)' % (item, len(k)))
+            return super(AttributeDict, self).__delitem__(list(self.keys())[item])
+        elif isinstance(item, str):
+            if '.' not in item:
+                return super(AttributeDict, self).__delitem__(item)
+            else:
+                item = item.split('.')
+                r = self
+                for i, it in enumerate(item[:-1]):
+                    try:
+                        r = r[it]
+                    except (KeyError, IndexError, TypeError):
+                        raise IndexError(f'Invalid item: {".".join(item[:i])}.') from None
+                del r[item[-1]]
+        else:
+            return super(AttributeDict, self).__delitem__(str(item))
 
     def __getattr__(self, item):
         if item in self:
@@ -199,7 +222,20 @@ class AttributeDict(OrderedDict):
         return item == value
 
     def get(self, path, default='raise'):
-        path = path.split('.')
+        if isinstance(path, str) and ',' in path:
+            path = set(path.split(','))
+        if isinstance(path, set):
+            r = {}
+            for p in path:
+                try:
+                    r[p] = self.get(p, default)
+                except AttributeError:
+                    continue
+            return AttributeDict.from_dict(r)
+        elif isinstance(path, (list, tuple)):
+            return [self.get(p, default) for p in path]
+        
+        path = path.strip().split('.')
 
         miss = False
         item = self
@@ -217,3 +253,15 @@ class AttributeDict(OrderedDict):
             return default
 
         return item
+
+    def pop(self, path):
+        r = self.get(path)
+        if isinstance(path, set) or (isinstance(path, str) and ',' in path):
+            for key in r:
+                del self[key]
+        elif isinstance(path, (list, tuple)):
+            for key in path:
+                del self[key]
+        else:
+            del self[path]
+        return r

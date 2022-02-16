@@ -19,11 +19,9 @@ def parse_data_augmentations(cfg: AttributeDict, rng=None):
         rng_seed = int(cfg.training.seed)
     except (TypeError, KeyError):
         rng_seed = rng
-    cfg = cfg['data-augmentation']
-    if any(_ in cfg for _ in ('flip', 'rotation', 'elastic', 'gamma', 'brightness', 'hue', 'saturation')):
-        return {'default': parse_data_augmentation_cfg(cfg, rng=rng_seed)}
-    else:
-        return {k: parse_data_augmentation_cfg(v, rng=rng_seed) for k, v in cfg.items()}
+    cfg = cfg['data-augmentation'].copy()
+    cfg.update({'default': cfg.pop({'flip', 'rotation', 'elastic', 'gamma', 'brightness', 'hue', 'saturation'})})
+    return {k: parse_data_augmentation_cfg(v, rng=rng_seed) for k, v in cfg.items()}
 
 
 def parse_data_augmentation_cfg(cfg: AttributeDict, rng=None):
@@ -380,13 +378,13 @@ class DataAugment:
         gamma = _RD.gamma(0) if gamma is None else _RD.auto(gamma, symetric=True)
 
         r = _RD.constant(0) if r is None else _RD.auto(r, symetric=True)
-        g = _RD.constant(0) if r is None else _RD.auto(g, symetric=True)
-        b = _RD.constant(0) if r is None else _RD.auto(b, symetric=True)
+        g = _RD.constant(0) if g is None else _RD.auto(g, symetric=True)
+        b = _RD.constant(0) if b is None else _RD.auto(b, symetric=True)
 
         def augment(x, brightness, contrast, gamma, r, g, b):
-            x = ((x+brightness)*(contrast+1.))**(gamma+1.)
+            x = (x+brightness)*(contrast+1.).clip(0)**(gamma+1.)
             
-            if r or b or g :
+            if r or b or g:
                 n = x.shape[0]//3
                 bgr = np.array([b, g, r]*n)
                 x[..., :3*n] = x[..., :3*n] + bgr[np.newaxis, np.newaxis, :]
