@@ -247,7 +247,7 @@ class AttributeDict(OrderedDict):
         for i, p in enumerate(path):
             try:
                 item = item[p]
-            except (KeyError, IndexError, TypeError):
+            except (KeyError, IndexError, TypeError, AttributeError):
                 miss = True
                 path = '.'.join(path[:i])
                 break

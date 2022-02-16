@@ -50,7 +50,7 @@ def run_train(**opt):
                         n_out=1 if sample['y'].ndim==2 else sample['y'].shape[0])
 
     model_inputs = {'x': '@x'}
-    steering_field = cfg.get('model/steered/steering')
+    steering_field = cfg.get('model/steered/steering', None)
     if isinstance(steering_field, str) and steering_field != 'attention':
         model_inputs['alpha'] = '@'+steering_field
     hyper_params = cfg['hyper-parameters']
