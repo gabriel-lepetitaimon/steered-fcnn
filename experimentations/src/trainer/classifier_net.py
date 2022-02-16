@@ -12,9 +12,13 @@ from ..config import default_config
 
 
 class Binary2DSegmentation(pl.LightningModule):
-    def __init__(self, model, loss='binaryCE', pos_weighted_loss=False, optimizer=None, earlystop_cfg=None, lr=1e-3, p_dropout=0, soft_label=0):
+    def __init__(self, model, model_inputs=None,
+                 loss='binaryCE', pos_weighted_loss=False,
+                 optimizer=None, earlystop_cfg=None,
+                 lr=1e-3, p_dropout=0, soft_label=0):
         super().__init__()
         self.model = model
+        self.model_inputs = {'x': 'x'} if model_inputs is None else model_inputs
 
         self.val_accuracy = torchmetrics.Accuracy(compute_on_step=False)
         self.lr = lr
@@ -69,9 +73,10 @@ class Binary2DSegmentation(pl.LightningModule):
             return self._loss(pred, target)
 
     def compute_y_yhat(self, batch):
-        x = batch['x']
         y = (batch['y'] != 0).int()
-        y_hat = self.model(x, **{k: v for k, v in batch.items() if k not in ('x', 'y', 'mask')}).squeeze(1)
+        model_inputs = {model_arg: batch[field[1:]] if isinstance(field, str) and field.startswith('@') else field
+                        for model_arg, field in self.model_inputs.items()}
+        y_hat = self.model(**model_inputs).squeeze(1)
         y = clip_pad_center(y, y_hat.shape)
         return y, y_hat
 

@@ -90,6 +90,11 @@ class AttributeDict(OrderedDict):
                 r[keys[-1]] = value
             except (KeyError, IndexError, TypeError):
                 raise IndexError(f'Invalid key: {keys}.') from None
+        if isinstance(value, (dict, OrderedDict)):
+            try:
+                value = AttributeDict.from_dict(value)
+            except:
+                pass
         super(AttributeDict, self).__setitem__(key, value)
 
     def __getitem__(self, item):

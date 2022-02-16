@@ -2,8 +2,7 @@ __all__ = ['default_config', 'parse_config']
 
 import os.path as P
 import os
-
-from .attribute_dict import AttributeDict
+from steered_cnn.utils.attribute_dict import AttributeDict
 
 
 ORION_CFG_PATH = P.join(P.dirname(P.abspath(__file__)), 'orion_config.yaml')

@@ -2,6 +2,7 @@ from .steered import SteeredUNet, SteeredHemelingNet
 from .backbones import UNet, HemelingNet
 
 
+
 def setup_model(cfg, n_in, n_out):
     if cfg.check('backbone', ('unet', 'hemeling')):
         args = cfg.subset('nfeatures,'
@@ -11,6 +12,7 @@ def setup_model(cfg, n_in, n_out):
             NET = SteeredUNet if cfg.get('backbone') == 'unet' else SteeredHemelingNet
             steered = cfg.get('steered')
             if isinstance(steered, str):
+                cfg['steered'] = {'steering': steered}
                 steered = {'steering': steered}
             if steered.get('steering', 'attention') == 'attention':
                 steered['steering'] = 'attention'

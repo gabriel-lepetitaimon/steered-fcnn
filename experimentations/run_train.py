@@ -12,8 +12,6 @@ from src.datasets import load_dataset
 from src.trainer import Binary2DSegmentation, ExportValidation
 from src.trainer.loggers import Logs
 from steered_cnn.models import setup_model
-from steered_cnn.steered_conv import SteeredConvBN
-from steered_cnn.utils import ConvBN
 
 
 def run_train(**opt):
@@ -50,16 +48,21 @@ def run_train(**opt):
     sample = validD.dataset[0]
     model = setup_model(cfg['model'], n_in=sample['x'].shape[0], 
                         n_out=1 if sample['y'].ndim==2 else sample['y'].shape[0])
-    
-    sample = None
+
+    model_inputs = {'x': '@x'}
+    steering_field = cfg.get('model/steered/steering')
+    if isinstance(steering_field, str) and steering_field != 'attention':
+        model_inputs['alpha'] = '@'+steering_field
     hyper_params = cfg['hyper-parameters']
+
     net = Binary2DSegmentation(model=model, loss=hyper_params['loss'],
                                pos_weighted_loss=hyper_params['pos-weighted-loss'],
                                soft_label=hyper_params['smooth-label'],
                                earlystop_cfg=cfg['training']['early-stopping'],
                                optimizer=hyper_params['optimizer'],
                                lr=hyper_params['lr'] / hyper_params['accumulate-gradient-batch'],
-                               p_dropout=hyper_params['drop-out'])
+                               p_dropout=hyper_params['drop-out'],
+                               model_inputs=model_inputs)
     logs.log_miscs({'model': {
         'params': sum(p.numel() for p in net.parameters())
     }})

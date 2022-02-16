@@ -6,7 +6,7 @@ import os
 from mlflow.tracking import MlflowClient
 from mlflow.utils.mlflow_tags import MLFLOW_RUN_NAME
 import pytorch_lightning.loggers as pl_loggers
-from ..config.attribute_dict import AttributeDict
+from steered_cnn.utils.attribute_dict import AttributeDict
 
 
 class MlflowClientRunProxy:
