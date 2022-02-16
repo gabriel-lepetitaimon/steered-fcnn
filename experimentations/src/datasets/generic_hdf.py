@@ -287,7 +287,7 @@ class GenericHRF(Dataset):
 
         self._datasets_length = []
         if cache:
-            self._cache = {var: [] for var in self._variables}
+            self._cache = {alias: [] for alias in self._variables.values()}
         else:
             self._hdf_file = None
 
@@ -296,8 +296,8 @@ class GenericHRF(Dataset):
                 self._datasets_length.append(infos.length)
 
                 if cache:
-                    for var in self._variables:
-                        self._cache[var] += [np.stack([f[infos.path][var][i] for i in infos.iter_index()])]
+                    for var, alias in self._variables.items():
+                        self._cache[alias] += [np.stack([f[infos.path][var][i] for i in infos.iter_index()])]
 
     def __len__(self):
         return sum(self._datasets_length) * self.factor
@@ -341,12 +341,14 @@ class GenericHRF(Dataset):
             dataset_infos = self.datasets[dataset_idx]
             f = self.open()
             root_node = f[dataset_infos.path]
-            return {name: root_node[var][dataset_infos.map_index(i)] for var, name in self._variables.items()}
+            return {alias: root_node[var][dataset_infos.map_index(i)] for var, alias in self._variables.items()}
 
     def __getitem__(self, i):
         vars = self.hdf_get_vars(i)
-
-        fields = {f: eval(expr, {'np': np}, vars) for f, expr in self.mapping.items()}
+        try:
+            fields = {f: eval(expr, {'np': np}, vars) for f, expr in self.mapping.items()}
+        except NameError as e:
+            raise NameError(repr(e) + f'\n VARS: {list(vars.keys())}, map: {self._variables}.')
         for aug in self._augmentations:
             augmented_fields = {f: fields[f] for f in self.augmented_fields.keys()}
             fields.update(aug(**augmented_fields))

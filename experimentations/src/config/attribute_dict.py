@@ -257,7 +257,7 @@ class AttributeDict(OrderedDict):
     def pop(self, path):
         r = self.get(path)
         if isinstance(path, set) or (isinstance(path, str) and ',' in path):
-            for key in r:
+            for key in r.keys():
                 del self[key]
         elif isinstance(path, (list, tuple)):
             for key in path:
