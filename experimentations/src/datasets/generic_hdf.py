@@ -3,9 +3,9 @@ import h5py
 import os.path as P
 from copy import deepcopy
 from torch.utils.data import Dataset
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
-from ..config import AttributeDict
+from steered_cnn.utils import AttributeDict
 from .data_augment import DataAugment
 
 

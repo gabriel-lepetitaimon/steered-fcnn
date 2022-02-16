@@ -2,7 +2,6 @@ from .steered import SteeredUNet, SteeredHemelingNet
 from .backbones import UNet, HemelingNet
 
 
-
 def setup_model(cfg, n_in, n_out):
     if cfg.check('backbone', ('unet', 'hemeling')):
         args = cfg.subset('nfeatures,'

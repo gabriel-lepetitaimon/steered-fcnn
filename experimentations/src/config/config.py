@@ -41,7 +41,8 @@ def parse_config(cfg_file):
 
 def parse_arguments(opt=None, require_config=True):
     import argparse
-    from src.config import parse_config, AttributeDict
+    from src.config import parse_config
+    from steered_cnn.utils import AttributeDict
 
     # --- PARSE ARGS & ENVIRONNEMENTS VARIABLES ---
     if not opt:

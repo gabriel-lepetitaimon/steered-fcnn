@@ -1,6 +1,6 @@
 import numpy as np
 import h5py
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 
 from ..config import default_config
 from .data_augment import DataAugment

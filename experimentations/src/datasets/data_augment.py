@@ -5,7 +5,7 @@ import numpy as np
 from collections import OrderedDict
 from copy import copy
 
-from ..config import AttributeDict
+from steered_cnn.utils import AttributeDict
 from .cv2_parse import INTERPOLATIONS, BORDER_MODES
 
 _augment_methods = {}
