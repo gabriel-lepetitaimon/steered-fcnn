@@ -35,17 +35,17 @@ datasets:
         preload-in-RAM: True
 
 data-augmentation:
-    flip: True
-    rotation: # True
-        angle: [-180, 180]
-        interpolation: 'linear'
-        border-mode: {constant: 0}
-    elastic:
-        alpha: 10
-        sigma: 20
-        alpha-affine: 50
+    flip: False
+    rotation: False
+        #angle: [-180, 180]
+        #interpolation: 'linear'
+        #border-mode: {constant: 0}
+    elastic: False
+        #alpha: 10
+        #sigma: 20
+        #alpha-affine: 50
 
-    gamma: False # [-0.1, 0.1]
+    gamma: 0±0.2 # [-0.1, 0.1]
     brightness: False # [-0.1, 0.1]
     hue: False # [-20, 20]
     saturation: False # [-20, 20]
