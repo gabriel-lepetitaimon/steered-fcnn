@@ -32,7 +32,7 @@ def load_dataset(cfg=None):
                                                            data_augmentations)
         else:
             raise ValueError(f'Invalid dataset type: cfg.dataset.type={cfg.dataset.type}')
-        trainD = DataLoader(train, pin_memory=True, shuffle=False, batch_size=batch_size,
+        trainD = DataLoader(train, pin_memory=True, shuffle=True, batch_size=batch_size,
                             num_workers=cfg.training['num-worker'] )
         validD = DataLoader(val, pin_memory=True, num_workers=6, batch_size=6)
         testD = {k: DataLoader(v, pin_memory=True, num_workers=6, batch_size=6)
