@@ -118,12 +118,12 @@ def augment_method(augment_type=None):
 class DataAugment:
     def __init__(self, seed=1234):
         self._augment_stack = []
-        self._seed = seed
+        self._rng = np.random.default_rng(seed)
 
     def compile(self, images='', labels='', angles='', vectors='', to_torch=False, transpose_input=False, rng=None):
         if rng is None:
-            rng = self._seed
-        if isinstance(rng, int):
+            rng = self._rng
+        elif isinstance(rng, int):
             rng = np.random.default_rng(rng)
         if isinstance(images, str):
             images = [_.strip() for _ in images.split(',') if _.strip()]
