@@ -27,6 +27,7 @@ def parse_data_augmentations(cfg: AttributeDict, rng=None):
 def parse_data_augmentation_cfg(cfg: AttributeDict, rng=None):
     da = DataAugment(seed=rng)
 
+
     flip = cfg.get('flip', False)
     if flip is True:
         da.flip()
@@ -66,7 +67,7 @@ def parse_data_augmentation_cfg(cfg: AttributeDict, rng=None):
     elif isinstance(elastic, AttributeDict):
         alpha = elastic.get('alpha', 10)
         sigma = elastic.get('sigma', 20)
-        sigma_affine = elastic.get('sigma_affine', 20)
+        alpha_affine = elastic.get('alpha-affine', 20)
         approximate = elastic.get('approximate', False)
         interpolation = INTERPOLATIONS[elastic.get('interpolation', 'linear')]
         border_mode = elastic.get('border-mode', 'constant')
@@ -76,7 +77,7 @@ def parse_data_augmentation_cfg(cfg: AttributeDict, rng=None):
         else:
             border_value = 0
         border_mode = BORDER_MODES[border_mode]
-        da.elastic_distortion(alpha=alpha, sigma=sigma, sigma_affine=sigma_affine, approximate=approximate,
+        da.elastic_distortion(alpha=alpha, sigma=sigma, alpha_affine=alpha_affine, approximate=approximate,
                               interpolation=interpolation, border_mode=border_mode, border_value=border_value)
 
     gamma = cfg.get('gamma', None)
@@ -146,10 +147,10 @@ class DataAugment:
             labels_f = self.compile_stack(rng_states=rng_states_def,
                                           interpolation=cv2.INTER_NEAREST, except_type={'color'})
         if angles:
-            angles_f = self.compile_stack(rng_states=rng_states_def,
+            angles_f = self.compile_stack(rng_states=rng_states_def, border_mode=cv2.BORDER_REPLICATE,
                                           except_type={'color'}, value_type='angle')
         if vectors:
-            fields_f = self.compile_stack(rng_states=rng_states_def,
+            fields_f = self.compile_stack(rng_states=rng_states_def, border_mode=cv2.BORDER_REPLICATE,
                                           except_type={'color'}, value_type='vec')
 
         def augment(rng=rng, **kwargs):
@@ -223,7 +224,7 @@ class DataAugment:
 
             # Rerun the function generating augment() with the custom provided parameters
             params = bind_args_partial(f, kwargs=kwargs)
-            params.update(f_params)
+            f_params.update(params)
             f_augment, *rng_params = match_params(f, self=self, **params)
 
             if isinstance(f_augment, dict):
@@ -346,7 +347,7 @@ class DataAugment:
         pre_rot = None
         if value_type == 'angle':
             def pre_rot(X, phi):
-                return [x+(phi*np.pi/180) for x in X]
+                return [np.cos(x+(phi*np.pi/180)) for x in X]+[np.sin(x+(phi*np.pi/180)) for x in X]
         elif value_type == 'vec':
             def pre_rot(X, phi):
                 u, v = X
@@ -357,7 +358,13 @@ class DataAugment:
         def augment(x, angle):
             return AF.rotate(x, angle, interpolation=interpolation, border_mode=border_mode, value=border_value)
 
-        return {'pre': pre_rot, 'augment': augment}, angle
+        post_rot = None
+        if value_type == 'angle':
+            def post_rot(X, phi):
+                N = len(X)//2
+                return [np.arctan2(cos, sin) for cos, sin in zip(X[:N], X[N:])]
+        
+        return {'pre': pre_rot, 'augment': augment, 'post': post_rot}, angle
 
     @augment_method('geometric')
     def elastic_distortion(self, alpha=1, sigma=50, alpha_affine=50,
