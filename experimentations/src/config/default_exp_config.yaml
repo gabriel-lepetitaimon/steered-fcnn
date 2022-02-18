@@ -29,6 +29,7 @@ training:
     use-preprocess: True
     dataset-path: 'default'
     training-dataset: 'DRIVE'
+    training-partial: 1
     training-dataset-factor: 8
     max-epoch: 30
     val-every-n-epoch: 1

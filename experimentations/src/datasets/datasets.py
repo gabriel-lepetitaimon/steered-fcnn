@@ -43,38 +43,48 @@ def load_dataset(cfg=None):
 
 
 class TrainDataset(Dataset):
-    def __init__(self, dataset, file, factor=1, steered=True, use_preprocess=True, data_augmentation_cfg=None):
+    def __init__(self, dataset, file, factor=1, steered=True, use_preprocess=True, data_augmentation_cfg=None,
+                 partial=1):
         super(TrainDataset, self).__init__()
 
         if data_augmentation_cfg is None:
             data_augmentation_cfg = default_config()['data-augmentation']
 
+        self.partial = partial
+
         with h5py.File(file, 'r') as DATA:
-            self.x = DATA.get(f'{dataset}/data')[:]
+            if self.partial != 1:
+                x_len = DATA.get(f'{dataset}/data').shape[0]
+                idx = np.arange(x_len)
+                np.random.shuffle(idx)
+                idx = idx[:int(round(x_len*self.partial))]
+            else:
+                idx = slice(None, None)
+            self.x = DATA.get(f'{dataset}/data')[idx]
             if use_preprocess is False:
-                self.x = self.x[:, 3:]
+                self.x = self.x[idx, 3:]
             elif use_preprocess == 'only':
-                self.x = self.x[:, :3]
-            self.y = DATA.get(f'{dataset}/av')[:]
-            self.mask = DATA.get(f'{dataset}/mask')[:]
+                self.x = self.x[idx, :3]
+            self.y = DATA.get(f'{dataset}/av')[idx]
+            self.mask = DATA.get(f'{dataset}/mask')[idx]
             data_fields = dict(images='x', labels='y,mask')
 
             if steered:
                 if steered is True:
                     steered = 'vec-norm'
                 if steered == 'vec':
-                    self.steer = DATA.get(f'{dataset}/principal-vec-norm')[:]
+                    self.steer = DATA.get(f'{dataset}/principal-vec-norm')[idx]
                     data_fields['vectors'] = 'alpha'
                 elif steered == 'vec-norm':
-                    self.steer = DATA.get(f'{dataset}/principal-vec')[:]
+                    self.steer = DATA.get(f'{dataset}/principal-vec')[idx]
                     data_fields['vectors'] = 'alpha'
                 elif steered == 'angle':
                     data_fields['angles'] = 'alpha'
-                    self.steer = DATA.get(f'{dataset}/principal-angle')[:]
+                    self.steer = DATA.get(f'{dataset}/principal-angle')[idx]
                 elif steered == 'all':
-                    self.angle = DATA.get(f'{dataset}/principal-angle')[:]
-                    self.vec = DATA.get(f'{dataset}/principal-vec-norm')[:]  # Through sigmoid
-                    self.vec_norm = DATA.get(f'{dataset}/principal-vec')[:]
+                    self.angle = DATA.get(f'{dataset}/principal-angle')[idx]
+                    self.vec = DATA.get(f'{dataset}/principal-vec-norm')[idx]  # Through sigmoid
+                    self.vec_norm = DATA.get(f'{dataset}/principal-vec')[idx]
                     data_fields['angles'] = 'angle'
                     data_fields['vectors'] = 'vec,vec_norm,angle_xy'
                 else:
