@@ -52,7 +52,10 @@ def run_train(**opt):
     model_inputs = {'x': '@x'}
     steering_field = cfg.get('model.steered.steering', None)
     if isinstance(steering_field, str) and steering_field != 'attention':
-        model_inputs['alpha'] = '@'+steering_field
+        if 'datasets' in cfg:
+            model_inputs['alpha'] = '@'+steering_field
+        else:
+            model_inputs['alpha'] = '@alpha'
     hyper_params = cfg['hyper-parameters']
 
     net = Binary2DSegmentation(model=model, loss=hyper_params['loss'],
