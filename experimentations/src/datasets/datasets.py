@@ -25,6 +25,7 @@ def load_dataset(cfg=None):
         data_path = DEFAULT_DATA_PATH
     dataset_file = P.join(data_path, cfg.training['dataset-file'])
     trainD = DataLoader(TrainDataset('train/'+train_dataset, file=dataset_file,
+                                     partial=cfg.training['training-partial'],
                                      factor=cfg.training['training-dataset-factor'],
                                      steered=steered, use_preprocess=cfg.training['use-preprocess'],
                                      data_augmentation_cfg=cfg['data-augmentation']),
