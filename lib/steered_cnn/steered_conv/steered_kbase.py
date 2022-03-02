@@ -131,28 +131,39 @@ class SteerableKernelBase(KernelBase):
         from torch.nn.init import calculate_gain
         import math
 
-        w_equi = torch.empty((n_out, n_in, self.K_equi))
+        if self.K_equi:
+            w_equi = torch.empty((n_out, n_in, self.K_equi))
 
-        w_steer_theta = self.expand_r(torch.rand((n_out, n_in, self.k_len))*(2*math.pi), dim=2)
-        if std_theta:
-            w_steer_theta += torch.normal(0, std=std_theta, size=(n_out, n_in, self.K_steer))
+        if self.K_steer:
+            w_steer_theta = self.expand_r(torch.rand((n_out, n_in, self.k_len))*(2*math.pi), dim=2)
+            if std_theta:
+                w_steer_theta += torch.normal(0, std=std_theta, size=(n_out, n_in, self.K_steer))
 
         gain = calculate_gain(nonlinearity, nonlinearity_param)
         std = gain*math.sqrt(1/(n_in*(self.K_equi+self.K_steer)))
 
         if dist == 'normal':
-            nn.init.normal_(w_equi, std=std)
-            w_steer_rho = torch.abs(torch.randn((n_out, n_in, self.K_steer)))*std*math.sqrt(2)
-            w_steer = w_steer_rho * torch.exp(1j*w_steer_theta)
+            if self.K_equi:
+                nn.init.normal_(w_equi, std=std)
+            if self.K_steer:
+                w_steer_rho = torch.abs(torch.randn((n_out, n_in, self.K_steer)))*std*math.sqrt(2)
+                w_steer = w_steer_rho * torch.exp(1j*w_steer_theta)
         elif dist == 'uniform':
             bound = std * math.sqrt(3)
-            nn.init.uniform_(w_equi, 0, bound)
-            w_steer_rho = torch.rand((n_out, n_in, self.K_steer))*bound*math.sqrt(2)
-            w_steer = w_steer_rho * torch.exp(1j*w_steer_theta)
+            if self.K_equi:
+                nn.init.uniform_(w_equi, 0, bound)
+            if self.K_steer:
+                w_steer_rho = torch.rand((n_out, n_in, self.K_steer))*bound*math.sqrt(2)
+                w_steer = w_steer_rho * torch.exp(1j*w_steer_theta)
         else:
             raise NotImplementedError(f'Unsupported distribution for the random initialization of weights: "{dist}". \n'
                                       f'(Supported distribution are "normal" or "uniform"')
-        w = torch.cat((w_equi, w_steer.real, w_steer.imag), dim=2).contiguous()
+        w = []
+        if self.K_equi:
+            w += [w_equi]
+        if self.K_steer:
+            w += [w_steer.real, w_steer.imag]
+        w = torch.cat(w, dim=2).contiguous()
         return w
 
     @staticmethod
@@ -170,8 +181,8 @@ class SteerableKernelBase(KernelBase):
                 return SteerableKernelBase.create_radial(info)
 
     @staticmethod
-    def create_radial(kr: Union[int, Dict[int, List[int]]], std=.5, size=-1, oversample=16,
-                      phase=None, max_k=None):
+    def create_radial(kr: Union[int, Dict[int, List[int]]], std=.5, size=None, oversample=16,
+                      phase=None, max_k=None, cap_k=True):
         """
 
 
@@ -184,26 +195,31 @@ class SteerableKernelBase(KernelBase):
                       for every r <= kr/2, k will be set to be the maximum number of harmonics
                       before the apparition of aliasing artefact
             std: The standard deviation of the gaussian distribution which weights the kernels radially.
-            size:
-            oversample:
-            max_k:
+            size: Kernel effective size. (If None: kr*√2 if kr is int else 2*(max(r in kr)+std))
+            oversample: Oversampling factor use to compute steerable kernels and limit numerical instability.
+            phase: phase offset (If None: 0 if the kernel equivalent size is odd, 45 otherwise.)
+            max_k: If kr is an equivalent kernel size (int), specifies the maximum polar harmonic rank.
 
         Returns: A SteerableKernelBase parametrized by the corresponding kernels.
 
         """
         from ..utils.rotequivariance_toolbox import polar_space
-        
+
+        if size is None:
+            if isinstance(kr, int):
+                size = int(np.round(kr*np.sqrt(2)))
+                if (size % 2) ^ (kr % 2):
+                    size += 1
+            else:
+                r_max = max(R if np.isscalar(R) else max(R) for R in kr.values())
+                size = int(np.ceil(2*(r_max+std)))
+
         if isinstance(kr, int):
             # --- Automatically generate kr to cover a kernel of size kr ---
             if not kr % 2 and phase is None:
                 phase = np.pi/4  # Shift phase by 45° when kernel size is even.
                 
-            if size == -1:
-                size = int(np.round(kr*np.sqrt(2)))
-                if (size % 2) ^ (kr % 2):
-                    size += 1
-            
-            r, _ = polar_space(kr)
+            r, _ = polar_space(kr) if cap_k else polar_space(size)
             r = r.flatten()
             rk = {}
             for i in np.arange(1, kr/np.sqrt(2)+1):
@@ -224,9 +240,6 @@ class SteerableKernelBase(KernelBase):
 
         if phase is None:
             phase = 0
-        if size == -1:
-                r_max = max(R if np.isscalar(R) else max(R) for R in kr.values())
-                size = int(np.ceil(2*(r_max+std)))
         
         kernels_real, kernels_imag = [], []
         labels_real, labels_imag = [], []
@@ -399,7 +412,11 @@ class SteerableKernelBase(KernelBase):
         conv_opts, shapes = self._prepare_conv(input=input, weight=weight, transpose=transpose, stride=stride,
                                                padding=padding, output_padding=output_padding, dilation=dilation)
         b, n_in, n_out, k, h, w = shapes
-        if isinstance(alpha, (int, float)):
+
+        if not self.K_steer:
+            alpha = None
+            rho = None
+        elif isinstance(alpha, (int, float)):
             if alpha == 0:
                 alpha = None
             else:
@@ -427,8 +444,10 @@ class SteerableKernelBase(KernelBase):
                                     f'(if alpha is a 6D matrix its shape should be: (2, k_max, b, n_out, h, w),' \
                                     f' with alpha[0]=cos(α) and alpha[1]=sin(α)\n' \
                                     f'alpha.shape={alpha.shape})'
-                assert k_max_a == self.k_max, f'Invalid k dimension for alpha: alpha.shape[1]={k_max_a} but should be equal to k_max={self.k_max}.\n' \
+                assert k_max_a >= self.k_max, f'Invalid k dimension for alpha: alpha.shape[1]={k_max_a} but should be equal to k_max={self.k_max}.\n' \
                                             f'(alpha.shape={alpha.shape})'
+                if k_max_a < self.k_max:
+                    alpha = alpha[:, :self.k_max]
             assert b_a == 1 or b == b_a, f'Invalid batch size for alpha: alpha.shape[{alpha.dim()-4}]={b_a} but should be {b} (or  1 for broadcast)\n' \
                                          f'(alpha.shape={alpha.shape}, input.shape={input.shape}'
             assert n_out_a == 1 or n_out == n_out_a, f'Invalid number of output features for alpha: ' \
@@ -563,7 +582,7 @@ class SteerableKernelBase(KernelBase):
                                                                                       rho, rho_nonlinearity,
                                                                                       stride, padding, dilation,
                                                                                       transpose, output_padding)
-        if alpha is None:
+        if alpha is None or not self.K_steer:
             return super(SteerableKernelBase, self).composite_kernels_conv2d(input, weight, transpose=transpose,
                                                                              **conv_opts)
         
@@ -612,7 +631,7 @@ class SteerableKernelBase(KernelBase):
                                                                                       rho, rho_nonlinearity,
                                                                                       stride, padding, dilation,
                                                                                       transpose, output_padding)
-        if alpha is None:
+        if alpha is None or not self.K_steer:
             return super(SteerableKernelBase, self).preconvolved_base_conv2d(input, weight, transpose=transpose, **conv_opts)
 
         # alpha shape: (2, [k_max], b, n_out, ~h, ~w)
@@ -692,7 +711,7 @@ class SteerableKernelBase(KernelBase):
                     break
             else:
                 couples += [(i1, None)]
-            couples_info += [{'r_name': info1['r'], 'k':info1['k'], 'r': info1['r'],
+            couples_info += [{'r_name': round(info1['r']*1e4)/1e4, 'k':info1['k'], 'r': info1['r'],
                               'name': f'k={info1["k"]} r={info1["r"]}'}]
         return tuple(reversed(couples)), tuple(reversed(couples_info))
 
@@ -701,7 +720,7 @@ class SteerableKernelBase(KernelBase):
         if complex:
             complex_couples, w_infos = self.complex_kernels_couple()
         else:
-            w_infos = [{'r_name': f'r={_["r"]} {("R" if _["type"]=="R" else " I") if _["k"]>0 else ""}',
+            w_infos = [{'r_name': f'r={_["r"]:.4g} {("R" if _["type"]=="R" else " I") if _["k"]>0 else ""}',
                         'name': f'k={_["k"]} r={_["r"]} {("R" if _["type"]=="R" else " I") if _["k"]>0 else ""}',
                         'k': _['k'], 'r': _['r']} for _ in self.kernels_info]
             complex_couples = None

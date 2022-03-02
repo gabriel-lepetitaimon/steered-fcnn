@@ -2,8 +2,7 @@ __all__ = ['default_config', 'parse_config']
 
 import os.path as P
 import os
-
-from .attribute_dict import AttributeDict
+from steered_cnn.utils.attribute_dict import AttributeDict
 
 
 ORION_CFG_PATH = P.join(P.dirname(P.abspath(__file__)), 'orion_config.yaml')
@@ -26,8 +25,11 @@ def parse_config(cfg_file):
     default_cfg = default_config()
     if cfg_file is None:
         return default_cfg
-    with open(cfg_file, 'r') as f:
-        exp_config = AttributeDict.from_yaml(f)
+    try:
+        with open(cfg_file, 'r') as f:
+            exp_config = AttributeDict.from_yaml(f)
+    except:
+        exp_config = AttributeDict.from_yaml(cfg_file)
 
     # --- Preprocess cfg file
     if "sub-experiment" not in exp_config.experiment:
@@ -39,7 +41,8 @@ def parse_config(cfg_file):
 
 def parse_arguments(opt=None, require_config=True):
     import argparse
-    from src.config import parse_config, AttributeDict
+    from src.config import parse_config
+    from steered_cnn.utils import AttributeDict
 
     # --- PARSE ARGS & ENVIRONNEMENTS VARIABLES ---
     if not opt:
@@ -50,7 +53,7 @@ def parse_arguments(opt=None, require_config=True):
         parser.add_argument('--debug', help='Debug trial (not logged into orion)', action='store_true',
                             default=os.getenv('TRIAL_DEBUG', None)=="True")
         parser.add_argument('--gpus', help='list of gpus to use for this trial',
-                            default=os.getenv('TRIAL_GPUS', None))
+                            default=os.getenv('TRIAL_GPUS', 0))
         parser.add_argument('--tmp-dir', help='Directory where the trial temporary folders will be stored.',
                             default=os.getenv('TRIAL_TMP_DIR', None))
         args = vars(parser.parse_args())

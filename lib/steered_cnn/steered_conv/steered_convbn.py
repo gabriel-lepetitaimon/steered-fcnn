@@ -90,3 +90,14 @@ class SteeredConvBN(nn.Module):
         if self._relu:
             return self.bn_relu[1 if self._bn else 0]
         return None
+
+    def __getattr__(self, item):
+        if item in ('stride', 'padding', 'dilation'):
+            return getattr(self.conv, item)
+        return super().__getattr__(item)
+
+    def __setattr__(self, key, value):
+        if key in ('stride', 'padding', 'dilation'):
+            setattr(self.conv, key, value)
+        else:
+            super().__setattr__(key, value)

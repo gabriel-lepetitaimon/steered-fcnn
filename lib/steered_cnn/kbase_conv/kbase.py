@@ -133,8 +133,12 @@ class KernelBase:
         b, n_in, h, w = input.shape
         n_out, n_in_w, k_w = weight.shape
         k, n, m = self.base.shape
-        assert n_in == n_in_w, 'Incoherent number of input neurons between the provided input and weight:\n' \
-                               f'input.shape={input.shape} (n_in={n_in}), weight.shape={weight.shape} (n_in={n_in_w}).'
+        if transpose:
+            assert n_in == n_out, 'Incoherent number of input neurons between the provided input and transposed weight:\n' \
+                                   f'input.shape={input.shape} (n_in={n_in}), weight.shape={weight.shape} (n_in={n_out}).'
+        else:
+            assert n_in == n_in_w, 'Incoherent number of input neurons between the provided input and weight:\n' \
+                                   f'input.shape={input.shape} (n_in={n_in}), weight.shape={weight.shape} (n_in={n_in_w}).'
         assert k == k_w, f"The provided weights have an incorrect number of kernels:\n " + \
                          f"weight.shape={weight.shape} (k={k_w}), but should be {k}."
         conv_opts = dict(padding=padding, dilation=dilation, stride=stride)

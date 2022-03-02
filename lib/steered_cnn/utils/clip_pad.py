@@ -106,6 +106,14 @@ def normalize_vector(vector: Union[Tuple[torch.Tensor], torch.Tensor], epsilon: 
              the norm maxtrix.
 
     """
+    if isinstance(vector, (list, tuple)):
+        vectors = []
+        norms = []
+        for v in vector:
+            v, norm = normalize_vector(v, epsilon)
+            vectors += [v]
+            norms += [norm]
+        return vectors, norms
     d = torch_norm2d(vector)
     return vector / (d+epsilon), d
 

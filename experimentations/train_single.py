@@ -92,7 +92,7 @@ def run_orion(cfg: Dict):
         # --- Save orion cfg file to tmp ---
         with open(P.join(tmp_dir, '.orion_cfg.yaml'), 'w+') as orion_cfg:
             cfg['orion'].to_yaml(orion_cfg)
-            orion_cfg_filepath = P.join(tmp_dir, orion_cfg.name)
+            orion_cfg_filepath = orion_cfg.name
 
         # --- Set Env Variable ---
         set_env_var(cfg)

@@ -214,7 +214,7 @@ class SteeredConvTranspose2d(nn.Module):
         self.attention_base = OrthoKernelBase.parse(attention_base, OrthoKernelBase.create_radial(stride))
 
         # Weight
-        self.weights = nn.Parameter(self.steerable_base.init_weights(n_in, n_out, nonlinearity, nonlinearity_param),
+        self.weights = nn.Parameter(self.steerable_base.init_weights(n_out, n_in, nonlinearity, nonlinearity_param),
                                     requires_grad=True)
         self.bias = None
         if bias:
