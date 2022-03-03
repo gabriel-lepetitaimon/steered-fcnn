@@ -1,0 +1,52 @@
+experiment:
+    name: 'ImplementationCheck'
+    sub-experiment: 'dataset'
+    sub-experiment-id: 0
+
+training:
+    seed: 1234
+
+datasets:
+    type: GenericHDF
+    path: 'av.h5'
+
+    fields:
+        x: "data"
+        y: "{{av}}!=0"
+        mask: "mask"
+        vec_norm: "principal-vec-norm"
+        angle_xy: "principal-vec"
+        angle: "principal-angle"
+
+    training:
+        dataset: 'DRIVE'
+        preload-in-RAM: False
+        augment:
+            fields: {x: 'image', y: 'label', mask: 'label', vec_norm: 'vector', angle_xy: 'vector', angle: 'angle'}
+            data-augmentations: [default]
+            factor: 4
+
+    validation:
+        dataset: same
+        preload-in-RAM: True
+
+    testing:
+        dataset: all
+        preload-in-RAM: True
+
+data-augmentation:
+    flip: True
+    rotation: True
+        #angle: [-180, 180]
+        #interpolation: 'linear'
+        #border-mode: {constant: 0}
+    elastic:
+        alpha: 10
+        sigma: 20
+        alpha-affine: 50
+
+    gamma: False # [-0.1, 0.1]
+    brightness: False # [-0.1, 0.1]
+    hue: False # [-20, 20]
+    saturation: False # [-20, 20]
+

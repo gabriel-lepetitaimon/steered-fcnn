@@ -4,17 +4,10 @@ experiment:
     sub-experiment-id: 0
     tags: {}
 
+
 model:
     backbone: 'unet'
     steered: False
-        # steering: 'angle'
-        # normalized: True
-        # attention_mode: 'shared'
-        # attention_base: False
-        # base:
-
-    n_in: 6
-    n_out: 1
     nfeatures: 16
     nscale: 5
     depth: 2
@@ -27,7 +20,8 @@ model:
 
 training:
     seed: 1234
-    dataset-file: 'vessels.h5'
+    dataset-file: 'av.h5'
+    use-preprocess: True
     dataset-path: 'default'
     training-dataset: 'DRIVE'
     training-dataset-factor: 8
@@ -41,7 +35,6 @@ training:
         min_delta: 0.0005
         patience: 10
         mode: 'min'
-
     
 hyper-parameters:
     lr: 1.e-2
@@ -49,6 +42,7 @@ hyper-parameters:
     accumulate-gradient-batch: 1
     drop-out: 0
     loss: 'binaryCE'  # 'focalLoss' / 'binaryCE' / 'dice'
+    pos-weighted-loss: False
     smooth-label: 0
     optimizer:
         type: 'Adam' # also supported: AdamW and Adammax
@@ -57,25 +51,13 @@ hyper-parameters:
         beta_sqr: 0.999 # and its square
         amsgrad: True
 
-    # optimizer:
-    #     type: 'ASGD' 
-    #     weight_decay: 0
-    #    alpha: 0.75
-    #    t0: 1000000.0
-    
-    # optimizer:
-    #     type: 'SGD' 
-    #     weight_decay: 0
-    #    momentum: 0,
-    #    dampening: 0
-    #    nesterov: False
-
+        lr-decay-factor: 0
 
 data-augmentation:
-    rotation: True
-    elastic: True
-    crop-size: 758
-    elastic-transform:
-        alpha: 10
-        sigma: 20
-        alpha-affine: 50
+    flip: True
+    rotation: False
+    elastic: False
+    gamma: False # [-0.1, 0.1]
+    brightness: False # [-0.1, 0.1]
+    hue: False # [-20, 20]
+    saturation: False # [-20, 20]

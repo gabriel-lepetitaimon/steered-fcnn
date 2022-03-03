@@ -9,7 +9,7 @@ from .steerable_filters import radial_steerable_filter
 
 
 class OrthoKernelBase(KernelBase):
-    def __init__(self, base: Union[np.ndarray, torch.Tensor], autonormalize=True):
+    def __init__(self, base: Union[np.ndarray, torch.Tensor]):
         """
 
         Args:
@@ -22,7 +22,7 @@ class OrthoKernelBase(KernelBase):
             base = torch.from_numpy(base).to(dtype=torch.float)
         base = torch.cat((base, torch.rot90(base, 1, (-2, -1))), dim=0)
 
-        super(OrthoKernelBase, self).__init__(base, autonormalize=autonormalize)
+        super(OrthoKernelBase, self).__init__(base)
         self.K = base.shape[0] // 2
         self.kernels_label = None
         self.kernels_info = None
@@ -43,7 +43,23 @@ class OrthoKernelBase(KernelBase):
     def base_horizontal(self):
         return self.base[self.K:]
 
-    def create_weights(self, n_in, n_out, nonlinearity='linear', nonlinearity_param=None, dist='normal'):
+    def init_weights(self, n_in, n_out, nonlinearity='linear', nonlinearity_param=None, dist='normal'):
+        """
+        Create and randomly initialize a weight tensor accordingly to this kernel base.
+
+        Args:
+            n_in (int): Number of channels in the input image
+            n_out (int): Number of channels produced by the convolution
+            nonlinearity: Type of nonlinearity used after the convolution.
+                          See torch.nn.init.calculate_gain() documentation for more detail.
+            nonlinearity_param: Optional parameter for the non-linear function.
+                                See torch.nn.init.calculate_gain() documentation for more detail.
+            dist: Distribution used for the random initialization of the weights. Can be one of: 'normal' or 'uniform'.
+                    Default: 'normal'
+
+        Returns:
+            A weight tensor of shape (n_out, n_in, self.K).
+        """
         from torch.nn.init import calculate_gain
         import math
 
@@ -62,9 +78,23 @@ class OrthoKernelBase(KernelBase):
         return w
 
     @staticmethod
-    def from_steerable(R: int, std=.5, size=None, autonormalize=True, oversample=100):
-        """
+    def parse(spec, default=None):
+        if isinstance(spec, OrthoKernelBase):
+            return spec
+        if spec is None or spec is True:
+            return default
+        elif spec is False:
+            return False
+        if isinstance(spec, int):
+            return OrthoKernelBase.create_radial(spec)
+        if isinstance(spec, dict):
+            if 'R' in spec:
+                return OrthoKernelBase.create_radial(**spec)
+        raise ValueError(f'Invalid OrthoKernelBase specs: {spec}.')
 
+    @staticmethod
+    def create_radial(kernel_size: int, std=.5, size=-1, phase=None, oversample=100):
+        """
 
         Args:
             kr: A specification of which steerable filters should be included in the base.
@@ -82,18 +112,44 @@ class OrthoKernelBase(KernelBase):
         Returns: A SteerableKernelBase parametrized by the corresponding kernels.
 
         """
-        if size is None:
-            size = int(np.ceil(2 * (R + std)))
-            size += int(1 - (size % 2))
-        R = range(1,R+1)
-        kernels = [np.real(radial_steerable_filter(size=size, k=1, r=r, std=std, oversampling=oversample)) for r in R]
-        base = OrthoKernelBase(np.stack(kernels), autonormalize=autonormalize)
+        from ..utils.rotequivariance_toolbox import polar_space
+
+        if isinstance(kernel_size, int):
+            # --- Automatically generate kr to cover a kernel of size kr ---
+            if not kernel_size % 2 and phase is None:
+                phase = np.pi/4  # Shift phase by 45° when kernel size is even.
+
+            if size == -1:
+                size = int(np.round(kernel_size*np.sqrt(2)))
+                if (size % 2) ^ (kernel_size % 2):
+                    size += 1
+
+            r, _ = polar_space(kernel_size)
+            r = r.flatten()
+            R = []
+            for i in np.arange(0.5, kernel_size/np.sqrt(2)+1):
+                r_in_interval = (i-1 <= r) & (r < i)
+                if r_in_interval.sum():
+                    R += [r[r_in_interval].mean()]
+        else:
+            R = kernel_size
+
+        if phase is None:
+            phase = 0
+        if size == -1:
+            r_max = max(R)
+            size = int(np.ceil(2*(r_max+std)))
+
+        kernels = [np.real(radial_steerable_filter(size=size, k=1, r=r, phase=phase,
+                                                   std=std, oversampling=oversample, normalize=True))
+                   for r in R]
+        base = OrthoKernelBase(np.stack(kernels))
         base.kernels_label = [f'r{r}R' for r in R] + [f'r{r}I' for r in R]
         base.kernels_info = [{'r': r, 'type': 'R'} for r in R] + [{'r': r, 'type': 'I'} for r in R]
         return base
 
     def ortho_conv2d(self, input: torch.Tensor, weight: torch.Tensor,
-               stride=1, padding='same', dilation=1) -> torch.Tensor:
+                     stride=1, padding='same', dilation=1) -> torch.Tensor:
         """
         Compute the convolution of `input` with the vertical and horizontal kernels of this base given the provided
          weigths.

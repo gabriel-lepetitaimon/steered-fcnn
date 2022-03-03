@@ -1,13 +1,13 @@
 import numpy as np
-import mlflow
 import torch
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
 from orion.client import report_objective
 import os
 import os.path as P
 from json import dump
 
+from src.config import parse_arguments
 from src.datasets import load_dataset
 from src.trainer import Binary2DSegmentation, ExportValidation
 from src.trainer.loggers import Logs
@@ -15,36 +15,57 @@ from steered_cnn.models import setup_model
 
 
 def run_train(**opt):
+    # --- Parse cfg ---
     cfg = parse_arguments(opt)
     args = cfg['script-arguments']
+
+    # --- Set Seed --
+    seed = cfg.training.get('seed', None)
+    if seed == "random":
+        seed = int.from_bytes(os.getrandom(32), 'little', signed=False)
+    elif isinstance(seed, (tuple, list)):
+        seed = seed[cfg.trial.ID % len(seed)]
+    if isinstance(seed, int):
+        import random
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        cfg.training['seed'] = seed
+    elif seed is not None:
+        print(f"Seed can't be interpreted as int and will be ignored.")
+
+    # --- Setup logs ---
     logs = Logs()
     logs.setup_log(cfg)
     tmp_path = logs.tmp_path
-    
-    if isinstance(cfg.training['seed'], int):
-        torch.manual_seed(cfg.training['seed'])
-        np.random.seed(cfg.training['seed'])
 
+    # --- Setup dataset ---
     trainD, validD, testD = load_dataset(cfg)
-
-    val_n_epoch = cfg.training['val-every-n-epoch']
-    max_epoch = cfg.training['max-epoch']
-
-    if isinstance(args.gpus, str):
-        gpus = [int(_) for _ in args.gpus.split(',')]
-    else:
-        gpus = args.gpus
 
     ###################
     # ---  MODEL  --- #
     # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ #
-    model = setup_model(cfg['model'])
+    sample = validD.dataset[0]
+    model = setup_model(cfg['model'], n_in=sample['x'].shape[0], 
+                        n_out=1 if sample['y'].ndim==2 else sample['y'].shape[0])
+
+    model_inputs = {'x': '@x'}
+    steering_field = cfg.get('model.steered.steering', None)
+    if isinstance(steering_field, str) and steering_field != 'attention':
+        if 'datasets' in cfg:
+            model_inputs['alpha'] = '@'+steering_field
+        else:
+            model_inputs['alpha'] = '@alpha'
     hyper_params = cfg['hyper-parameters']
-    net = Binary2DSegmentation(model=model, loss=hyper_params['loss'], 
+
+    net = Binary2DSegmentation(model=model, loss=hyper_params['loss'],
+                               pos_weighted_loss=hyper_params['pos-weighted-loss'],
                                soft_label=hyper_params['smooth-label'],
+                               earlystop_cfg=cfg['training']['early-stopping'],
                                optimizer=hyper_params['optimizer'],
                                lr=hyper_params['lr'] / hyper_params['accumulate-gradient-batch'],
-                               p_dropout=hyper_params['drop-out'])
+                               p_dropout=hyper_params['drop-out'],
+                               model_inputs=model_inputs)
     logs.log_miscs({'model': {
         'params': sum(p.numel() for p in net.parameters())
     }})
@@ -52,6 +73,9 @@ def run_train(**opt):
     ###################
     # ---  TRAIN  --- #
     # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ #
+    val_n_epoch = cfg.training['val-every-n-epoch']
+    max_epoch = cfg.training['max-epoch']
+
     # Define r_code, a return code sended back to train_single.py.
     # (A run is considered successful if it returns 10 <= r <= 20. Otherwise orion is interrupted.)
     r_code = 10
@@ -65,7 +89,11 @@ def run_train(**opt):
     if cfg.training['early-stopping']['monitor'].lower() != 'none':
         if cfg.training['early-stopping']['monitor'].lower() == 'auto':
             cfg.training['early-stopping']['monitor'] = cfg.training['optimize']
-        callbacks += [EarlyStopping(verbose=False, strict=False, **cfg.training['early-stopping'])]
+        earlystop = EarlyStopping(verbose=False, strict=False, **cfg.training['early-stopping'])
+        callbacks += [earlystop]
+    else:
+        earlystop = None
+    callbacks += [LearningRateMonitor(logging_interval='epoch')]
 
     checkpointed_metrics = ['val-acc', 'val-roc', 'val-iou']
     modelCheckpoints = {}
@@ -74,17 +102,19 @@ def run_train(**opt):
         modelCheckpoints[metric] = checkpoint
         callbacks.append(checkpoint)
         
-    trainer = pl.Trainer(gpus=gpus, callbacks=callbacks,
+    trainer = pl.Trainer(gpus=args.gpus, callbacks=callbacks, logger=logs.loggers,
                          max_epochs=int(np.ceil(max_epoch / val_n_epoch) * val_n_epoch),
                          check_val_every_n_epoch=val_n_epoch,
                          accumulate_grad_batches=cfg['hyper-parameters']['accumulate-gradient-batch'],
                          progress_bar_refresh_rate=1 if args.debug else 0,
                          **trainer_kwargs)
-    net.log(cfg.training['optimize'], 0)
+
     try:
         trainer.fit(net, trainD, validD)
     except KeyboardInterrupt:
         r_code = 1  # Interrupt Orion
+
+    logs.log_metric('last-epoch', earlystop.stopped_epoch if earlystop is not None else max_epoch)
 
     ################
     # --- TEST --- #
@@ -92,12 +122,14 @@ def run_train(**opt):
     reported_metric = cfg.training['optimize']
     best_ckpt = None
     if reported_metric not in modelCheckpoints:
-        print(f'Invalid optimized metric {reported_metric}, optimizing {checkpointed_metrics[0]} instead.')
-        reported_metric = reported_metric[0]
+        print('\n!!!!!!!!!!!!!!!!!!!!')
+        print(f'>> Invalid optimized metric {reported_metric}, optimizing {checkpointed_metrics[0]} instead.')
+        print('')
+        reported_metric = checkpointed_metrics[0]
     for metric_name, checkpoint in modelCheckpoints.items():
         metric_value = float(checkpoint.best_model_score.cpu().numpy())
-        mlflow.log_metric('best-' + metric_name, metric_value)
-        mlflow.log_metric(f'best-{metric_name}-epoch', float(checkpoint.best_model_path[:-5].rsplit('-', 1)[1][6:]))
+        logs.log_metrics({'best-' + metric_name: metric_value,
+                          f'best-{metric_name}-epoch': float(checkpoint.best_model_path[:-5].rsplit('-', 1)[1][6:])})
         if metric_name == reported_metric:
             best_ckpt = checkpoint
             reported_value = -metric_value
@@ -108,7 +140,7 @@ def run_train(**opt):
         cmap = {(0, 0): 'black', (1, 1): 'white', (1, 0): 'orange', (0, 1): 'greenyellow', 'default': 'lightgray'}
 
     net.testset_names, testD = list(zip(*testD.items()))
-    tester = pl.Trainer(gpus=gpus,
+    tester = pl.Trainer(gpus=args.gpus, logger=logs.loggers,
                         callbacks=[ExportValidation(cmap, path=tmp_path + '/samples', dataset_names=net.testset_names)],
                         progress_bar_refresh_rate=1 if args.debug else 0,)
     tester.test(net, testD, ckpt_path=best_ckpt.best_model_path)
@@ -120,46 +152,10 @@ def run_train(**opt):
     logs.save_cleanup()
 
     # Store data in a json file to send info back to train_single.py script.
-    with open(P.join(cfg['script-arguments']['tmp-dir'], f'{cfg.trial.name}-{cfg.trial.id}.json'), 'w') as f:
-        json = {'rcode': r_code}
+    with open(P.join(cfg['script-arguments']['tmp-dir'], f'result.json'), 'w') as f:
+        json = {'r_code': r_code}
         dump(json, f)
-
-
-def parse_arguments(opt=None):
-    import argparse
-    from src.config import parse_config, AttributeDict
-
-    # --- PARSE ARGS & ENVIRONNEMENTS VARIABLES ---
-    if not opt:
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--config', required=True,
-                            help='config file with hyper parameters - in yaml format')
-        parser.add_argument('--debug', help='Debug trial (not logged into orion)',
-                            default=bool(os.getenv('TRIAL_DEBUG', False)))
-        parser.add_argument('--gpus', help='list of gpus to use for this trial',
-                            default=os.getenv('TRIAL_GPUS', None))
-        parser.add_argument('--tmp-dir', help='Directory where the trial temporary folders will be stored.',
-                            default=os.getenv('TRIAL_TMP_DIR', None))
-        args = vars(parser.parse_args())
-    else:
-        args = {'config': opt.get('config'),
-                'debug': opt.get('debug', False),
-                'gpus': opt.get('gpus', None),
-                'tmp-dir': opt.get('tmp-dir', None)}
-        args = AttributeDict.from_dict(args)
-
-    # --- PARSE CONFIG ---
-    cfg = parse_config(args['config'])
-
-    # Save scripts arguments
-    script_args = cfg['script-arguments']
-    for k, v in args.items():
-        if v is not None:
-            script_args[k] = v
-
-    if script_args.debug:
-        cfg.training['max-epoch'] = 1
-    return cfg
+        print("WRITING JSON AT: ", P.join(cfg['script-arguments']['tmp-dir'], f'result.json'))
 
 
 def leg_setup_model(model_cfg, old=False):

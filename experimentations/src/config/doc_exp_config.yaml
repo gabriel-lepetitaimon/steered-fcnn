@@ -1,0 +1,243 @@
+experiment:
+    name: 'RotEquivariance'
+    sub-experiment-id: 0
+    tags:
+        exp: ParamStarve
+        sub: base-long:2|4
+
+###  ---  model  ---
+# Describe the hyper-parameter of the trained model.
+model:
+    ## Choose the model implementation
+    # - 'unet' / 'hemeling': Sementic Segmentation
+    backbone: 'unet'
+
+    ## Enable or disable steering
+    # - False: Steering disabled;
+    # - str: shortcut used as steered.steering;
+    # - Steering configurations (see below).
+    steered: # default: False
+        ## Choose by which vector field the model should be steered
+        # - 'attention': Attention steering:
+        # - string: name of the data in datasets which will manually steer the model.
+        steering: 'attention'
+
+        ## Choose how the vector length is normalized
+        # - None: No normalization (default)
+        # - 'tanh': Hyperbolic Tangent Non-linearity
+        # - 'normalized': Normalize vector field to unit length
+        rho_nonlinearity: None
+
+        ## Choose steerable kernels base
+        # - integer: The radial steerable base settings are automatically set to match the equivalent Kernel size (eg. 3 or 5)
+        # - dictionary associating polar harmonics k (int) to a list of radius: manually set the radial base definition.
+        #       eg: {k0: [r0, r1, ...], k1: [r1, r2, ...], ...}
+        # - Fully configurable radial base definition (see underneath)
+        base: # Default: 5
+            kr: 5 # equivalent kernel size or kr radial base definition.
+            std: .5 # The standard deviation of the gaussian distribution weighting the kernels radially.
+            size: None # Kernel effective size. If None the value optimal value is determined automatically.
+            oversample: 16 # Oversampling factor use to compute steerable kernels and limit numerical instability.
+            phase: None # Phase offset (If None: 0 if the kernel equivalent size is odd, 45 otherwise.)
+            max_k: None # If kr is an equivalent kernel size (int), specifies the maximum polar harmonic rank.
+
+        ## Choose how the attention steering vector field is computed (only if steering == 'attention)
+        # - 'shared': all the output features are steered with the same angles;
+        # - 'feature': each output feature is steered with different angles;
+        attention_mode: 'shared' # 'shared' / 'feature'
+
+        ## Choose ortho kernels base used to compute attention vector field
+        # Acceptable values are similar to base.
+        attention_base: ...
+
+    ## Set convolution kernel size. (Ignored if the model is steered. In this case steered.base.kr is used.)
+    kernel: 5
+
+    ## Set the number of scale in the encoder (the features will be downsampled nscale-1 times).
+    nscale: 5
+
+    ## Set the number of consecutive layers in each scale
+    # - integer: constant number of layers for every scales
+    # - list of integers: number of layers for each scale
+    depth: 2
+
+    ## Set the number of features per conv layers.
+    # - integer: constant number of layers for every scales
+    # - list of integers: number of features for each scale
+    nfeatures: 16
+
+    ## Set downsampling mode
+    downsampling: 'maxpooling' # 'maxpooling' / 'averagepooling' / 'conv'
+
+    ## Set upsampling mode
+    upsampling: 'conv' # 'conv' / 'bilinear' / 'nearest'
+
+    ## Set padding size
+    # 'true' or 'valid' / 'auto' or 'same' / 'full': automatically compute padding size accordingly to the type
+    # integer or (int, int): Padding size in pixels added to each side of the image.
+    padding: 'auto'
+
+    ## Enable or disable batchnorm after each convolution layers.
+    batchnorm: True
+
+
+training:
+    seed: 1234
+
+    max-epoch: 30
+    val-every-n-epoch: 1
+    half-precision: False
+    optimize: 'val-acc'
+    num-worker: 6
+    early-stopping:
+        monitor: 'train-loss'
+        min_delta: 0.0005
+        patience: 10
+        mode: 'min'
+
+    ## The following options are deprecated: use the dedicated dataset section instead.
+    dataset-file: 'vessels.h5'
+    use-preprocess: True
+    dataset-path: 'default'
+    training-dataset: 'DRIVE'
+    training-dataset-factor: 8
+    
+hyper-parameters:
+    lr: 1.e-2
+    batch-size: 8
+    accumulate-gradient-batch: 1
+    drop-out: 0
+    loss: 'binaryCE'  # 'focalLoss' / 'binaryCE' / 'dice'
+    pos-weighted-loss: False
+    smooth-label: 0
+    optimizer:
+        type: 'Adam' # also supported: AdamW and Adammax
+        weight_decay: 0
+        beta: 0.9       # coefficients used for computing running averages of gradient
+        beta_sqr: 0.999 # and its square
+        amsgrad: True
+
+        lr-decay-factor: 0
+
+    # optimizer:
+    #     type: 'ASGD' 
+    #     weight_decay: 0
+    #    alpha: 0.75
+    #    t0: 1000000.0
+    
+    # optimizer:
+    #     type: 'SGD' 
+    #     weight_decay: 0
+    #    momentum: 0,
+    #    dampening: 0
+    #    nesterov: False
+
+    #lr-scheduler:
+    #    type: 'reduceOnPlateau'
+    #
+
+## Define datasets use for training, validation and testing.
+datasets:
+    ## GenericHDF: a hdf5 file within which all the data are organised as follows:
+    ##       /train[ing]/[DATASET_PATH]/VARS
+    ##       /val[idation]/[DATASET_PATH]/VARS
+    ##       /test[ing]/[DATASET_PATH]/VARS
+    ## where DATASET_PATH are optional sub-folders to distinguish several datasets for training or testing,
+    ## and where VARS are hdf variables from which are computed the data fields fed to the model.
+    ## All the VARS should exists in every DATASET_PATH sub-folders and the first dimension of the all
+    ## the VARS in a DATASET_PATH must be equals (e.g. the length of the dataset).
+    ## For example:
+    ##      /train/x        (shape: [5000, 1024, 1024])
+    ##      /train/y        (shape: [5000])
+    ##      /val/x        (shape: [1000, 1024, 1024])
+    ##      /val/y        (shape: [1000])
+    ##      /test/dataset-1/x        (shape: [3000, 1024, 1024])
+    ##      /test/dataset-1/y        (shape: [3000])
+    ##      /test/dataset-2/x        (shape: [200, 1024, 1024])
+    ##      /test/dataset-2/y        (shape: [200])
+    type: GenericHDF
+
+    ## Set the path to the hdf file.
+    path: 'vessels.hf5'
+
+    ## Set the data mapping. Associate field name (used by the model) to name of hdf variables or
+    ## a python expression containing hdf variables names under double brackets (e.g. "{{gt}}!=0").
+    ## (Numpy namespace is exposed as np. Hdf variables are numpy arrays.)
+    fields:
+        x: "{{raw}}[:3]"
+        y: "{{av}}!=0"
+        mask: "{{mask}}"
+
+    ## Define training dataset option.
+    training:
+        ## Specify the path of the hdf folder containing all hdf variables required to compute the data fields.
+        ## This option also allows to take a subpart of the samples contained in the hdf variables:
+        ##  - float or percentage: only a proportion of the available samples will be randomly selected (accordingly to training.seed).
+        ##  - list of int (e.g. [0, 1, 2, -2, -1]): only the provided indexes will be selected.
+        ##  - slice (eg. "20%:60%"): only the indexes corresponding to the slice will be selected.
+        #
+        # If the hdf file is organised as /training/DATASETS_PATH/VARS
+        # - dataset path or a list of dataset paths
+        # - 'all': all available datasets inside /training/*/ will be used.
+        # - a dictionary with a unique dataset path as the key and the subset of sample as value
+        # - a list of the above dictionary (e.g. [{'DRIVE': '50%'}, {'MESSIDOR': '70%'}] )
+        #
+        # If the hdf file doesn't contains multiple dataset (/training/VARS)
+        # - ignore this option to use all
+        dataset:
+            - DRIVE: :-20%
+
+        ## Enable or disable data-augment during training.
+        # - True / False: Enable / Disable data-augmentation defined in this dataset data-augmentation field.
+        # - A custom data-augmentation definition.
+        augment:
+            ## Specify which data should be augmented and what is their type.
+            fields:
+                x: 'image'
+                y: 'label'
+                mask: 'label'
+
+            ## Choose which data-augmentation should be used.
+            data-augmentations: [default, ]
+
+            ## Repeat each sample n times.
+            factor: 1
+
+        ## Enable or disable preloading all the dataset in RAM.
+        preload-in-RAM: False
+
+    ## Define validation dataset option (Similar to training).
+    validation:
+        dataset: 'DRIVE'
+        preload-in-RAM: True
+
+    ## Define validation dataset option (Similar to training).
+    testing:
+        dataset: 'DRIVE'
+        preload-in-RAM: True
+
+data-augmentation:
+    ## Random distribution specifiction can either be:
+    # -  [min, max]  : uniform distribution between min and max
+    # -  u (float)   : uniform distribution U(-u, u) if item value is symetric, U(0, u) otherwise.
+    # - 'MEAN ± STD' : normal distribution with the according mean and standard deviation.
+
+    default:
+        flip: True
+        rotation: # True
+            angle: [-180, 180]
+            interpolation: 'linear' # 'linear' / 'nearest' / 'are' / 'cubic' / 'max' / 'bits'
+            border-mode: # 'replicate' / 'wrap' / 'reflect' / 'reflect101'
+                constant: 0
+        elastic:
+            alpha: 10
+            sigma: 20
+            alpha-affine: 50
+            # approximate: False
+            # interpolation: ... # same as rotation
+            # border-mode: ... # same as rotation
+        gamma: False # [-0.1, 0.1]
+        brightness: False # [-0.1, 0.1]
+        hue: False # [-20, 20]
+        saturation: False # [-20, 20]
+

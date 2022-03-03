@@ -3,12 +3,105 @@ import functools
 import inspect
 import numpy as np
 from collections import OrderedDict
+from copy import copy
+
+from steered_cnn.utils import AttributeDict
+from .cv2_parse import INTERPOLATIONS, BORDER_MODES
 
 _augment_methods = {}
 _augment_by_type = {}
 
 
-def augment_method(augment_type=None, cv=False):
+def parse_data_augmentations(cfg: AttributeDict, rng=None):
+    if not 'data-augmentation' in cfg:
+        return {}
+    try:
+        rng_seed = int(cfg.training.seed)
+    except (TypeError, KeyError):
+        rng_seed = rng
+    cfg = cfg['data-augmentation'].copy()
+    cfg.update({'default': cfg.pop({'flip', 'rotation', 'elastic', 'gamma', 'brightness', 'hue', 'saturation'})})
+    return {k: parse_data_augmentation_cfg(v, rng=rng_seed) for k, v in cfg.items()}
+
+
+def parse_data_augmentation_cfg(cfg: AttributeDict, rng=None):
+    da = DataAugment(seed=rng)
+
+
+    flip = cfg.get('flip', False)
+    if flip is True:
+        da.flip()
+    elif flip=='horizontal':
+        da.flip_horizontal()
+    elif flip=='vertical':
+        da.flip_vertical()
+    elif isinstance(flip, AttributeDict):
+        flip_h, flip_v = flip.get('horizontal', 0), flip.get('vertical', 0)
+        if flip_h:
+            da.flip_horizontal(flip_h)
+        if flip_v:
+            da.flip_horizontal(flip_v)
+
+    rotation = cfg.get('rotation', False)
+    if rotation is True:
+        da.rotate()
+    elif isinstance(rotation, (list, tuple)):
+        if len(rotation) != 2:
+            raise ValueError(f'Expected min and max value for gamma but got: {rotation}.')
+        da.rotate(angle=(rotation[0], rotation[1]))
+    elif isinstance(rotation, AttributeDict):
+        angle = rotation.get('angle', (-180, 180))
+        interpolation = INTERPOLATIONS[rotation.get('interpolation', 'linear')]
+        border_mode = rotation.get('border-mode', 'constant')
+        if isinstance(border_mode, (dict, AttributeDict)):
+            border_value = list(border_mode.values())[0]
+            border_mode = list(border_mode.keys())[0]
+        else:
+            border_value = 0
+        border_mode = BORDER_MODES[border_mode]
+        da.rotate(angle=angle, interpolation=interpolation, border_mode=border_mode, border_value=border_value)
+
+    elastic = cfg.get('elastic', False)
+    if elastic is True:
+        da.elastic_distortion(alpha=10, sigma=20, alpha_affine=50)
+    elif isinstance(elastic, AttributeDict):
+        alpha = elastic.get('alpha', 10)
+        sigma = elastic.get('sigma', 20)
+        alpha_affine = elastic.get('alpha-affine', 20)
+        approximate = elastic.get('approximate', False)
+        interpolation = INTERPOLATIONS[elastic.get('interpolation', 'linear')]
+        border_mode = elastic.get('border-mode', 'constant')
+        if isinstance(border_mode, (dict, AttributeDict)):
+            border_value = list(border_mode.values())[0]
+            border_mode = list(border_mode.keys())[0]
+        else:
+            border_value = 0
+        border_mode = BORDER_MODES[border_mode]
+        da.elastic_distortion(alpha=alpha, sigma=sigma, alpha_affine=alpha_affine, approximate=approximate,
+                              interpolation=interpolation, border_mode=border_mode, border_value=border_value)
+
+    gamma = cfg.get('gamma', None)
+    if gamma is True:
+        gamma = (-0.1, 0.1)
+    brightness = cfg.get('brightness', None)
+    if brightness is True:
+        brightness = (-0.1, 0.1)
+    if brightness or gamma:
+        da.color(brightness=brightness, gamma=gamma)
+
+    hue = cfg.get('hue', None)
+    if hue is True:
+        hue = (-20, 20)
+    saturation = cfg.get('saturation', None)
+    if saturation is True:
+        saturation = (-20, 20)
+    if hue or saturation:
+        da.hsv(hue=hue, saturation=saturation)
+
+    return da
+
+
+def augment_method(augment_type=None):
     def decorator(func):
         @functools.wraps(func)
         def register_augment(self, *params, **kwargs):
@@ -24,10 +117,15 @@ def augment_method(augment_type=None, cv=False):
 
 
 class DataAugment:
-    def __init__(self, rng=None):
+    def __init__(self, seed=1234):
         self._augment_stack = []
+        self._rng = np.random.default_rng(seed)
 
-    def compile(self, images='', labels='', angles='', vectors='', to_torch=False):
+    def compile(self, images='', labels='', angles='', vectors='', to_torch=False, transpose_input=False, rng=None):
+        if rng is None:
+            rng = self._rng
+        elif isinstance(rng, int):
+            rng = np.random.default_rng(rng)
         if isinstance(images, str):
             images = [_.strip() for _ in images.split(',') if _.strip()]
         if isinstance(labels, str):
@@ -49,29 +147,34 @@ class DataAugment:
             labels_f = self.compile_stack(rng_states=rng_states_def,
                                           interpolation=cv2.INTER_NEAREST, except_type={'color'})
         if angles:
-            angles_f = self.compile_stack(rng_states=rng_states_def,
+            angles_f = self.compile_stack(rng_states=rng_states_def, border_mode=cv2.BORDER_REPLICATE,
                                           except_type={'color'}, value_type='angle')
         if vectors:
-            fields_f = self.compile_stack(rng_states=rng_states_def,
+            fields_f = self.compile_stack(rng_states=rng_states_def, border_mode=cv2.BORDER_REPLICATE,
                                           except_type={'color'}, value_type='vec')
 
-        def augment(rng=np.random.RandomState(1234), **kwargs):
+        def augment(rng=rng, **kwargs):
             rng_states = [[s(rng) for s in states.values()] for states in rng_states_def]
-            
-            d = {}
-            for image in images:
-                d[image] = images_f(kwargs[image], rng_states)
 
-            mixed_label = sum(kwargs[label]*(4**i) for i, label in enumerate(labels))
-            mixed_label = labels_f(mixed_label, rng_states)
-            for i, label in enumerate(labels):
-                d[label] = (mixed_label//(4**i)) % 4
+            data = copy(kwargs)
+            for k, v in data.items():
+                if transpose_input and v.ndim == 3:
+                    data[k] = v.transpose(1, 2, 0)
+
+            for image in images:
+                data[image] = images_f(data[image], rng_states)
+
+            if labels:
+                mixed_label = sum(data[label]*(4**i) for i, label in enumerate(labels))
+                mixed_label = labels_f(mixed_label, rng_states)
+                for i, label in enumerate(labels):
+                    data[label] = (mixed_label//(4**i)) % 4
 
             for angle in angles:
-                d[angle] = angles_f(kwargs[angle], rng_states)
+                data[angle] = angles_f(data[angle], rng_states)
 
             for field in vectors:
-                d[field] = fields_f(kwargs[field], rng_states)
+                data[field] = fields_f(data[field], rng_states)
 
             if to_torch:
                 def to_tensor(x):
@@ -79,12 +182,29 @@ class DataAugment:
                     if x.ndim == 3:
                         x = x.transpose(2, 0, 1)
                     return torch.from_numpy(x)
-                return {k: to_tensor(v) for k, v in d.items()}
-            return d
+                return {k: to_tensor(v) for k, v in data.items()}
+
+            return data
 
         return augment
 
-    def compile_stack(self, only_type='', except_type='', rng_states=None, **kwargs):
+    @staticmethod
+    def augmentable_data_types():
+        from inspect import signature
+        return {arg for arg in signature(DataAugment.compile).parameters if arg not in ('to_str', 'rng')}
+
+    def compile_stack(self, rng_states, only_type='', except_type='', **kwargs):
+        """
+
+        Args:
+            rng_states: reference to the global rng_states.
+            only_type:
+            except_type:
+            **kwargs:
+
+        Returns:
+
+        """
 
         only_type = str2tuple(only_type)
         except_type = str2tuple(except_type)
@@ -104,7 +224,7 @@ class DataAugment:
 
             # Rerun the function generating augment() with the custom provided parameters
             params = bind_args_partial(f, kwargs=kwargs)
-            params.update(f_params)
+            f_params.update(params)
             f_augment, *rng_params = match_params(f, self=self, **params)
 
             if isinstance(f_augment, dict):
@@ -227,7 +347,7 @@ class DataAugment:
         pre_rot = None
         if value_type == 'angle':
             def pre_rot(X, phi):
-                return [x+(phi*np.pi/180) for x in X]
+                return [np.cos(x+(phi*np.pi/180)) for x in X]+[np.sin(x+(phi*np.pi/180)) for x in X]
         elif value_type == 'vec':
             def pre_rot(X, phi):
                 u, v = X
@@ -238,7 +358,13 @@ class DataAugment:
         def augment(x, angle):
             return AF.rotate(x, angle, interpolation=interpolation, border_mode=border_mode, value=border_value)
 
-        return {'pre': pre_rot, 'augment': augment}, angle
+        post_rot = None
+        if value_type == 'angle':
+            def post_rot(X, phi):
+                N = len(X)//2
+                return [np.arctan2(cos, sin) for cos, sin in zip(X[:N], X[N:])]
+        
+        return {'pre': pre_rot, 'augment': augment, 'post': post_rot}, angle
 
     @augment_method('geometric')
     def elastic_distortion(self, alpha=1, sigma=50, alpha_affine=50,
@@ -250,7 +376,7 @@ class DataAugment:
             return AF.elastic_transform(x, alpha=alpha, sigma=sigma, alpha_affine=alpha_affine, approximate=approximate,
                                         interpolation=interpolation, border_mode=border_mode, value=border_value,
                                         random_state=random_state)
-        return augment, _RD.randint(1e8)
+        return augment, _RD.integers(1e8)
 
     @augment_method('color')
     def color(self, brightness=None, contrast=None, gamma=None, r=None, g=None, b=None):
@@ -259,13 +385,13 @@ class DataAugment:
         gamma = _RD.gamma(0) if gamma is None else _RD.auto(gamma, symetric=True)
 
         r = _RD.constant(0) if r is None else _RD.auto(r, symetric=True)
-        g = _RD.constant(0) if r is None else _RD.auto(g, symetric=True)
-        b = _RD.constant(0) if r is None else _RD.auto(b, symetric=True)
+        g = _RD.constant(0) if g is None else _RD.auto(g, symetric=True)
+        b = _RD.constant(0) if b is None else _RD.auto(b, symetric=True)
 
         def augment(x, brightness, contrast, gamma, r, g, b):
-            x = ((x+brightness)*(contrast+1.))**(gamma+1.)
+            x = (x+brightness)*(contrast+1.).clip(0)**(gamma+1.)
             
-            if r or b or g :
+            if r or b or g:
                 n = x.shape[0]//3
                 bgr = np.array([b, g, r]*n)
                 x[..., :3*n] = x[..., :3*n] + bgr[np.newaxis, np.newaxis, :]
@@ -313,10 +439,6 @@ class RandomDistribution:
         self._kwargs = kwargs
 
     def __call__(self, rng, shape=None):
-        if isinstance(rng, int):
-            rng = np.random.RandomState(seed=rng)
-        elif not isinstance(rng, np.random.RandomState):
-            raise ValueError('rng is not a valid RandomState or seed')
         return self._f(rng=rng, shape=shape, **self._kwargs)
     
     def __repr__(self):
@@ -344,7 +466,11 @@ class RandomDistribution:
         Generate a RandomDistribution according to the value of an argument
         :rtype: RandomDistribution
         """
-        if isinstance(info, tuple):
+        if isinstance(info, str):
+            if '±' in info:
+                mean, std = info.split('±')
+                return RandomDistribution.normal(float(mean), float(std))
+        elif isinstance(info, (tuple, list)):
             if len(info) == 2:
                 return RandomDistribution.uniform(*info)
             elif len(info) == 1:
@@ -415,9 +541,9 @@ class RandomDistribution:
         return RandomDistribution(f, 'custom: '+f_dist.__name__, **kwargs)
 
     @staticmethod
-    def randint(low, high=None, dtype='i'):
+    def integers(low, high=None, dtype='i'):
         def f(rng, shape, low, high, dtype):
-            return rng.randint(low, high=high, size=shape, dtype=dtype)
+            return rng.integers(low, high=high, size=shape, dtype=dtype)
         return RandomDistribution(f, 'randint', low=low, high=high, dtype=dtype)
 
 

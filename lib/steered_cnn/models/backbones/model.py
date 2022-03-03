@@ -12,3 +12,9 @@ class Model(nn.Module):
             return super(Model, self).__getattr__(item)
         else:
             return self._hyperparameters[item]
+
+    def reduce_stack(self, stack, x, **kwargs):
+        from functools import reduce
+        def f(X, f_module):
+            return f_module(X, **kwargs)
+        return reduce(f, stack, x)
