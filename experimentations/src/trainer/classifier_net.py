@@ -126,6 +126,7 @@ class Binary2DSegmentation(pl.LightningModule):
             'acc': metricsF.accuracy(y_pred, y),
             'roc': metricsF.auroc(y_sig, y),
             'iou': metricsF.iou(y_pred, y),
+            'kappa': metricsF.cohen_kappa(y_pred, y, 2)
         }
 
     def log_metrics(self, metrics, prefix='', discard_dataloaderidx=False):
