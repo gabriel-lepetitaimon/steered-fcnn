@@ -19,12 +19,12 @@ datasets:
         angle: "principal-angle"
 
     training:
-        dataset: 'DRIVE'
+        dataset: 'MESSIDOR'
         preload-in-RAM: False
         augment:
             fields: {x: 'image', y: 'label', mask: 'label', vec_norm: 'vector', angle_xy: 'vector', angle: 'angle'}
             data-augmentations: [default]
-            factor: 4
+            factor: 8
 
     validation:
         dataset: same

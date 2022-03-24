@@ -1,0 +1,52 @@
+experiment:
+    name: 'SteeredCNN-AV'
+    sub-experiment-id: 1
+    tags:
+            exp: 'ParamStarve'
+            sub: 'base-long:2|8'
+            model: 'base[2|8]'
+      
+model:
+    nfeatures: 8
+
+    backbone: 'hemeling'
+    steered: False
+    kernel: 5
+    depth: 2
+    nscale: 5
+    padding: 'auto'
+    upsampling: 'bilinear'
+    downsampling: 'conv'
+    batchnorm: True
+
+      
+orion:
+    experiment:
+        algorithms:
+            tpe:
+                n_ei_candidates: 10
+                n_initial_points: 10
+        max_trials: 20
+
+training:
+    dataset-file: 'av.h5'
+    training-dataset: 'MESSIDOR'
+    training-dataset-factor: 8
+    max-epoch: 50
+    optimize: 'val-roc'
+
+hyper-parameters:
+    lr: 'orion~loguniform(1e-3, 50e-3)'
+    loss: 'binaryCE'
+    batch-size: 8
+    drop-out: 0
+    optimizer:
+        weight_decay: 'orion~uniform(1e-7, 1e-5)'
+        lr-decay-factor: 0.5
+
+data-augmentation:
+    rotation: True
+    elastic-transform:
+        alpha: 'orion~uniform(10, 11)'
+        sigma: 'orion~uniform(18, 18.2)'
+        alpha-affine: 'orion~uniform(54, 55)'
