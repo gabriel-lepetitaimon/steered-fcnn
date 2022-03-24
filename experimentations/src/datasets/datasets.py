@@ -14,14 +14,13 @@ def load_dataset(cfg=None):
     if cfg is None:
         cfg = default_config()
     batch_size = cfg['hyper-parameters']['batch-size']
-    train_dataset = cfg.training['training-dataset']
     data_path = cfg.training.get('dataset-path', 'default')
     if data_path == 'default':
         data_path = DEFAULT_DATA_PATH
     dataset_file = P.join(data_path, cfg.training['dataset-file'])
 
     file = h5py.File(dataset_file, mode='r')
-    trainD = DataLoader(TrainDataset('train/'+train_dataset, file=file,
+    trainD = DataLoader(TrainDataset('train/', file=file,
                                      partial=cfg.training['training-partial'],
                                      factor=cfg.training['training-dataset-factor'],
                                      data_augmentation_cfg=cfg['data-augmentation']),
@@ -29,7 +28,7 @@ def load_dataset(cfg=None):
                         batch_size=batch_size,
                         num_workers=cfg.training['num-worker']
                         )
-    validD = DataLoader(TestDataset('val/'+train_dataset, file=file),
+    validD = DataLoader(TestDataset('val/', file=file),
                         pin_memory=True, num_workers=4, batch_size=2)
     testD = {'test': DataLoader(TestDataset('test/', file=file),
                            pin_memory=True, num_workers=4, batch_size=2)}
