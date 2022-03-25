@@ -4,8 +4,8 @@ from functools import partial
 import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from torchmetrics import functional as metricsF
-import torchmetrics
+import torchmetrics as M
+import segmentation_models_pytorch as smp
 
 from steered_cnn.utils import clip_pad_center
 from ..config import default_config
@@ -15,8 +15,7 @@ class Binary2DSegmentation(pl.LightningModule):
     def __init__(self, model, loss='binaryCE', pos_weighted_loss=False, optimizer=None, earlystop_cfg=None, lr=1e-3, p_dropout=0, soft_label=0):
         super().__init__()
         self.model = model
-
-        self.val_accuracy = torchmetrics.Accuracy(compute_on_step=False)
+        self._metrics = {}
         self.lr = lr
         self.p_dropout = p_dropout
         self.soft_label = soft_label
@@ -45,6 +44,8 @@ class Binary2DSegmentation(pl.LightningModule):
                 self._loss = lambda y_hat, y: _loss(torch.sigmoid(y_hat), y)
             elif loss == 'binaryCE':
                 self._loss = lambda y_hat, y: F.binary_cross_entropy_with_logits(y_hat, y.float())
+            elif loss == 'kappa':
+                self._loss = smp.losses.JaccardLoss('binary', from_logits=False)
             else:
                 raise ValueError(f'Unkown loss function: "{loss}". \n'
                                  f'Should be one of "dice", "focalLoss", "binaryCE".')
@@ -94,64 +95,95 @@ class Binary2DSegmentation(pl.LightningModule):
         self.log('train-loss', loss_value, on_epoch=True, on_step=False, prog_bar=False, logger=True)
         return loss
 
-    def _validate(self, batch):
+    def _validate(self, batch, save_preds=False, save_loss=False):
         y, y_hat = self.compute_y_yhat(batch)
-        
-        y_sig = torch.sigmoid(y_hat)
-        y_pred = y_sig > .5
+        if save_preds:
+            y_pred = y_hat > 0
         
         if 'mask' in batch:
             mask = clip_pad_center(batch['mask'], y_hat.shape)
             y_hat = y_hat[mask != 0]
-            y_sig = y_sig[mask != 0]
             y = y[mask != 0]
-            
+
         y = y.flatten()
         y_hat = y_hat.flatten()
-        y_sig = y_sig.flatten()
 
-        return {
-            'loss': self.loss_f(y_hat, y),
-            'y_pred': y_pred,
-            'metrics': Binary2DSegmentation.metrics(y_sig, y)
-        }
+        r = {'target': y}
+        if save_preds:
+            r['preds'] = y_pred
+        if save_loss:
+            r['loss'] = self.loss_f(y_hat, y)
+        r['probas'] = torch.sigmoid(y_hat)
+        return r
 
-    @staticmethod
-    def metrics(y_sig, y):
-        y_pred = y_sig > 0.5
-        return {
-            'acc': metricsF.accuracy(y_pred, y),
-            'roc': metricsF.auroc(y_sig, y),
-            'iou': metricsF.iou(y_pred, y),
-            'kappa': metricsF.cohen_kappa(y_pred, y, 2)
-        }
+    def update_metrics(self, prefix, probas, targets):
+        metrics = self._metrics.get(prefix, None)
+        if metrics is None:
+            thr = 0.5
+            metrics = {
+                'roc': M.AUROC(),
+                'confmat': M.ConfusionMatrix(num_classes=2, threshold=thr),
+                'acc': M.Accuracy(num_classes=2, threshold=thr),
+                'kappa': M.CohenKappa(num_classes=2, threshold=thr),
+            }
+            self._metrics[prefix] = metrics
+        if probas is not None:
+            for k, m in metrics.items():
+                m.update(probas, targets)
 
-    def log_metrics(self, metrics, prefix='', discard_dataloaderidx=False):
-        if prefix and not prefix.endswith('-'):
-            prefix += '-'
-        for k, v in metrics.items():
+    def log_metrics(self, prefix, reset=True, discard_dataloaderidx=False):
+        metrics = self._metrics.get(prefix, None)
+        if metrics is None:
+            self.update_metrics(prefix, None, None)
+        prefix = prefix+'-'
+
+        for k, m in metrics.items():
             if discard_dataloaderidx:
                 idx = self._current_dataloader_idx
                 self._current_dataloader_idx = None
-            self.log(prefix + k, v.cpu().item())
+            v = m.compute()
+            if k == 'confmat':
+                confmat = v.cpu().item()
+                self.log(prefix+'TN', confmat[0, 0])
+                self.log(prefix+'TP', confmat[1, 1])
+                self.log(prefix+'FN', confmat[1, 0])
+                self.log(prefix+'FP', confmat[0, 1])
+            else:
+                self.log(prefix + k, v.cpu().item())
+
             if discard_dataloaderidx:
                 self._current_dataloader_idx = idx
 
+        if reset:
+            for m in metrics.values():
+                m.reset()
+
     def validation_step(self, batch, batch_idx):
-        result = self._validate(batch)
-        metrics = result['metrics']
-        # metrics['acc'] = self.val_accuracy(result['y_sig'] > 0.5, result['y'])
-        self.log_metrics(metrics, 'val', discard_dataloaderidx=True)
-        return result['y_pred']
+        return self._validate(batch, save_preds=False, save_loss=False)
+
+    def validation_step_end(self, outputs):
+        self.update_metrics('val', outputs['probas'], outputs['target'])
+        return outputs
+
+    def validation_epoch_end(self, outputs) -> None:
+        self.log_metrics('val')
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):
-        result = self._validate(batch)
-        metrics = result['metrics']
-        prefix = 'test'
-        if self.testset_names:
-            prefix = self.testset_names[dataloader_idx]
-        self.log_metrics(metrics, prefix, discard_dataloaderidx=True)
-        return result['y_pred']
+        return {**self._validate(batch, save_preds=True, save_loss=False),
+                **{'dataloader_idx': dataloader_idx}}
+
+    def test_step_end(self, outputs):
+        for probas, target, dataloader_idx in zip(outputs['probas'], outputs['target'], outputs['dataloader_idx']):
+            prefix = 'test'
+            if self.testset_names:
+                prefix = self.testset_names[dataloader_idx]
+            self.update_metrics(prefix, probas, target)
+        return torch.cat(outputs['preds'])
+
+    def test_epoch_end(self, outputs) -> None:
+        prefixs = self.testset_names if self.testset_names else ['test']
+        for prefix in prefixs:
+            self.log_metrics(prefix, discard_dataloaderidx=True)
 
     def configure_optimizers(self):
         opt = self.optimizer
