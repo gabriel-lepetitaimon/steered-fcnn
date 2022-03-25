@@ -117,8 +117,9 @@ class Binary2DSegmentation(pl.LightningModule):
         return r
 
     def update_metrics(self, prefix, probas, targets):
-        metrics = self._metrics.get(prefix, None)
-        if metrics is None:
+        try:
+            metrics = self._metrics[prefix]
+        except KeyError:
             thr = 0.5
             metrics = torch.nn.ModuleDict({
                 'roc': M.AUROC(),
@@ -127,14 +128,18 @@ class Binary2DSegmentation(pl.LightningModule):
                 'kappa': M.CohenKappa(num_classes=2, threshold=thr),
             })
             self._metrics[prefix] = metrics
+
         if probas is not None:
             for k, m in metrics.items():
                 m.update(probas, targets)
 
     def log_metrics(self, prefix, reset=True, discard_dataloaderidx=False):
-        metrics = self._metrics.get(prefix, None)
-        if metrics is None:
+        try:
+            metrics = self._metrics[prefix]
+        except KeyError:
             self.update_metrics(prefix, None, None)
+            metrics = self._metrics[prefix]
+
         prefix = prefix+'-'
 
         for k, m in metrics.items():
