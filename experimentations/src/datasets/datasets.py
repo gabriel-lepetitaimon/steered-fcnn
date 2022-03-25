@@ -75,8 +75,6 @@ class TrainDataset(Dataset):
 class TestDataset(Dataset):
     def __init__(self, dataset, file):
         super(TestDataset, self).__init__()
-
-        print(list(file.keys()))
         
         self.x = file.get(f'{dataset}/x')
         self.y = file.get(f'{dataset}/y')
