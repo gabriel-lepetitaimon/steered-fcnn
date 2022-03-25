@@ -113,9 +113,6 @@ class Binary2DSegmentation(pl.LightningModule):
         return {
             'loss': self.loss_f(y_hat, y),
             'y_pred': y_pred,
-            'y_hat': y_hat,
-            'y': y,
-            'y_sig': y_sig,
             'metrics': Binary2DSegmentation.metrics(y_sig, y)
         }
 

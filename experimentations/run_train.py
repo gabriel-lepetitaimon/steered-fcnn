@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, DeviceStatsMonitor
 from orion.client import report_objective
 import os
 import os.path as P
@@ -76,7 +76,6 @@ def run_train(**opt):
 
     trainer_kwargs = {}
     if cfg.training['half-precision']:
-        trainer_kwargs['amp_level'] = 'O2'
         trainer_kwargs['precision'] = 16
 
     callbacks = []
@@ -88,6 +87,8 @@ def run_train(**opt):
     else:
         earlystop = None
     callbacks += [LearningRateMonitor(logging_interval='epoch')]
+    if args.debug:
+        callbacks += [DeviceStatsMonitor()]
 
     checkpointed_metrics = ['val-acc', 'val-roc', 'val-iou']
     modelCheckpoints = {}

@@ -20,38 +20,29 @@ def load_dataset(cfg=None):
     dataset_file = P.join(data_path, cfg.training['dataset-file'])
 
     file = h5py.File(dataset_file, mode='r')
-    trainD = DataLoader(TrainDataset('train/', file=file,
-                                     partial=cfg.training['training-partial'],
+    trainD = DataLoader(TrainDataset('train', file=file,
                                      factor=cfg.training['training-dataset-factor'],
                                      data_augmentation_cfg=cfg['data-augmentation']),
                         pin_memory=True, shuffle=True,
                         batch_size=batch_size,
                         num_workers=cfg.training['num-worker']
                         )
-    validD = DataLoader(TestDataset('val/', file=file),
-                        pin_memory=True, num_workers=4, batch_size=2)
-    testD = {'test': DataLoader(TestDataset('test/', file=file),
-                           pin_memory=True, num_workers=4, batch_size=2)}
+    validD = DataLoader(TestDataset('val', file=file),
+                        pin_memory=True, num_workers=4, batch_size=4)
+    testD = {'test': DataLoader(TestDataset('test', file=file),
+                           pin_memory=True, num_workers=4, batch_size=4)}
     return trainD, validD, testD
 
 
 class TrainDataset(Dataset):
-    def __init__(self, dataset, file, factor=1, data_augmentation_cfg=None,
-                 partial=1):
+    def __init__(self, dataset, file, factor=1, data_augmentation_cfg=None):
         super(TrainDataset, self).__init__()
 
         if data_augmentation_cfg is None:
             data_augmentation_cfg = default_config()['data-augmentation']
 
-        self.partial = partial
-
-        if self.partial != 1:
-            x_len = file.get(f'{dataset}/data').shape[0]
-            idx = np.arange(x_len)
-            np.random.shuffle(idx)
-
-        self.x = file.get(f'{dataset}/data')  # [:]
-        self.y = file.get(f'{dataset}/av')  # [:]
+        self.x = file.get(f'{dataset}/x')  # [:]
+        self.y = file.get(f'{dataset}/y')  # [:]
         data_fields = dict(images='x', labels='y')
 
         DA = DataAugment().flip()
@@ -74,7 +65,7 @@ class TrainDataset(Dataset):
     def __getitem__(self, i):
         i = i % self._data_length
         x = self.x[i].transpose(1, 2, 0)
-        data = self.geo_aug(x=x, y=self.y[i])
+        data = self.geo_aug(x=x, y=self.y[i,0])
         y = data['y']
         data['mask'] = y > 0
         data['y'] = y > 1
@@ -85,8 +76,10 @@ class TestDataset(Dataset):
     def __init__(self, dataset, file):
         super(TestDataset, self).__init__()
 
-        self.x = file.get(f'{dataset}/data')[:]
-        self.y = file.get(f'{dataset}/av')[:]
+        print(list(file.keys()))
+        
+        self.x = file.get(f'{dataset}/x')
+        self.y = file.get(f'{dataset}/y')
         data_fields = dict(images='x', labels='y')
 
         self.geo_aug = DataAugment().compile(**data_fields, to_torch=True)
@@ -98,7 +91,7 @@ class TestDataset(Dataset):
 
     def __getitem__(self, i):
         x = self.x[i].transpose(1, 2, 0)
-        data = self.geo_aug(x=x, y=self.y[i])
+        data = self.geo_aug(x=x, y=self.y[i,0])
         y = data['y']
         data['mask'] = y > 0
         data['y'] = y > 1
