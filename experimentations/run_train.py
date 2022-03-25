@@ -146,7 +146,8 @@ def run_train(**opt):
     except:
         import traceback
         r_code = -1
-        logs.log_misc('exception', traceback.format_exc())
+        logs.log_misc('exception', traceback.format_exc().splitlines())
+        traceback.print_exc()
 
     ###############
     # --- LOG --- #

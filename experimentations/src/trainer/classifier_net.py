@@ -40,7 +40,7 @@ class Binary2DSegmentation(pl.LightningModule):
                 self._loss = lambda y_hat, y: binary_dice_loss(torch.sigmoid(y_hat), y)
             elif loss == 'focalLoss':
                 from .losses import focal_loss
-                _loss = partial(focal_loss, gamma=loss_kwargs.get('gamma',2))
+                _loss = partial(focal_loss, gamma=loss_kwargs.get('gamma', 2))
                 self._loss = lambda y_hat, y: _loss(torch.sigmoid(y_hat), y)
             elif loss == 'binaryCE':
                 self._loss = lambda y_hat, y: F.binary_cross_entropy_with_logits(y_hat, y.float())
