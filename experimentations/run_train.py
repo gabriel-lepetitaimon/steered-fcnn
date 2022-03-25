@@ -12,8 +12,6 @@ from src.datasets import load_dataset
 from src.trainer import Binary2DSegmentation, ExportValidation
 from src.trainer.loggers import Logs
 from steered_cnn.models import setup_model
-from steered_cnn.steered_conv import SteeredConvBN
-from steered_cnn.utils import ConvBN
 
 
 def run_train(**opt):

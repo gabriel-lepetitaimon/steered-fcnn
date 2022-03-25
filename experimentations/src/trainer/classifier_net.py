@@ -15,7 +15,7 @@ class Binary2DSegmentation(pl.LightningModule):
     def __init__(self, model, loss='binaryCE', pos_weighted_loss=False, optimizer=None, earlystop_cfg=None, lr=1e-3, p_dropout=0, soft_label=0):
         super().__init__()
         self.model = model
-        self._metrics = {}
+        self._metrics = torch.nn.ModuleDict()
         self.lr = lr
         self.p_dropout = p_dropout
         self.soft_label = soft_label
@@ -120,12 +120,12 @@ class Binary2DSegmentation(pl.LightningModule):
         metrics = self._metrics.get(prefix, None)
         if metrics is None:
             thr = 0.5
-            metrics = {
+            metrics = torch.nn.ModuleDict({
                 'roc': M.AUROC(),
                 'confmat': M.ConfusionMatrix(num_classes=2, threshold=thr),
                 'acc': M.Accuracy(num_classes=2, threshold=thr),
                 'kappa': M.CohenKappa(num_classes=2, threshold=thr),
-            }
+            })
             self._metrics[prefix] = metrics
         if probas is not None:
             for k, m in metrics.items():
