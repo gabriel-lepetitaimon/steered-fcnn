@@ -12,10 +12,11 @@ from ..config import default_config
 
 
 class Binary2DSegmentation(pl.LightningModule):
-    def __init__(self, model, loss='binaryCE', pos_weighted_loss=False, optimizer=None, earlystop_cfg=None, lr=1e-3, p_dropout=0, soft_label=0):
+    def __init__(self, model, testset_names=None, loss='binaryCE', pos_weighted_loss=False, optimizer=None, earlystop_cfg=None, lr=1e-3, p_dropout=0, soft_label=0):
         super().__init__()
         self.model = model
-        self._metrics = torch.nn.ModuleDict()
+        self._metrics = {}
+        self.all_metrics = torch.nn.ModuleList()
         self.lr = lr
         self.p_dropout = p_dropout
         self.soft_label = soft_label
@@ -57,7 +58,11 @@ class Binary2DSegmentation(pl.LightningModule):
             earlystop_cfg= default_config()['training']['early-stopping']
         self.earlystop_cfg = earlystop_cfg
 
-        self.testset_names = None
+        self.testset_names = testset_names
+        if testset_names:
+            for n in testset_names:
+                self.create_metrics(n)
+        self.create_metrics('val')
         
     def loss_f(self, pred, target, weight=None):
         if self.soft_label:
@@ -116,30 +121,25 @@ class Binary2DSegmentation(pl.LightningModule):
         r['probas'] = torch.sigmoid(y_hat)
         return r
 
-    def update_metrics(self, prefix, probas, targets):
-        try:
-            metrics = self._metrics[prefix]
-        except KeyError:
-            thr = 0.5
-            metrics = torch.nn.ModuleDict({
+    
+    def create_metrics(self, prefix, thr=.5):
+        metrics = {
                 'roc': M.AUROC(),
                 'confmat': M.ConfusionMatrix(num_classes=2, threshold=thr),
-                'acc': M.Accuracy(num_classes=2, threshold=thr),
+                'acc': M.Accuracy(threshold=thr),
                 'kappa': M.CohenKappa(num_classes=2, threshold=thr),
-            })
-            self._metrics[prefix] = metrics
+            }
+        self._metrics[prefix] = metrics
+        self.all_metrics += list(metrics.values())
 
+    def update_metrics(self, prefix, probas, targets):
+        metrics = self._metrics[prefix]
         if probas is not None:
             for k, m in metrics.items():
                 m.update(probas, targets)
 
     def log_metrics(self, prefix, reset=True, discard_dataloaderidx=False):
-        try:
-            metrics = self._metrics[prefix]
-        except KeyError:
-            self.update_metrics(prefix, None, None)
-            metrics = self._metrics[prefix]
-
+        metrics = self._metrics[prefix]
         prefix = prefix+'-'
 
         for k, m in metrics.items():
@@ -148,7 +148,7 @@ class Binary2DSegmentation(pl.LightningModule):
                 self._current_dataloader_idx = None
             v = m.compute()
             if k == 'confmat':
-                confmat = v.cpu().item()
+                confmat = v.cpu().numpy()
                 self.log(prefix+'TN', confmat[0, 0])
                 self.log(prefix+'TP', confmat[1, 1])
                 self.log(prefix+'FN', confmat[1, 0])
