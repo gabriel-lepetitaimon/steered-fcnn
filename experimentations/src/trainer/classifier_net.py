@@ -181,12 +181,12 @@ class Binary2DSegmentation(pl.LightningModule):
         if not isinstance(outputs, list):
             outputs = [outputs]
 
-        for probas, target, dataloader_idx in outputs:
+        for output in outputs:
             prefix = 'test'
             if self.testset_names:
-                prefix = self.testset_names[dataloader_idx]
-            self.update_metrics(prefix, probas, target)
-        return torch.cat(o['preds'] for o in outputs)
+                prefix = self.testset_names[output['dataloader_idx']]
+            self.update_metrics(prefix, output['probas'], output['target'])
+        return torch.cat(tuple(o['preds'] for o in outputs))
 
     def test_epoch_end(self, outputs) -> None:
         prefixs = self.testset_names if self.testset_names else ['test']
