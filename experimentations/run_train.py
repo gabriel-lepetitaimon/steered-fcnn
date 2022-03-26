@@ -111,6 +111,8 @@ def run_train(**opt):
             r_code = 1  # Interrupt Orion
 
         logs.log_metric('last-epoch', earlystop.stopped_epoch if earlystop is not None else max_epoch)
+        logs.log_misc('CPU avg idle time train', trainD.avg_idle())
+        logs.log_misc('CPU avg idle time valid', validD.avg_idle())
 
         ################
         # --- TEST --- #

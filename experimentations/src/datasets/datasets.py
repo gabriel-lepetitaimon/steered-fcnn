@@ -71,7 +71,7 @@ class LogIdleTimeDataLoader(DataLoader):
                 logs['ini'] = t_wait
             else:
                 t_idle -= t_ini_wait
-                if t_idle > 0:
+                if t_idle > t_wait:
                     logs['idle'] += t_idle
             logs['iter'] += 1
             logs['wait'] += t_wait
