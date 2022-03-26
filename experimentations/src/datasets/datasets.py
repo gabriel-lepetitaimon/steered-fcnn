@@ -91,10 +91,11 @@ class BaseDataset(Dataset):
         self.patch_shape = patch_shape
         self.DA = DataAugment()
         self.mode=mode
+        self.factor = 4
         self.transforms = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]) # Efficient net
 
     def __len__(self):
-        return self._data_length
+        return self._data_length*self.factor
 
     @property
     def geo_aug(self):
@@ -107,6 +108,8 @@ class BaseDataset(Dataset):
         return compiled
 
     def __getitem__(self, i):
+        i = i % self._data_length
+
         x = self.x[i]
         y = self.y[i, 0]
 
@@ -161,13 +164,6 @@ class TrainDataset(BaseDataset):
                    value=data_augmentation_cfg.get('value', None))
         self.DA = DA
         self.factor = factor
-
-    def __len__(self):
-        return self._data_length * self.factor
-
-    def __getitem__(self, i):
-        i = i % self._data_length
-        return super(TrainDataset, self).__getitem__(i)
 
 
 def crop_pad(img, size, center=None):
