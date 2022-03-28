@@ -112,7 +112,9 @@ def run_train(**opt):
 
         logs.log_metric('last-epoch', earlystop.stopped_epoch if earlystop is not None else max_epoch)
         logs.log_misc('CPU avg idle time train', trainD.avg_idle())
+        logs.log_misc('avg time per iter train', trainD.avg_total())
         logs.log_misc('CPU avg idle time valid', validD.avg_idle())
+        logs.log_misc('avg time per iter valid', validD.avg_total())
 
         ################
         # --- TEST --- #

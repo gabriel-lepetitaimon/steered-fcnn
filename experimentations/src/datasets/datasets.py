@@ -1,9 +1,13 @@
+import os.path
 import os.path as P
 import h5py
+import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import numpy as np
 import time
+import pandas as pd
+import cv2
 
 from ..config import default_config
 from .data_augment import DataAugment
@@ -23,23 +27,36 @@ def load_dataset(cfg=None):
     patch_shape = cfg.training.get('patch', None)
     mode = cfg.training.get('mode', 'segment')
 
-    file = h5py.File(dataset_file, mode='r')
-    trainD = LogIdleTimeDataLoader(TrainDataset('train', file=file, patch_shape=patch_shape, mode=mode,
-                                   factor=cfg.training['training-dataset-factor'],
-                                   data_augmentation_cfg=cfg['data-augmentation']),
-                                   pin_memory=True, shuffle=True,
-                                   batch_size=batch_size,
-                                   num_workers=cfg.training['num-worker'])
-    validD = LogIdleTimeDataLoader(BaseDataset('val', file=file,  patch_shape=patch_shape, mode=mode),
-                                   pin_memory=True, num_workers=4, batch_size=4)
-    testD = {'test': LogIdleTimeDataLoader(BaseDataset('test', file=file,  patch_shape=patch_shape, mode=mode),
-                                           pin_memory=True, num_workers=4, batch_size=4)}
+    if mode=='segment':
+        file = h5py.File(dataset_file, mode='r')
+        trainD = TrainSegmentDataset('train', file=file, patch_shape=patch_shape,
+                                     factor=cfg.training['training-dataset-factor'],
+                                     data_augmentation_cfg=cfg['data-augmentation'])
+        validD = SegmentDataset('val', file=file, patch_shape=patch_shape)
+        testD = {'test': SegmentDataset('test', file=file, patch_shape=patch_shape)}
+    else:
+        raw_path = cfg.training['raw-path']
+        factor = cfg.training.get('training-artefacts-factor', 1)
+        trainD = TrainClassifyDataset('train', file=dataset_file, patch_shape=patch_shape, raw_path=raw_path,
+                                      resample_factor=factor,
+                                      data_augmentation_cfg=cfg['data-augmentation'])
+        validD = ClassifyDataset('val', file=dataset_file, patch_shape=patch_shape, raw_path=raw_path,)
+        testD = {'test': ClassifyDataset('test', file=dataset_file, patch_shape=patch_shape, raw_path=raw_path,)}
+
+    trainD = LogIdleTimeDataLoader(trainD, shuffle=True, batch_size=batch_size, num_workers=cfg.training['num-worker'])
+    validD = LogIdleTimeDataLoader(validD, num_workers=4, batch_size=4)
+    testD = {k: LogIdleTimeDataLoader(d, num_workers=4, batch_size=4) for k, d in testD.items()}
     return trainD, validD, testD
+
+
+def worker_init_fn(worker_id):
+    # set seed
+    np.random.seed(int(torch.utils.data.get_worker_info().seed) % (2**32-1))
 
 
 class LogIdleTimeDataLoader(DataLoader):
     def __init__(self, *args, **kwargs):
-        super(LogIdleTimeDataLoader, self).__init__(*args, **kwargs)
+        super(LogIdleTimeDataLoader, self).__init__(*args, **kwargs, worker_init_fn=worker_init_fn, pin_memory=True)
         self._time_logs = []
 
     def avg_idle(self):
@@ -48,18 +65,25 @@ class LogIdleTimeDataLoader(DataLoader):
         avg_wait = sum(_['wait'] for _ in self._time_logs) / sum_iter
         return avg_idle - avg_wait
 
+    def avg_total(self):
+        return sum(_['total'] for _ in self._time_logs) / sum(_['iter'] for _ in self._time_logs)
+
     def last_idle(self):
         logs = self._time_logs[-1]
         avg_idle = logs['idle'] / logs['iter']
         avg_wait = logs['wait'] / logs['iter']
         return avg_idle - avg_wait
 
+    def last_total(self):
+        logs = self._time_logs[-1]
+        return logs['total'] / logs['iter']
+
     def __iter__(self):
         iter = super(LogIdleTimeDataLoader, self).__iter__()
         t_idle = 0
         t_ini_wait = 0
 
-        logs = {'wait': 0., 'idle': 0., 'iter': 0, 'ini': 0}
+        logs = {'wait': 0., 'idle': 0., 'total': 0., 'iter': 0, 'ini': 0}
         self._time_logs.append(logs)
 
         while True:
@@ -74,6 +98,7 @@ class LogIdleTimeDataLoader(DataLoader):
                 t_idle -= t_ini_wait
                 if t_idle > t_wait:
                     logs['idle'] += t_idle
+                logs['total'] += t_idle + t_wait
             logs['iter'] += 1
             logs['wait'] += t_wait
 
@@ -82,16 +107,15 @@ class LogIdleTimeDataLoader(DataLoader):
             t_idle = time.time() - t0
 
 
-class BaseDataset(Dataset):
-    def __init__(self, dataset, file, patch_shape=None, mode='segment'):
-        super(BaseDataset, self).__init__()
+class SegmentDataset(Dataset):
+    def __init__(self, dataset, file, patch_shape=None):
+        super(SegmentDataset, self).__init__()
         self.x = file.get(f'{dataset}/x')
         self.y = file.get(f'{dataset}/y')
         self.data_fields = dict(images='x', labels='y')
         self._data_length = len(self.x)
         self.patch_shape = patch_shape
         self.DA = DataAugment()
-        self.mode=mode
         self.factor = 4
         self.transforms = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]) # Efficient net
 
@@ -100,12 +124,12 @@ class BaseDataset(Dataset):
 
     @property
     def geo_aug(self):
-        compiled = getattr(self, '__geo_aug_compiled', None)
+        compiled = getattr(self, '_geo_aug', None)
         if compiled:
             return compiled
         
         compiled = self.DA.compile(**self.data_fields, to_torch=True)
-        self.__geo_aug_compiled = compiled
+        self._geo_aug = compiled
         return compiled
 
     def __getitem__(self, i):
@@ -133,21 +157,18 @@ class BaseDataset(Dataset):
             y = crop_pad(data['y'], size=self.patch_shape)
         else:
             y = data['y']
-        if self.mode == 'segment':
-            data['y'] = y > 1
-            data['mask'] = y > 0
-        else:
-            h, w = data['y'].shape
-            data['y'] = y[h//2, w//2] > 1
+        data['y'] = y > 1
+        data['mask'] = y > 0
+
         if self.transforms:
             data['x'] = self.transforms(data['x'])
 
         return data
 
 
-class TrainDataset(BaseDataset):
-    def __init__(self, dataset, file, factor=1, patch_shape=None, data_augmentation_cfg=None, mode='segment'):
-        super(TrainDataset, self).__init__(dataset=dataset, file=file, patch_shape=patch_shape, mode=mode)
+class TrainSegmentDataset(SegmentDataset):
+    def __init__(self, dataset, file, factor=1, patch_shape=None, data_augmentation_cfg=None):
+        super(TrainSegmentDataset, self).__init__(dataset=dataset, file=file, patch_shape=patch_shape)
 
         if data_augmentation_cfg is None:
             data_augmentation_cfg = default_config()['data-augmentation']
@@ -166,6 +187,85 @@ class TrainDataset(BaseDataset):
                    value=data_augmentation_cfg.get('value', None))
         self.DA = DA
         self.factor = factor
+
+
+class ClassifyDataset(Dataset):
+    def __init__(self, dataset, file, raw_path, patch_shape):
+        super(ClassifyDataset, self).__init__()
+        self.raw_path = raw_path
+
+        art_centers = pd.read_excel(file, dataset+'-art')
+        art_centers['label'] = 1
+        self.art_centers = art_centers.to_numpy()
+
+        ma_centers = pd.read_excel(file, dataset+'-ma')
+        ma_centers['label'] = 0
+        self.ma_centers = ma_centers.to_numpy()
+
+        self.data_fields = dict(images='x')
+        self.patch_shape = patch_shape
+        self.DA = DataAugment()
+        self._geo_aug = None
+        self.transforms = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # Efficient net
+
+    def __len__(self):
+        return len(self.ma_centers)+len(self.art_centers)
+
+    @property
+    def geo_aug(self):
+        if self._geo_aug:
+            return self._geo_aug
+
+        geo_aug = self.DA.compile(**self.data_fields, to_torch=True)
+        self._geo_aug = geo_aug
+        return geo_aug
+
+    def __getitem__(self, i):
+        len_ma = len(self.ma_centers)
+        if i < len_ma:
+            filename, center_y, center_x, y = self.ma_centers[i]
+        else:
+            filename, center_y, center_x, y = self.art_centers[(i-len_ma) % len(self.art_centers)]
+        center = center_y, center_x
+
+        large_patch_shape = tuple(_*np.sqrt(2) for _ in self.patch_shape)
+        x = cv2.imread(os.path.join(self.raw_path, filename))
+        x = crop_pad(x, center=center, size=large_patch_shape)
+        x = x.transpose((1, 2, 0))
+        data = self.geo_aug(x=x)
+        data['x'] = crop_pad(data['x'], size=self.patch_shape)
+        if self.transforms:
+            data['x'] = self.transforms(data['x'])
+        data['y'] = y
+        return data
+
+
+class TrainClassifyDataset(ClassifyDataset):
+    def __init__(self, dataset, file, raw_path, patch_shape, resample_factor=1, data_augmentation_cfg=None):
+        super(TrainClassifyDataset, self).__init__(dataset=dataset, file=file, raw_path=raw_path,
+                                                   patch_shape=patch_shape)
+
+        self.resample_factor = resample_factor
+
+        if data_augmentation_cfg is None:
+            data_augmentation_cfg = default_config()['data-augmentation']
+
+        DA = DataAugment().flip()
+        if data_augmentation_cfg['rotation']:
+            DA.rotate()
+        if data_augmentation_cfg['elastic']:
+            DA.elastic_distortion(alpha=data_augmentation_cfg['elastic-transform']['alpha'],
+                                  sigma=data_augmentation_cfg['elastic-transform']['sigma'],
+                                  alpha_affine=data_augmentation_cfg['elastic-transform']['alpha-affine']
+                                  )
+        if 'hue' in data_augmentation_cfg or 'saturation' in data_augmentation_cfg or 'value' in data_augmentation_cfg:
+            DA.hsv(hue=data_augmentation_cfg.get('hue', None),
+                   saturation=data_augmentation_cfg.get('saturation', None),
+                   value=data_augmentation_cfg.get('value', None))
+        self.DA = DA
+
+    def __len__(self):
+        return len(self.ma_centers)+len(self.art_centers)*self.resample_factor
 
 
 def crop_pad(img, size, center=None):
