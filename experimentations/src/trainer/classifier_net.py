@@ -113,8 +113,6 @@ class Binary2DSegmentation(pl.LightningModule):
 
         y = y.flatten()
         y_hat = y_hat.flatten()
-        
-        print(y.shape, y_hat.shape)
 
         r = {'target': y}
         if save_preds:
@@ -152,10 +150,10 @@ class Binary2DSegmentation(pl.LightningModule):
             v = m.compute()
             if k == 'confmat':
                 confmat = v.cpu().numpy()
-                self.log(prefix+'TN', confmat[0, 0])
-                self.log(prefix+'TP', confmat[1, 1])
-                self.log(prefix+'FN', confmat[1, 0])
-                self.log(prefix+'FP', confmat[0, 1])
+                self.log(prefix+'TN', float(confmat[0, 0]))
+                self.log(prefix+'TP', float(confmat[1, 1]))
+                self.log(prefix+'FN', float(confmat[1, 0]))
+                self.log(prefix+'FP', float(confmat[0, 1]))
             else:
                 self.log(prefix + k, v.cpu().item())
 

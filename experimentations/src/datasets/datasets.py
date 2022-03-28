@@ -24,7 +24,14 @@ def load_dataset(cfg=None):
     if data_path == 'default':
         data_path = DEFAULT_DATA_PATH
     dataset_file = P.join(data_path, cfg.training['dataset-file'])
+    
     patch_shape = cfg.training.get('patch', None)
+    if isinstance(patch_shape, (float, int)):
+        h = int(patch_shape)
+        patch_shape = h,h
+    elif isinstance(patch_shape, (tuple,list)):
+        patch_shape = tuple(int(_) for _ in patch_shape)
+        
     mode = cfg.training.get('mode', 'segment')
 
     if mode=='segment':
@@ -34,18 +41,23 @@ def load_dataset(cfg=None):
                                      data_augmentation_cfg=cfg['data-augmentation'])
         validD = SegmentDataset('val', file=file, patch_shape=patch_shape)
         testD = {'test': SegmentDataset('test', file=file, patch_shape=patch_shape)}
+        train_args = {'shuffle': True}
     else:
-        raw_path = cfg.training['raw-path']
-        factor = cfg.training.get('training-artefacts-factor', 1)
+        raw_path = P.join(data_path, cfg.training['raw-path'])
         trainD = TrainClassifyDataset('train', file=dataset_file, patch_shape=patch_shape, raw_path=raw_path,
-                                      resample_factor=factor,
                                       data_augmentation_cfg=cfg['data-augmentation'])
         validD = ClassifyDataset('val', file=dataset_file, patch_shape=patch_shape, raw_path=raw_path,)
         testD = {'test': ClassifyDataset('test', file=dataset_file, patch_shape=patch_shape, raw_path=raw_path,)}
+        
+        ratio = cfg.training.get('ratio-ma-art', 7)
+        repeat = cfg.training.get('art-repeat-factor', 1)
+        train_args = {
+            'sampler': torch.utils.data.WeightedRandomSampler([ratio/trainD.length_ma]*trainD.length_ma + [1/(trainD.length_art*repeat)]*trainD.length_art*repeat,
+                                                              num_samples=int(min(trainD.length_art*repeat*(1+1/ratio), trainD.length_ma*(1+ratio))))}
 
-    trainD = LogIdleTimeDataLoader(trainD, shuffle=True, batch_size=batch_size, num_workers=cfg.training['num-worker'])
-    validD = LogIdleTimeDataLoader(validD, num_workers=4, batch_size=4)
-    testD = {k: LogIdleTimeDataLoader(d, num_workers=4, batch_size=4) for k, d in testD.items()}
+    trainD = LogIdleTimeDataLoader(trainD, batch_size=batch_size, num_workers=cfg.training['num-worker'], **train_args)
+    validD = LogIdleTimeDataLoader(validD, num_workers=cfg.training['num-worker'], batch_size=batch_size)
+    testD = {k: LogIdleTimeDataLoader(d, num_workers=cfg.training['num-worker'], batch_size=batch_size, shuffle=True) for k, d in testD.items()}
     return trainD, validD, testD
 
 
@@ -88,7 +100,10 @@ class LogIdleTimeDataLoader(DataLoader):
 
         while True:
             t0 = time.time()
-            it = next(iter)
+            try:
+                it = next(iter)
+            except StopIteration:
+                return
             t_wait = time.time() - t0
 
             if not t_ini_wait:
@@ -209,7 +224,15 @@ class ClassifyDataset(Dataset):
         self.transforms = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # Efficient net
 
     def __len__(self):
-        return len(self.ma_centers)+len(self.art_centers)
+        return self.length_ma+self.length_art
+    
+    @property
+    def length_ma(self):
+        return len(self.ma_centers)
+    
+    @property
+    def length_art(self):
+        return len(self.art_centers)
 
     @property
     def geo_aug(self):
@@ -221,21 +244,23 @@ class ClassifyDataset(Dataset):
         return geo_aug
 
     def __getitem__(self, i):
-        len_ma = len(self.ma_centers)
+        len_ma = self.length_ma
         if i < len_ma:
-            filename, center_y, center_x, y = self.ma_centers[i]
+            _, filename, center_y, center_x, y = self.ma_centers[i]
         else:
-            filename, center_y, center_x, y = self.art_centers[(i-len_ma) % len(self.art_centers)]
+            _, filename, center_y, center_x, y = self.art_centers[(i-len_ma) % self.length_art]
         center = center_y, center_x
 
-        large_patch_shape = tuple(_*np.sqrt(2) for _ in self.patch_shape)
+        large_patch_shape = tuple(int(round(_*np.sqrt(2))) for _ in self.patch_shape)
+
         x = cv2.imread(os.path.join(self.raw_path, filename))
         x = crop_pad(x, center=center, size=large_patch_shape)
         x = x.transpose((1, 2, 0))
         data = self.geo_aug(x=x)
         data['x'] = crop_pad(data['x'], size=self.patch_shape)
         if self.transforms:
-            data['x'] = self.transforms(data['x'])
+            x = data['x'].float().permute(2,0,1)/255
+            data['x'] = self.transforms(x)
         data['y'] = y
         return data
 
@@ -269,24 +294,28 @@ class TrainClassifyDataset(ClassifyDataset):
 
 
 def crop_pad(img, size, center=None):
+    H, W = img.shape[:2]
     h, w = size
     if center is None:
         y, x = h//2, w//2
     else:
         y, x = center
-    half_x = size[1] // 2
-    odd_x = size[1] % 2
-    half_y = size[0] // 2
-    odd_y = size[0] % 2
+    half_w = w // 2
+    odd_w = w % 2
+    half_h = h // 2
+    odd_h = h % 2
 
-    y0 = int(max(0, half_y - y))
-    y1 = int(max(0, y - half_y))
-    h = int(min(h, y + half_y + odd_y) - y1)
+    y0 = int(max(0, half_h - y))
+    y1 = int(max(0, y - half_h))
+    h = int(min(h, H-y1) - y0)
 
-    x0 = int(max(0, half_x - x))
-    x1 = int(max(0, x - half_x))
-    w = int(min(w, x + half_x + odd_x) - x1)
-
-    r = np.zeros_like(img, shape=size+img.shape[2:])
+    x0 = int(max(0, half_w - w))
+    x1 = int(max(0, x - half_w))
+    w = int(min(w, W-x1) - x0)
+    
+    if torch.is_tensor(img):
+        r = torch.zeros(size+tuple(img.shape[2:]), dtype=img.dtype, device=img.device)
+    else:
+        r = np.zeros_like(img, shape=size+img.shape[2:])
     r[y0:y0+h, x0:x0+w] = img[y1:y1+h, x1:x1+w]
     return r

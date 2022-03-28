@@ -9,7 +9,7 @@ from json import dump
 
 from src.config import parse_arguments
 from src.datasets import load_dataset
-from src.trainer import Binary2DSegmentation, ExportValidation
+from src.trainer import Binary2DSegmentation, ExportSegmentation, ExportClassification
 from src.trainer.loggers import Logs
 from steered_cnn.models import setup_model
 
@@ -49,7 +49,8 @@ def run_train(**opt):
         # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ #
         sample = validD.dataset[0]
         model = setup_model(cfg['model'], n_in=sample['x'].shape[0],
-                            n_out=1 if sample['y'].ndim<=2 else sample['y'].shape[0], mode=cfg.training.get('mode', 'segment'))
+                            n_out=1 if not torch.is_tensor(sample['y']) or sample['y'].ndim<=2 else sample['y'].shape[0], 
+                            mode=cfg.training.get('mode', 'segment'))
 
         sample = None
         hyper_params = cfg['hyper-parameters']
@@ -134,14 +135,19 @@ def run_train(**opt):
                 best_ckpt = checkpoint
                 reported_value = -metric_value
 
-        if 'av' in cfg.training['dataset-file']:
-            cmap = {(0, 0): 'blue', (1, 1): 'red', (1, 0): 'cyan', (0, 1): 'pink', 'default': 'lightgray'}
-        else:
-            cmap = {(0, 0): 'black', (1, 1): 'white', (1, 0): 'orange', (0, 1): 'greenyellow', 'default': 'lightgray'}
-
+        callbacks = []
+        if cfg.training.mode == 'segment':
+            if 'av' in cfg.training['dataset-file']:
+                cmap = {(0, 0): 'blue', (1, 1): 'red', (1, 0): 'cyan', (0, 1): 'pink', 'default': 'lightgray'}
+            else:
+                cmap = {(0, 0): 'black', (1, 1): 'white', (1, 0): 'orange', (0, 1): 'greenyellow', 'default': 'lightgray'}
+            callbacks += [ExportSegmentation(cmap, path=tmp_path + '/samples', dataset_names=net.testset_names)]
+        elif cfg.training.mode == 'classification':
+            callbacks += [ExportClassification(n=5, path=tmp_path + 'test.png')]
+            
         testD = list(testD.values())
         tester = pl.Trainer(gpus=args.gpus, logger=logs.loggers,
-                            callbacks=[ExportValidation(cmap, path=tmp_path + '/samples', dataset_names=net.testset_names)],
+                            callbacks=callbacks,
                             progress_bar_refresh_rate=1 if args.debug else 0,)
         tester.test(net, testD, ckpt_path=best_ckpt.best_model_path)
 

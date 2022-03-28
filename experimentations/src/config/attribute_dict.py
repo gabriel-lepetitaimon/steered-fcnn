@@ -106,10 +106,16 @@ class AttributeDict(OrderedDict):
                     try:
                         r = r[it]
                     except (KeyError, IndexError, TypeError):
-                        raise IndexError(f'Invalid item: {".".join(item[:i])}.') from None
+                        raise KeyError(f'Invalid item: {".".join(item[:i])}.') from None
                 return r
         else:
             return super(AttributeDict, self).__getitem__(str(item))
+        
+    def get(item, default=None):
+        try:
+            return self[item]
+        except KeyError:
+            return default
 
     def __getattr__(self, item):
         if item in self:
@@ -212,7 +218,7 @@ class AttributeDict(OrderedDict):
                 break
 
         if miss:
-            if default is 'raise':
+            if default == 'raise':
                 raise AttributeError(f'Missing attribute {path}.')
             return default
 

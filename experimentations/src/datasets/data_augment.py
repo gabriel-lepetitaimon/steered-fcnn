@@ -61,11 +61,12 @@ class DataAugment:
             d = {}
             for image in images:
                 d[image] = images_f(kwargs[image], rng_states)
-
-            mixed_label = sum(kwargs[label]*(4**i) for i, label in enumerate(labels))
-            mixed_label = labels_f(mixed_label, rng_states)
-            for i, label in enumerate(labels):
-                d[label] = (mixed_label//(4**i)) % 4
+            
+            if labels_f:
+                mixed_label = sum(kwargs[label]*(4**i) for i, label in enumerate(labels))
+                mixed_label = labels_f(mixed_label, rng_states)
+                for i, label in enumerate(labels):
+                    d[label] = (mixed_label//(4**i)) % 4
 
             for angle in angles:
                 d[angle] = angles_f(kwargs[angle], rng_states)

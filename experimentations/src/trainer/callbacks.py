@@ -1,10 +1,10 @@
-__all__ = ['ExportValidation']
+__all__ = ['ExportSegmentation', 'ExportClassification']
 
 import numpy as np
 from pytorch_lightning.callbacks import Callback
 
 
-class ExportValidation(Callback):
+class ExportSegmentation(Callback):
     def __init__(self, color_map, path, dataset_names):
         super(ExportValidation, self).__init__()
 
@@ -46,3 +46,49 @@ class ExportValidation(Callback):
             diff_img = (self.color_lut(diff_img).transpose(1, 2, 0) * 255).astype(np.uint8)
             path = os.path.abspath(os.path.join(self.path, f'{prefix}-{self.dataset_names[dataloader_idx]}-{i}.png'))
             cv2.imwrite(path, diff_img)
+
+            
+class ExportClassification(Callback):
+    def __init__(self, path, n=5):
+        super(ExportValidation, self).__init__()
+        self.n = n
+        self.path = path
+        self.store = {'TP': [], 'TN': [], 'FP': [], 'FN': []}
+
+    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        self.store_result(batch, outputs)
+
+    def on_validation_end():
+        self.export_result()
+        
+    def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        self.store_result(batch, outputs)
+        
+    def on_test_end():
+        self.export_result()
+        
+    def store_result(self, batch, outputs):
+        if all(len(_)>=self.n for _ in self.store.values()):
+            return
+        for i, (y, pred) in enumerate(batch['y'], outputs):
+            y = b['y']
+            if y==pred:
+                l = self.store['TP'] if pred==1 else self.store['TN']
+            else:
+                l = self.store['FP'] if pred==1 else self.store['FN']
+            if len(l) < self.n:
+                l.append(batch['x'][i])
+                
+    def export_result():
+        import matplotlib as plt
+        fig, axs = plt.subplots(4, 1)
+        for ax, (imgs, name) in zip(axs, self.store.items()):
+            c,h,w = imgs[0].shape
+            r = np.zeros_like(imgs[0], shape=(h,w*self.n,c))
+            for i, img in enumerate(imgs):
+                r[:,h*i:h*(i+1)] = imgs.cpu().to_numpy().transpose((1,2,0))
+            axs.imshow(r, vmin=0, vmax=1)
+            axs.set_title(name, loc='left', pad='0.5')
+        fig.set_size_inches((20,25))
+        fig.tight_layout()
+        fig.savefig(self.path)
