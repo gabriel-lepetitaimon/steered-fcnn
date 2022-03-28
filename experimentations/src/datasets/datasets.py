@@ -132,7 +132,7 @@ class SegmentDataset(Dataset):
         self.patch_shape = patch_shape
         self.DA = DataAugment()
         self.factor = 4
-        self.transforms = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]) # Efficient net
+        self.transforms = None #transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]) # Efficient net
 
     def __len__(self):
         return self._data_length*self.factor
@@ -221,7 +221,7 @@ class ClassifyDataset(Dataset):
         self.patch_shape = patch_shape
         self.DA = DataAugment()
         self._geo_aug = None
-        self.transforms = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # Efficient net
+        self.transforms = None #transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # Efficient net
 
     def __len__(self):
         return self.length_ma+self.length_art
@@ -255,12 +255,11 @@ class ClassifyDataset(Dataset):
 
         x = cv2.imread(os.path.join(self.raw_path, filename))
         x = crop_pad(x, center=center, size=large_patch_shape)
-        x = x.transpose((1, 2, 0))
+        x = x.astype(np.float32)/255
         data = self.geo_aug(x=x)
         data['x'] = crop_pad(data['x'], size=self.patch_shape)
         if self.transforms:
-            x = data['x'].float().permute(2,0,1)/255
-            data['x'] = self.transforms(x)
+            data['x'] = self.transforms(data['x'])
         data['y'] = y
         return data
 
@@ -279,6 +278,7 @@ class TrainClassifyDataset(ClassifyDataset):
         if data_augmentation_cfg['rotation']:
             DA.rotate()
         if data_augmentation_cfg['elastic']:
+            print('elastic')
             DA.elastic_distortion(alpha=data_augmentation_cfg['elastic-transform']['alpha'],
                                   sigma=data_augmentation_cfg['elastic-transform']['sigma'],
                                   alpha_affine=data_augmentation_cfg['elastic-transform']['alpha-affine']
@@ -294,10 +294,13 @@ class TrainClassifyDataset(ClassifyDataset):
 
 
 def crop_pad(img, size, center=None):
-    H, W = img.shape[:2]
+    if torch.is_tensor(img):
+        H, W = img.shape[-2:]
+    else:
+        H, W = img.shape[:2]
     h, w = size
     if center is None:
-        y, x = h//2, w//2
+        y, x = H//2, W//2
     else:
         y, x = center
     half_w = w // 2
@@ -314,8 +317,10 @@ def crop_pad(img, size, center=None):
     w = int(min(w, W-x1) - x0)
     
     if torch.is_tensor(img):
-        r = torch.zeros(size+tuple(img.shape[2:]), dtype=img.dtype, device=img.device)
+        r = torch.zeros(tuple(img.shape[:-2])+size, dtype=img.dtype, device=img.device)
+        r[..., y0:y0+h, x0:x0+w] = img[..., y1:y1+h, x1:x1+w]
     else:
         r = np.zeros_like(img, shape=size+img.shape[2:])
-    r[y0:y0+h, x0:x0+w] = img[y1:y1+h, x1:x1+w]
+        r[y0:y0+h, x0:x0+w] = img[y1:y1+h, x1:x1+w]
+    
     return r

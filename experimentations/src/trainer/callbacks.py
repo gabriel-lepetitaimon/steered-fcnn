@@ -50,7 +50,7 @@ class ExportSegmentation(Callback):
             
 class ExportClassification(Callback):
     def __init__(self, path, n=5):
-        super(ExportValidation, self).__init__()
+        super(ExportClassification, self).__init__()
         self.n = n
         self.path = path
         self.store = {'TP': [], 'TN': [], 'FP': [], 'FN': []}
@@ -58,37 +58,43 @@ class ExportClassification(Callback):
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         self.store_result(batch, outputs)
 
-    def on_validation_end():
+    def on_validation_end(self, trainer, pl_module):
         self.export_result()
         
     def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         self.store_result(batch, outputs)
         
-    def on_test_end():
+    def on_test_end(self, trainer, pl_module):
         self.export_result()
         
     def store_result(self, batch, outputs):
         if all(len(_)>=self.n for _ in self.store.values()):
             return
-        for i, (y, pred) in enumerate(batch['y'], outputs):
-            y = b['y']
+        for i, (y, pred) in enumerate(zip(batch['y'], outputs)):
             if y==pred:
                 l = self.store['TP'] if pred==1 else self.store['TN']
             else:
                 l = self.store['FP'] if pred==1 else self.store['FN']
             if len(l) < self.n:
-                l.append(batch['x'][i])
+                l.append(batch['x'][i].cpu().numpy())
                 
-    def export_result():
-        import matplotlib as plt
+    def export_result(self):
+        import matplotlib.pyplot as plt
         fig, axs = plt.subplots(4, 1)
-        for ax, (imgs, name) in zip(axs, self.store.items()):
-            c,h,w = imgs[0].shape
-            r = np.zeros_like(imgs[0], shape=(h,w*self.n,c))
+        for imgs in self.store.values():
+            if imgs:
+                c,h,w = imgs[0].shape
+                dtype = imgs[0].dtype
+                break
+        else:
+            return
+        
+        for ax, (name, imgs) in zip(axs, self.store.items()):
+            r = np.ones(dtype=dtype, shape=(h,w*self.n,c))
             for i, img in enumerate(imgs):
-                r[:,h*i:h*(i+1)] = imgs.cpu().to_numpy().transpose((1,2,0))
-            axs.imshow(r, vmin=0, vmax=1)
-            axs.set_title(name, loc='left', pad='0.5')
+                r[:,h*i:h*(i+1)] = img[::-1].transpose((1,2,0))
+            ax.imshow(r, vmin=0, vmax=1)
+            ax.set_title(name, loc='left', pad='0.5')
         fig.set_size_inches((20,25))
         fig.tight_layout()
         fig.savefig(self.path)

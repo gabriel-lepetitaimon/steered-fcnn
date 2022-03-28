@@ -143,7 +143,7 @@ def run_train(**opt):
                 cmap = {(0, 0): 'black', (1, 1): 'white', (1, 0): 'orange', (0, 1): 'greenyellow', 'default': 'lightgray'}
             callbacks += [ExportSegmentation(cmap, path=tmp_path + '/samples', dataset_names=net.testset_names)]
         elif cfg.training.mode == 'classification':
-            callbacks += [ExportClassification(n=5, path=tmp_path + 'test.png')]
+            callbacks += [ExportClassification(n=5, path=tmp_path + '/test.png')]
             
         testD = list(testD.values())
         tester = pl.Trainer(gpus=args.gpus, logger=logs.loggers,
