@@ -21,17 +21,18 @@ def load_dataset(cfg=None):
         data_path = DEFAULT_DATA_PATH
     dataset_file = P.join(data_path, cfg.training['dataset-file'])
     patch_shape = cfg.training.get('patch', None)
+    mode = cfg.training.get('mode', 'segment')
 
     file = h5py.File(dataset_file, mode='r')
-    trainD = LogIdleTimeDataLoader(TrainDataset('train', file=file,
+    trainD = LogIdleTimeDataLoader(TrainDataset('train', file=file, patch_shape=patch_shape, mode=mode,
                                    factor=cfg.training['training-dataset-factor'],
                                    data_augmentation_cfg=cfg['data-augmentation']),
                                    pin_memory=True, shuffle=True,
-                                   batch_size=batch_size, patch_shape=patch_shape,
+                                   batch_size=batch_size,
                                    num_workers=cfg.training['num-worker'])
-    validD = LogIdleTimeDataLoader(BaseDataset('val', file=file,  patch_shape=patch_shape),
+    validD = LogIdleTimeDataLoader(BaseDataset('val', file=file,  patch_shape=patch_shape, mode=mode),
                                    pin_memory=True, num_workers=4, batch_size=4)
-    testD = {'test': LogIdleTimeDataLoader(BaseDataset('test', file=file,  patch_shape=patch_shape),
+    testD = {'test': LogIdleTimeDataLoader(BaseDataset('test', file=file,  patch_shape=patch_shape, mode=mode),
                                            pin_memory=True, num_workers=4, batch_size=4)}
     return trainD, validD, testD
 
@@ -102,8 +103,8 @@ class BaseDataset(Dataset):
         compiled = getattr(self, '__geo_aug_compiled', None)
         if compiled:
             return compiled
-
-        compiled = self.DA.compile(self.data_fields, to_torch=True)
+        
+        compiled = self.DA.compile(**self.data_fields, to_torch=True)
         self.__geo_aug_compiled = compiled
         return compiled
 
@@ -132,20 +133,21 @@ class BaseDataset(Dataset):
             y = crop_pad(data['y'], size=self.patch_shape)
         else:
             y = data['y']
-        data['mask'] = y > 0
         if self.mode == 'segment':
             data['y'] = y > 1
+            data['mask'] = y > 0
         else:
             h, w = data['y'].shape
             data['y'] = y[h//2, w//2] > 1
         if self.transforms:
             data['x'] = self.transforms(data['x'])
+
         return data
 
 
 class TrainDataset(BaseDataset):
-    def __init__(self, dataset, file, factor=1, patch_shape=None, data_augmentation_cfg=None):
-        super(TrainDataset, self).__init__(dataset=dataset, file=file, patch_shape=patch_shape)
+    def __init__(self, dataset, file, factor=1, patch_shape=None, data_augmentation_cfg=None, mode='segment'):
+        super(TrainDataset, self).__init__(dataset=dataset, file=file, patch_shape=patch_shape, mode=mode)
 
         if data_augmentation_cfg is None:
             data_augmentation_cfg = default_config()['data-augmentation']

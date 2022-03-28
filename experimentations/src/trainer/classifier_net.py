@@ -78,7 +78,8 @@ class Binary2DSegmentation(pl.LightningModule):
         x = batch['x']
         y = (batch['y'] != 0).int()
         y_hat = self.model(x, **{k: v for k, v in batch.items() if k not in ('x', 'y', 'mask')}).squeeze(1)
-        y = clip_pad_center(y, y_hat.shape)
+        if y.ndim>1:
+            y = clip_pad_center(y, y_hat.shape)
         return y, y_hat
 
     def training_step(self, batch, batch_idx):
@@ -112,6 +113,8 @@ class Binary2DSegmentation(pl.LightningModule):
 
         y = y.flatten()
         y_hat = y_hat.flatten()
+        
+        print(y.shape, y_hat.shape)
 
         r = {'target': y}
         if save_preds:

@@ -49,7 +49,7 @@ def run_train(**opt):
         # ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ #
         sample = validD.dataset[0]
         model = setup_model(cfg['model'], n_in=sample['x'].shape[0],
-                            n_out=1 if sample['y'].ndim==2 else sample['y'].shape[0])
+                            n_out=1 if sample['y'].ndim<=2 else sample['y'].shape[0], mode=cfg.training.get('mode', 'segment'))
 
         sample = None
         hyper_params = cfg['hyper-parameters']
