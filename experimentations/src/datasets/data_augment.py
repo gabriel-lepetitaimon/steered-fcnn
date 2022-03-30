@@ -284,9 +284,9 @@ class DataAugment:
 
     @augment_method('color')
     def hsv(self, hue=None, saturation=None, value=None):
-        hue = _RD.constant(0) if hue is not None else _RD.auto(hue, symetric=True)
-        saturation = _RD.constant(0) if saturation is not None else _RD.auto(saturation, symetric=True)
-        value = _RD.constant(0) if value is not None else _RD.auto(value, symetric=True)
+        hue = _RD.constant(0) if hue is None else _RD.auto(hue, symetric=True)
+        saturation = _RD.constant(0) if saturation is None else _RD.auto(saturation, symetric=True)
+        value = _RD.constant(0) if value is None else _RD.auto(value, symetric=True)
 
         a_min = np.array([0, 0, 0], np.uint8)
         a_max = np.array([179, 255, 255], np.uint8)
