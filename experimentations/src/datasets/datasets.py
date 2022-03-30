@@ -278,7 +278,6 @@ class TrainClassifyDataset(ClassifyDataset):
         if data_augmentation_cfg['rotation']:
             DA.rotate()
         if data_augmentation_cfg['elastic']:
-            print('elastic')
             DA.elastic_distortion(alpha=data_augmentation_cfg['elastic-transform']['alpha'],
                                   sigma=data_augmentation_cfg['elastic-transform']['sigma'],
                                   alpha_affine=data_augmentation_cfg['elastic-transform']['alpha-affine']

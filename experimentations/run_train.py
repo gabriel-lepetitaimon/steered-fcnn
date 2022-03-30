@@ -40,9 +40,26 @@ def run_train(**opt):
     tmp_path = logs.tmp_path
 
     try:
-
         # --- Setup dataset ---
         trainD, validD, testD = load_dataset(cfg)
+
+        if args.debug:
+            from plotly.subplots import make_subplots
+            import plotly.graph_objects as go
+            names = ['train', 'valid'] + ['test-'+k for k in testD.keys()]
+            fig = make_subplots(rows=len(names), cols=1, shared_xaxes=True, row_titles=names)
+            for i, dataloader in enumerate([trainD, validD]+[d for d in testD.values()]):
+                sample = next(iter(dataloader))['x'].cpu().transpose(0, 1).flatten(1)
+                for s, n in zip(sample, 'rgb'):
+                    bins = 255
+                    hist = torch.histc(s, bins=bins,)
+                    vmin, vmax = sample.min().item(), sample.max().item()
+                    w = (vmax-vmin)/(bins)/4
+                    x = np.linspace(sample.min().item(), sample.max().item(), bins) + {'r': -w, 'g': 0, 'b': w}[n]
+                    fig.add_bar(x=x, y=hist, name=n, width=w,
+                                marker_color={'r': '#ff0000', 'g': '#00ff00', 'b': '#0000ff'}[n], row=i+1, col=1)
+            fig.update_layout(barmode='group', margin=dict(l=20, r=20, t=20, b=20), height=250*len(names))
+            logs.log_plotly(f'hist/x', fig)
 
         ###################
         # ---  MODEL  --- #

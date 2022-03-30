@@ -6,7 +6,7 @@ from pytorch_lightning.callbacks import Callback
 
 class ExportSegmentation(Callback):
     def __init__(self, color_map, path, dataset_names):
-        super(ExportValidation, self).__init__()
+        super(ExportSegmentation, self).__init__()
 
         from .lut import prepare_lut
         self.color_lut = prepare_lut(color_map, source_dtype=np.int)

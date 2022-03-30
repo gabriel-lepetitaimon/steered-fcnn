@@ -153,6 +153,19 @@ class Logs:
         for logger in self.loggers:
             logger.log_hyperparams(params)
 
+    def log_image(self, path, img):
+        import cv2
+        path = os.path.join(self.tmp_path, path)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        cv2.imwrite(path, img)
+
+    def log_plotly(self, path, fig):
+        path = os.path.join(self.tmp_path, path)
+        if not path.endswith('.html'):
+            path += '.html'
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fig.write_html(path)
+
     def save_cleanup(self):
         # --- NORMALIZE CHECKPOINT FILE NAME ---
         for ckpt in os.listdir(self.tmp.name):
