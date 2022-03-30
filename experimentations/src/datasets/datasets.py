@@ -251,7 +251,7 @@ class ClassifyDataset(Dataset):
             _, filename, center_y, center_x, y = self.art_centers[(i-len_ma) % self.length_art]
         center = center_y, center_x
 
-        large_patch_shape = tuple(int(round(_*np.sqrt(2))) for _ in self.patch_shape)
+        large_patch_shape = tuple(int(round(_*2)) for _ in self.patch_shape)
 
         x = cv2.imread(os.path.join(self.raw_path, filename))
         x = crop_pad(x, center=center, size=large_patch_shape)

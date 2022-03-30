@@ -92,7 +92,7 @@ def run_train(**opt):
         if args.debug:
             callbacks += [DeviceStatsMonitor()]
 
-        checkpointed_metrics = ['val-acc', 'val-roc', 'val-kappa']
+        checkpointed_metrics = ['val-kappa']
         modelCheckpoints = {}
         for metric in checkpointed_metrics:
             checkpoint = ModelCheckpoint(dirpath=tmp_path + '/', filename='best-'+metric+'-{epoch}', monitor=metric, mode='max')
