@@ -79,7 +79,7 @@ class DataAugment:
                     import torch
                     if x.ndim == 3:
                         x = x.transpose(2, 0, 1)
-                    if np.issubdtype(x, np.uint8):
+                    if x.dtype == np.uint8:
                         x = x.astype(np.float)/255
                     return torch.from_numpy(x)
                 return {k: to_tensor(v) for k, v in d.items()}
