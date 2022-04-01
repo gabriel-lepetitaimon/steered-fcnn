@@ -58,7 +58,7 @@ def spectral_power(arr: 'θ.hw', plot=False, split=False, sort=True, mask=None):
             w = W / spe.shape[1]
 
             spe = spe[:N]
-            if split == '   normed':
+            if split == 'normed':
                 spe = spe / spe.sum(axis=tuple(_ for _ in range(spe.ndim) if _ != 1))[None, :]
             else:
                 spe = spe / spe.sum(axis=-1).mean(axis=tuple(_ for _ in range(spe.ndim)
