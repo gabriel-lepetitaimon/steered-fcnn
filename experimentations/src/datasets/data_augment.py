@@ -79,8 +79,8 @@ class DataAugment:
                     import torch
                     if x.ndim == 3:
                         x = x.transpose(2, 0, 1)
-                    if x.dtype == np.uint8:
-                        x = x.astype(np.float32)/255
+                    #if x.dtype == np.uint8:
+                    #    x = x.astype(np.float32)/255
                     return torch.from_numpy(x)
                 return {k: to_tensor(v) for k, v in d.items()}
             return d
@@ -294,11 +294,11 @@ class DataAugment:
         a_max = np.array([179, 255, 255], np.uint8)
 
         def augment(x, h, s, v):
-            hsv = cv2.cvtColor((x*255).astype(np.uint8), cv2.COLOR_BGR2HSV)
+            hsv = cv2.cvtColor(x, cv2.COLOR_BGR2HSV)
             hsv = hsv + np.array([h, s, v])
             hsv[:, :, 0] = hsv[:, :, 0] % 179
             hsv = np.clip(hsv, a_min=a_min, a_max=a_max).astype(np.uint8)
-            return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+            return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR).astype(np.float32)/255
         return augment, hue, saturation, value
 
     def hue(self, hue=(-20, 20)):
