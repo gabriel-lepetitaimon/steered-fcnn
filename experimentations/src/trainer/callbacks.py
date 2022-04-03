@@ -1,7 +1,11 @@
 __all__ = ['ExportSegmentation', 'ExportClassification']
 
-import numpy as np
+from typing import Any
 from pytorch_lightning.callbacks import Callback
+import numpy as np
+from pytorch_lightning import LightningModule
+import torch
+from pytorch_lightning import Trainer
 
 
 class ExportSegmentation(Callback):
@@ -68,8 +72,6 @@ class ExportClassification(Callback):
         self.export_result()
         
     def store_result(self, batch, outputs):
-        if all(len(_)>=self.n for _ in self.store.values()):
-            return
         for i, (y, pred) in enumerate(zip(batch['y'], outputs)):
             if y==pred:
                 l = self.store['TP'] if pred==1 else self.store['TN']
@@ -77,6 +79,8 @@ class ExportClassification(Callback):
                 l = self.store['FP'] if pred==1 else self.store['FN']
             if len(l) < self.n:
                 l.append(batch['x'][i].cpu().numpy())
+            elif torch.rand(1) < .1:
+                l[torch.randint(size=(1,), high=self.n).item()] = batch['x'][i].cpu().numpy()
                 
     def export_result(self):
         import matplotlib.pyplot as plt
@@ -95,6 +99,15 @@ class ExportClassification(Callback):
                 r[:,h*i:h*(i+1)] = img[::-1].transpose((1,2,0))
             ax.imshow(r, vmin=0, vmax=1)
             ax.set_title(name, loc='left', pad='0.5')
-        fig.set_size_inches((20,25))
+        fig.set_size_inches((20, 25))
         fig.tight_layout()
         fig.savefig(self.path)
+
+
+class CudaMonitorCallbacks(Callback):
+    def __init__(self):
+        super(CudaMonitorCallbacks, self).__init__()
+        self.device = torch.cuda.current_device()
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch: Any, batch_idx: int, unused=0,):
+        torch.cuda.utilization()

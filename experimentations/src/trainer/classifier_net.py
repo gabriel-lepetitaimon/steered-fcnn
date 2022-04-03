@@ -46,7 +46,7 @@ class Binary2DSegmentation(pl.LightningModule):
             elif loss == 'binaryCE':
                 self._loss = lambda y_hat, y: F.binary_cross_entropy_with_logits(y_hat, y.float())
             elif loss == 'kappa':
-                self._loss = smp.losses.JaccardLoss('binary', from_logits=False)
+                self._loss = smp.losses.JaccardLoss('binary', from_logits=True)
             else:
                 raise ValueError(f'Unkown loss function: "{loss}". \n'
                                  f'Should be one of "dice", "focalLoss", "binaryCE".')
